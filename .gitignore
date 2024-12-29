@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.development
+.env.production
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Misc
+.DS_Store 
