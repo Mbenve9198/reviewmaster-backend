@@ -30,6 +30,11 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Aggiungi questa route prima delle altre routes
+app.get('/', (req, res) => {
+  res.json({ message: 'ReviewMaster API is running' });
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/hotels', hotelRoutes);
