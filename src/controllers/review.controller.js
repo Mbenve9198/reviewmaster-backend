@@ -4,11 +4,17 @@ const Hotel = require('../models/hotel.model');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const reviewController = {
-    // Genera risposta AI
     generateResponse: async (req, res) => {
         try {
             const userId = req.userId;
-            const { hotelId, review } = req.body;
+            const { hotelId, review, responseSettings } = req.body;
+
+            console.log('Request received:', {
+                userId,
+                hotelId,
+                review,
+                responseSettings
+            });
 
             // Verifica l'utente e i suoi crediti
             const user = await User.findById(userId);
@@ -48,12 +54,15 @@ const reviewController = {
             const detectedLanguage = languageDetectionMessage.content[0].text.trim();
 
             // Costruisci il prompt in base alle impostazioni
-            let styleInstruction = responseSettings.style === 'professional' 
+            const style = responseSettings?.style || 'professional';
+            const length = responseSettings?.length || 'medium';
+
+            let styleInstruction = style === 'professional' 
                 ? "Maintain a professional and formal tone throughout the response."
                 : "Use a friendly and warm tone, while remaining respectful.";
 
             let lengthInstruction = "Keep the response ";
-            switch(responseSettings.length) {
+            switch(length) {
                 case 'short':
                     lengthInstruction += "concise and brief, around 2-3 sentences.";
                     break;
@@ -63,6 +72,8 @@ const reviewController = {
                 case 'long':
                     lengthInstruction += "detailed and comprehensive, around 6-8 sentences.";
                     break;
+                default:
+                    lengthInstruction += "moderate in length, around 4-5 sentences.";
             }
 
             // Crea il prompt principale
@@ -78,7 +89,7 @@ Use the following hotel information in your response when relevant:
 If you find a name in the review, address that person. Otherwise, use a generic greeting like 'Dear Guest' or equivalent in the review language.
 
 Always end the response with:
-${hotel.managerName || 'Hotel Management'}
+${hotel.managerSignature}
 ${hotel.name}
 
 Respond in the same language as the review. Format the response appropriately with proper spacing and paragraphs.`;
@@ -112,7 +123,10 @@ Respond in the same language as the review. Format the response appropriately wi
                 response: {
                     text: aiResponse,
                     createdAt: new Date(),
-                    settings: responseSettings
+                    settings: responseSettings || {
+                        style: 'professional',
+                        length: 'medium'
+                    }
                 }
             });
 
@@ -131,11 +145,13 @@ Respond in the same language as the review. Format the response appropriately wi
 
         } catch (error) {
             console.error('Generate response error:', error);
-            res.status(500).json({ message: 'Error generating response' });
+            res.status(500).json({ 
+                message: 'Error generating response',
+                error: error.message
+            });
         }
     },
 
-    // Ottieni tutte le recensioni di un hotel
     getHotelReviews: async (req, res) => {
         try {
             const { hotelId } = req.params;
@@ -157,7 +173,6 @@ Respond in the same language as the review. Format the response appropriately wi
         }
     },
 
-    // Ottieni statistiche recensioni
     getReviewStats: async (req, res) => {
         try {
             const { hotelId } = req.params;
