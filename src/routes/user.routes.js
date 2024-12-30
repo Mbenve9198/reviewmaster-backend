@@ -12,7 +12,7 @@ router.put('/subscription', async (req, res) => {
     const { stripeCustomerId, plan, status } = req.body
 
     const user = await User.findOneAndUpdate(
-      { stripeCustomerId },
+      { 'subscription.stripeCustomerId': stripeCustomerId },
       {
         'subscription.plan': plan,
         'subscription.status': status,
@@ -53,4 +53,4 @@ function getHotelsLimitForPlan(plan) {
   return limits[plan] || 0
 }
 
-module.exports = router; 
+module.exports = router;
