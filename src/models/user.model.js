@@ -43,7 +43,7 @@ const userSchema = new mongoose.Schema({
         },
         status: {
             type: String,
-            enum: ['active', 'inactive', 'cancelled'],
+            enum: ['active', 'inactive', 'cancelled', 'past_due'],
             default: 'active'
         },
         responseCredits: {
@@ -53,6 +53,14 @@ const userSchema = new mongoose.Schema({
         trialEndsAt: {
             type: Date,
             default: () => new Date(+new Date() + 14 * 24 * 60 * 60 * 1000) // 14 days from now
+        },
+        stripeCustomerId: {
+            type: String,
+            sparse: true
+        },
+        stripeSubscriptionId: {
+            type: String,
+            sparse: true
         }
     },
     createdAt: {
