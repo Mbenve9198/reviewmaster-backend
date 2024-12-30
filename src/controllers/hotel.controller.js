@@ -5,30 +5,11 @@ const hotelController = {
     // Crea nuovo hotel
     createHotel: async (req, res) => {
         try {
-            console.log('Received request body:', req.body);
-            const { name, type, description, managerName, signature } = req.body;
-            const userId = req.userId;
-
-            // Aggiungiamo questi log per debug
-            console.log('Creating hotel for user:', userId);
-            const currentHotels = await Hotel.find({ userId });
-            console.log('Current hotels count:', currentHotels.length);
-            
-            const user = await User.findById(userId);
-            console.log('User subscription:', user.subscription);
-
-            // Log dei dati estratti
-            console.log('Extracted data:', { 
-                name, 
-                type, 
-                description, 
-                managerName, 
-                signature,
-                userId 
-            });
+            const { name, type, managerName, signature } = req.body;
+            const userId = req.userId; // Viene dal middleware di auth
 
             // Verifica limiti del piano
-            const user = await User.findById(userId);
+            const userData = await User.findById(userId);
             const hotelCount = await Hotel.countDocuments({ userId });
             
             const planLimits = {
@@ -38,9 +19,9 @@ const hotelController = {
                 'director': 15
             };
 
-            if (hotelCount >= planLimits[user.subscription.plan]) {
+            if (hotelCount >= planLimits[userData.subscription.plan]) {
                 return res.status(403).json({ 
-                    message: `Your ${user.subscription.plan} plan is limited to ${planLimits[user.subscription.plan]} hotels` 
+                    message: `Your ${userData.subscription.plan} plan is limited to ${planLimits[userData.subscription.plan]} hotels` 
                 });
             }
 
@@ -48,27 +29,20 @@ const hotelController = {
                 name,
                 userId,
                 type,
-                description,
                 managerName,
                 signature,
                 responseSettings: {
-                    style: req.body.responseSettings?.style || 'professional',
-                    length: req.body.responseSettings?.length || 'medium'
+                    style: req.body.style || 'professional',
+                    length: req.body.length || 'medium'
                 }
             });
-
-            console.log('Hotel object before save:', hotel);
 
             await hotel.save();
 
             res.status(201).json(hotel);
         } catch (error) {
-            console.error('Create hotel error details:', error);
-            res.status(500).json({ 
-                message: 'Error creating hotel', 
-                error: error.message,
-                details: error.errors
-            });
+            console.error('Create hotel error:', error);
+            res.status(500).json({ message: 'Error creating hotel', error: error.message });
         }
     },
 
