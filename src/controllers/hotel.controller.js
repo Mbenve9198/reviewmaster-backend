@@ -29,19 +29,21 @@ const hotelController = {
             console.log('Hotel count:', hotelCount);
             console.log('Subscription limits:', userData.subscriptionLimits);
 
-            // Usa i limiti definiti nel modello utente
             if (hotelCount >= userData.subscriptionLimits.hotelsLimit) {
                 return res.status(403).json({ 
                     message: `Your ${userData.subscription.plan} plan is limited to ${userData.subscriptionLimits.hotelsLimit} hotels` 
                 });
             }
 
+            // Aggiungiamo i campi legacy mantenendo quello nuovo
             const hotel = new Hotel({
                 name,
                 userId,
                 type,
                 description,
                 managerSignature,
+                managerName: managerSignature,  // Usiamo managerSignature anche per il vecchio campo
+                signature: managerSignature,    // Usiamo managerSignature anche per il vecchio campo
                 responseSettings: responseSettings || {
                     style: 'professional',
                     length: 'medium'
@@ -116,6 +118,8 @@ const hotelController = {
                     type,
                     description,
                     managerSignature,
+                    managerName: managerSignature,  // Aggiorniamo anche i campi legacy
+                    signature: managerSignature,    // Aggiorniamo anche i campi legacy
                     responseSettings
                 },
                 { new: true }
