@@ -4,7 +4,8 @@ const User = require('../models/user.model');
 const PLAN_LIMITS = {
     host: 50,
     manager: 200,
-    director: 500
+    director: 500,
+    trial: 10
 };
 
 exports.handleWebhook = async (req, res) => {
@@ -59,11 +60,29 @@ exports.handleWebhook = async (req, res) => {
 async function handleCheckoutCompleted(session) {
     const customerId = session.customer;
     const subscriptionId = session.subscription;
-    const plan = session.metadata.plan.toLowerCase(); // host, manager o director
+    const userEmail = session.client_reference_id; // Email dell'utente passata dalla pagina dei piani
+    const plan = session.metadata?.plan?.toLowerCase(); // host, manager o director
     
+    if (!userEmail) {
+        console.error('No client_reference_id found in session');
+        return;
+    }
+
+    if (!plan || !PLAN_LIMITS[plan]) {
+        console.error('Invalid plan in metadata:', plan);
+        return;
+    }
+
     try {
-        await User.findOneAndUpdate(
-            { email: session.metadata.email },
+        const user = await User.findOne({ email: userEmail });
+        
+        if (!user) {
+            console.error('User not found with email:', userEmail);
+            return;
+        }
+
+        await User.findByIdAndUpdate(
+            user._id,
             {
                 'subscription.status': 'active',
                 'subscription.plan': plan,
@@ -72,19 +91,28 @@ async function handleCheckoutCompleted(session) {
                 'subscription.responseCredits': PLAN_LIMITS[plan]
             }
         );
+
+        console.log(`Subscription activated for user ${userEmail} with plan ${plan}`);
     } catch (error) {
         console.error('Error updating user after checkout:', error);
     }
 }
 
 async function handleCheckoutExpired(session) {
-    const customerId = session.customer;
+    const userEmail = session.client_reference_id;
     
+    if (!userEmail) {
+        console.error('No client_reference_id found in session');
+        return;
+    }
+
     try {
         await User.findOneAndUpdate(
-            { 'subscription.stripeCustomerId': customerId },
+            { email: userEmail },
             { 'subscription.status': 'inactive' }
         );
+
+        console.log(`Checkout expired for user ${userEmail}`);
     } catch (error) {
         console.error('Error handling expired checkout:', error);
     }
@@ -93,19 +121,31 @@ async function handleCheckoutExpired(session) {
 async function handleSubscriptionUpdated(subscription) {
     const customerId = subscription.customer;
     const status = subscription.status;
+    const plan = subscription.metadata?.plan?.toLowerCase();
     
+    if (!plan || !PLAN_LIMITS[plan]) {
+        console.error('Invalid plan in metadata:', plan);
+        return;
+    }
+
     try {
-        const metadata = subscription.metadata;
-        const plan = metadata.plan.toLowerCase();
+        const user = await User.findOne({ 'subscription.stripeCustomerId': customerId });
         
-        await User.findOneAndUpdate(
-            { 'subscription.stripeCustomerId': customerId },
+        if (!user) {
+            console.error('User not found with stripeCustomerId:', customerId);
+            return;
+        }
+
+        await User.findByIdAndUpdate(
+            user._id,
             { 
                 'subscription.status': status,
                 'subscription.plan': plan,
                 'subscription.responseCredits': PLAN_LIMITS[plan]
             }
         );
+
+        console.log(`Subscription updated for user ${user.email} - Status: ${status}, Plan: ${plan}`);
     } catch (error) {
         console.error('Error updating subscription:', error);
     }
@@ -115,14 +155,27 @@ async function handleSubscriptionDeleted(subscription) {
     const customerId = subscription.customer;
     
     try {
-        await User.findOneAndUpdate(
-            { 'subscription.stripeCustomerId': customerId },
+        const user = await User.findOne({ 'subscription.stripeCustomerId': customerId });
+        
+        if (!user) {
+            console.error('User not found with stripeCustomerId:', customerId);
+            return;
+        }
+
+        await User.findByIdAndUpdate(
+            user._id,
             { 
                 'subscription.status': 'cancelled',
                 'subscription.plan': 'trial',
-                'subscription.responseCredits': 10
+                'subscription.responseCredits': PLAN_LIMITS.trial,
+                $unset: {
+                    'subscription.stripeCustomerId': "",
+                    'subscription.stripeSubscriptionId': ""
+                }
             }
         );
+
+        console.log(`Subscription cancelled for user ${user.email}`);
     } catch (error) {
         console.error('Error handling subscription deletion:', error);
     }
@@ -130,12 +183,17 @@ async function handleSubscriptionDeleted(subscription) {
 
 async function handleTrialEnding(subscription) {
     const customerId = subscription.customer;
+    
     try {
         const user = await User.findOne({ 'subscription.stripeCustomerId': customerId });
-        if (user) {
-            // Qui puoi implementare la logica per inviare una email di notifica
-            console.log(`Trial ending soon for user ${user.email}`);
+        
+        if (!user) {
+            console.error('User not found with stripeCustomerId:', customerId);
+            return;
         }
+
+        // Qui puoi implementare la logica per inviare una email di notifica
+        console.log(`Trial ending soon for user ${user.email}`);
     } catch (error) {
         console.error('Error handling trial ending:', error);
     }
@@ -145,11 +203,20 @@ async function handlePaymentFailed(invoice) {
     const customerId = invoice.customer;
     
     try {
-        await User.findOneAndUpdate(
-            { 'subscription.stripeCustomerId': customerId },
+        const user = await User.findOne({ 'subscription.stripeCustomerId': customerId });
+        
+        if (!user) {
+            console.error('User not found with stripeCustomerId:', customerId);
+            return;
+        }
+
+        await User.findByIdAndUpdate(
+            user._id,
             { 'subscription.status': 'past_due' }
         );
+
         // Qui puoi implementare la logica per inviare una email di notifica
+        console.log(`Payment failed for user ${user.email}`);
     } catch (error) {
         console.error('Error handling payment failure:', error);
     }
@@ -157,12 +224,17 @@ async function handlePaymentFailed(invoice) {
 
 async function handlePaymentActionRequired(invoice) {
     const customerId = invoice.customer;
+    
     try {
         const user = await User.findOne({ 'subscription.stripeCustomerId': customerId });
-        if (user) {
-            // Qui puoi implementare la logica per inviare una email di notifica
-            console.log(`Payment action required for user ${user.email}`);
+        
+        if (!user) {
+            console.error('User not found with stripeCustomerId:', customerId);
+            return;
         }
+
+        // Qui puoi implementare la logica per inviare una email di notifica
+        console.log(`Payment action required for user ${user.email}`);
     } catch (error) {
         console.error('Error handling payment action required:', error);
     }
