@@ -2,26 +2,37 @@ const Hotel = require('../models/hotel.model');
 const User = require('../models/user.model');
 
 const hotelController = {
-    // Crea nuovo hotel
     createHotel: async (req, res) => {
         try {
-            const { name, type, managerName, signature } = req.body;
-            const userId = req.userId; // Viene dal middleware di auth
+            console.log('Request body received:', req.body);
+            
+            const { name, type, description, managerSignature, responseSettings } = req.body;
+            const userId = req.userId;
+
+            // Validazione dei campi richiesti
+            if (!name || !type || !description || !managerSignature) {
+                return res.status(400).json({
+                    message: 'Missing required fields',
+                    error: 'All fields (name, type, description, managerSignature) are required'
+                });
+            }
 
             // Verifica limiti del piano
             const userData = await User.findById(userId);
-            const hotelCount = await Hotel.countDocuments({ userId });
-            
-            const planLimits = {
-                'trial': 1,
-                'host': 1,
-                'manager': 5,
-                'director': 15
-            };
+            if (!userData) {
+                return res.status(404).json({ message: 'User not found' });
+            }
 
-            if (hotelCount >= planLimits[userData.subscription.plan]) {
+            console.log('User data:', userData.toObject());
+            
+            const hotelCount = await Hotel.countDocuments({ userId });
+            console.log('Hotel count:', hotelCount);
+            console.log('Subscription limits:', userData.subscriptionLimits);
+
+            // Usa i limiti definiti nel modello utente
+            if (hotelCount >= userData.subscriptionLimits.hotelsLimit) {
                 return res.status(403).json({ 
-                    message: `Your ${userData.subscription.plan} plan is limited to ${planLimits[userData.subscription.plan]} hotels` 
+                    message: `Your ${userData.subscription.plan} plan is limited to ${userData.subscriptionLimits.hotelsLimit} hotels` 
                 });
             }
 
@@ -29,35 +40,53 @@ const hotelController = {
                 name,
                 userId,
                 type,
-                managerName,
-                signature,
-                responseSettings: {
-                    style: req.body.style || 'professional',
-                    length: req.body.length || 'medium'
+                description,
+                managerSignature,
+                responseSettings: responseSettings || {
+                    style: 'professional',
+                    length: 'medium'
                 }
             });
 
-            await hotel.save();
+            console.log('Attempting to save hotel:', hotel.toObject());
 
-            res.status(201).json(hotel);
+            const savedHotel = await hotel.save();
+            console.log('Hotel saved successfully:', savedHotel.toObject());
+
+            res.status(201).json(savedHotel);
         } catch (error) {
-            console.error('Create hotel error:', error);
-            res.status(500).json({ message: 'Error creating hotel', error: error.message });
+            console.error('Create hotel error details:', {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            });
+            res.status(500).json({ 
+                message: 'Error creating hotel', 
+                error: error.message 
+            });
         }
     },
 
-    // Ottieni tutti gli hotel dell'utente
     getHotels: async (req, res) => {
         try {
+            console.log('GET /hotels - User ID:', req.userId);
+            
             const hotels = await Hotel.find({ userId: req.userId });
+            console.log('Hotels found:', {
+                count: hotels.length,
+                hotels: hotels.map(hotel => hotel.toObject())
+            });
+
             res.json(hotels);
         } catch (error) {
-            console.error('Get hotels error:', error);
+            console.error('Get hotels error:', {
+                message: error.message,
+                stack: error.stack
+            });
             res.status(500).json({ message: 'Error fetching hotels' });
         }
     },
 
-    // Ottieni un singolo hotel
     getHotel: async (req, res) => {
         try {
             const hotel = await Hotel.findOne({
@@ -76,18 +105,17 @@ const hotelController = {
         }
     },
 
-    // Aggiorna hotel
     updateHotel: async (req, res) => {
         try {
-            const { name, type, managerName, signature, responseSettings } = req.body;
+            const { name, type, description, managerSignature, responseSettings } = req.body;
 
             const hotel = await Hotel.findOneAndUpdate(
                 { _id: req.params.id, userId: req.userId },
                 {
                     name,
                     type,
-                    managerName,
-                    signature,
+                    description,
+                    managerSignature,
                     responseSettings
                 },
                 { new: true }
@@ -104,7 +132,6 @@ const hotelController = {
         }
     },
 
-    // Elimina hotel
     deleteHotel: async (req, res) => {
         try {
             const hotel = await Hotel.findOneAndDelete({
