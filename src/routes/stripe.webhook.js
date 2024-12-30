@@ -1,5 +1,25 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const axios = require('axios');
+const User = require('../models/user.model');
+
+function getCreditsForPlan(plan) {
+  const credits = {
+    'trial': 3,
+    'host': 20,
+    'manager': 80,
+    'director': 500
+  }
+  return credits[plan] || 0
+}
+
+function getHotelsLimitForPlan(plan) {
+  const limits = {
+    'trial': 1,
+    'host': 1,
+    'manager': 5,
+    'director': 15
+  }
+  return limits[plan] || 0
+}
 
 module.exports = async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -53,15 +73,19 @@ async function updateUserSubscription(session) {
 
   const plan = planMap[priceId] || 'trial';
 
-  try {
-    await axios.put(`${process.env.NEXT_PUBLIC_API_URL}/api/users/subscription`, {
-      stripeCustomerId: customerId,
-      plan: plan,
-      status: 'active'
-    });
-  } catch (error) {
-    console.error('Error updating subscription:', error);
-    throw error;
+  const user = await User.findOneAndUpdate(
+    { 'subscription.stripeCustomerId': customerId },
+    {
+      'subscription.plan': plan,
+      'subscription.status': 'active',
+      'subscription.responseCredits': getCreditsForPlan(plan),
+      'subscription.hotelsLimit': getHotelsLimitForPlan(plan)
+    },
+    { new: true }
+  );
+
+  if (!user) {
+    throw new Error('User not found');
   }
 }
 
@@ -69,28 +93,34 @@ async function handleSubscriptionUpdate(subscription) {
   const customerId = subscription.customer;
   const status = subscription.status;
 
-  try {
-    await axios.put(`${process.env.NEXT_PUBLIC_API_URL}/api/users/subscription`, {
-      stripeCustomerId: customerId,
-      status: status
-    });
-  } catch (error) {
-    console.error('Error updating subscription status:', error);
-    throw error;
+  const user = await User.findOneAndUpdate(
+    { 'subscription.stripeCustomerId': customerId },
+    {
+      'subscription.status': status
+    },
+    { new: true }
+  );
+
+  if (!user) {
+    throw new Error('User not found');
   }
 }
 
 async function handleSubscriptionCancellation(subscription) {
   const customerId = subscription.customer;
 
-  try {
-    await axios.put(`${process.env.NEXT_PUBLIC_API_URL}/api/users/subscription`, {
-      stripeCustomerId: customerId,
-      status: 'canceled',
-      plan: 'trial'
-    });
-  } catch (error) {
-    console.error('Error cancelling subscription:', error);
-    throw error;
+  const user = await User.findOneAndUpdate(
+    { 'subscription.stripeCustomerId': customerId },
+    {
+      'subscription.status': 'canceled',
+      'subscription.plan': 'trial',
+      'subscription.responseCredits': getCreditsForPlan('trial'),
+      'subscription.hotelsLimit': getHotelsLimitForPlan('trial')
+    },
+    { new: true }
+  );
+
+  if (!user) {
+    throw new Error('User not found');
   }
 }
