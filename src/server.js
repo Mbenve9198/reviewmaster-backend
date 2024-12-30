@@ -19,27 +19,29 @@ app.use((req, res, next) => {
     next();
 });
 
-// Middleware
+// Security middlewares
 app.use(helmet());
 app.use(cors({
-  origin: [
-    'http://localhost:3001',
-    'https://reviewmaster-frontend.onrender.com'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature']
+    origin: [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'https://reviewmaster-frontend.onrender.com'
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature']
 }));
 
 // Middleware specifico per il webhook di Stripe
 app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
 
-// Per tutte le altre route, usa il parser JSON standard
+// Standard middlewares
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Health check
 app.get('/', (req, res) => {
-  res.json({ message: 'ReviewMaster API is running' });
+    res.json({ message: 'ReviewMaster API is running' });
 });
 
 // Routes
