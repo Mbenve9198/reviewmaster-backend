@@ -28,6 +28,8 @@ const authController = {
                     plan: 'trial',
                     status: 'active',
                     responseCredits: 10,
+                    hotelsLimit: 1,
+                    responsesLimit: 10,
                     trialEndsAt: new Date(+new Date() + 14 * 24 * 60 * 60 * 1000)
                 }
             });
