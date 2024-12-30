@@ -19,13 +19,24 @@ const hotelSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    managerName: {
+    // Manteniamo temporaneamente entrambi i campi
+    managerSignature: {
         type: String,
         required: true
     },
+    managerName: {
+        type: String,
+        required: true,
+        default: function() {
+            return this.managerSignature; // Usa managerSignature come default
+        }
+    },
     signature: {
         type: String,
-        required: true
+        required: true,
+        default: function() {
+            return this.managerSignature; // Usa managerSignature come default
+        }
     },
     responseSettings: {
         style: {
@@ -39,6 +50,8 @@ const hotelSchema = new mongoose.Schema({
             default: 'medium'
         }
     }
+}, {
+    timestamps: true
 });
 
 module.exports = mongoose.model('Hotel', hotelSchema);
