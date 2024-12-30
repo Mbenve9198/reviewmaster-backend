@@ -28,12 +28,16 @@ app.use(cors({
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature']
 }));
+
+// Middleware specifico per il webhook di Stripe
+app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
+
+// Per tutte le altre route, usa il parser JSON standard
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Aggiungi questa route prima delle altre routes
 app.get('/', (req, res) => {
   res.json({ message: 'ReviewMaster API is running' });
 });
@@ -43,6 +47,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/hotels', hotelRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/users', userRoutes);
+
+// Stripe webhook route
+app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {
