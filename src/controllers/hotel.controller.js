@@ -9,6 +9,14 @@ const hotelController = {
             const { name, type, description, managerName, signature } = req.body;
             const userId = req.userId;
 
+            // Aggiungiamo questi log per debug
+            console.log('Creating hotel for user:', userId);
+            const currentHotels = await Hotel.find({ userId });
+            console.log('Current hotels count:', currentHotels.length);
+            
+            const user = await User.findById(userId);
+            console.log('User subscription:', user.subscription);
+
             // Log dei dati estratti
             console.log('Extracted data:', { 
                 name, 
