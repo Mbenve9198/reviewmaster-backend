@@ -35,6 +35,8 @@ module.exports = async (req, res) => {
   }
 
   try {
+    console.log('Webhook payload:', JSON.stringify(event.data.object, null, 2));
+
     switch (event.type) {
       case 'checkout.session.completed':
         const session = event.data.object;
@@ -60,26 +62,16 @@ module.exports = async (req, res) => {
 };
 
 async function updateUserSubscription(session) {
-  const customerId = session.customer;
-  
-  const subscription = await stripe.subscriptions.retrieve(session.subscription);
-  const priceId = subscription.items.data[0].price.id;
+  const userId = session.client_reference_id;
 
-  const planMap = {
-    'price_host': 'host',
-    'price_manager': 'manager',
-    'price_director': 'director'
-  };
-
-  const plan = planMap[priceId] || 'trial';
-
-  const user = await User.findOneAndUpdate(
-    { 'subscription.stripeCustomerId': customerId },
+  const user = await User.findByIdAndUpdate(
+    userId,
     {
-      'subscription.plan': plan,
+      'subscription.stripeCustomerId': session.customer,
+      'subscription.plan': 'host', // Aggiusta in base al prezzo
       'subscription.status': 'active',
-      'subscription.responseCredits': getCreditsForPlan(plan),
-      'subscription.hotelsLimit': getHotelsLimitForPlan(plan)
+      'subscription.responseCredits': getCreditsForPlan('host'),  // Aggiusta in base al prezzo
+      'subscription.hotelsLimit': getHotelsLimitForPlan('host')   // Aggiusta in base al prezzo
     },
     { new: true }
   );
@@ -90,13 +82,13 @@ async function updateUserSubscription(session) {
 }
 
 async function handleSubscriptionUpdate(subscription) {
-  const customerId = subscription.customer;
-  const status = subscription.status;
+  console.log('Subscription metadata:', subscription.metadata);
+  const userId = subscription.metadata.user_id;
 
-  const user = await User.findOneAndUpdate(
-    { 'subscription.stripeCustomerId': customerId },
+  const user = await User.findByIdAndUpdate(
+    userId,
     {
-      'subscription.status': status
+      'subscription.status': subscription.status
     },
     { new: true }
   );
@@ -107,10 +99,11 @@ async function handleSubscriptionUpdate(subscription) {
 }
 
 async function handleSubscriptionCancellation(subscription) {
-  const customerId = subscription.customer;
+  console.log('Subscription metadata:', subscription.metadata);
+  const userId = subscription.metadata.user_id;
 
-  const user = await User.findOneAndUpdate(
-    { 'subscription.stripeCustomerId': customerId },
+  const user = await User.findByIdAndUpdate(
+    userId,
     {
       'subscription.status': 'canceled',
       'subscription.plan': 'trial',
