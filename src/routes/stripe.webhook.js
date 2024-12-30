@@ -1,4 +1,5 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const axios = require('axios');
 
 module.exports = async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -52,47 +53,44 @@ async function updateUserSubscription(session) {
 
   const plan = planMap[priceId] || 'trial';
 
-  await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/subscription`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
+  try {
+    await axios.put(`${process.env.NEXT_PUBLIC_API_URL}/api/users/subscription`, {
       stripeCustomerId: customerId,
       plan: plan,
       status: 'active'
-    })
-  });
+    });
+  } catch (error) {
+    console.error('Error updating subscription:', error);
+    throw error;
+  }
 }
 
 async function handleSubscriptionUpdate(subscription) {
   const customerId = subscription.customer;
   const status = subscription.status;
 
-  await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/subscription`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
+  try {
+    await axios.put(`${process.env.NEXT_PUBLIC_API_URL}/api/users/subscription`, {
       stripeCustomerId: customerId,
       status: status
-    })
-  });
+    });
+  } catch (error) {
+    console.error('Error updating subscription status:', error);
+    throw error;
+  }
 }
 
 async function handleSubscriptionCancellation(subscription) {
   const customerId = subscription.customer;
 
-  await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/subscription`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
+  try {
+    await axios.put(`${process.env.NEXT_PUBLIC_API_URL}/api/users/subscription`, {
       stripeCustomerId: customerId,
       status: 'canceled',
       plan: 'trial'
-    })
-  });
+    });
+  } catch (error) {
+    console.error('Error cancelling subscription:', error);
+    throw error;
+  }
 }
