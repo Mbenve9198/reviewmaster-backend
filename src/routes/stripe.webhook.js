@@ -35,6 +35,7 @@ module.exports = async (req, res) => {
   }
 
   try {
+    console.log('Webhook event type:', event.type);
     console.log('Webhook payload:', JSON.stringify(event.data.object, null, 2));
 
     switch (event.type) {
@@ -52,6 +53,11 @@ module.exports = async (req, res) => {
         const deletedSubscription = event.data.object;
         await handleSubscriptionCancellation(deletedSubscription);
         break;
+
+      case 'invoice.payment_failed':
+        const invoice = event.data.object;
+        await handleFailedPayment(invoice);
+        break;
     }
 
     res.json({ received: true });
@@ -68,10 +74,10 @@ async function updateUserSubscription(session) {
     userId,
     {
       'subscription.stripeCustomerId': session.customer,
-      'subscription.plan': 'host', // Aggiusta in base al prezzo
+      'subscription.plan': 'host',
       'subscription.status': 'active',
-      'subscription.responseCredits': getCreditsForPlan('host'),  // Aggiusta in base al prezzo
-      'subscription.hotelsLimit': getHotelsLimitForPlan('host')   // Aggiusta in base al prezzo
+      'subscription.responseCredits': getCreditsForPlan('host'),
+      'subscription.hotelsLimit': getHotelsLimitForPlan('host')
     },
     { new: true }
   );
@@ -82,7 +88,6 @@ async function updateUserSubscription(session) {
 }
 
 async function handleSubscriptionUpdate(subscription) {
-  console.log('Subscription metadata:', subscription.metadata);
   const userId = subscription.metadata.user_id;
 
   const user = await User.findByIdAndUpdate(
@@ -99,16 +104,32 @@ async function handleSubscriptionUpdate(subscription) {
 }
 
 async function handleSubscriptionCancellation(subscription) {
-  console.log('Subscription metadata:', subscription.metadata);
-  const userId = subscription.metadata.user_id;
+  const customerId = subscription.customer;
 
-  const user = await User.findByIdAndUpdate(
-    userId,
+  const user = await User.findOneAndUpdate(
+    { 'subscription.stripeCustomerId': customerId },
     {
       'subscription.status': 'canceled',
       'subscription.plan': 'trial',
       'subscription.responseCredits': getCreditsForPlan('trial'),
       'subscription.hotelsLimit': getHotelsLimitForPlan('trial')
+    },
+    { new: true }
+  );
+
+  if (!user) {
+    throw new Error('User not found');
+  }
+}
+
+async function handleFailedPayment(invoice) {
+  const customerId = invoice.customer;
+
+  const user = await User.findOneAndUpdate(
+    { 'subscription.stripeCustomerId': customerId },
+    {
+      'subscription.status': 'past_due',
+      'subscription.responseCredits': 0
     },
     { new: true }
   );
