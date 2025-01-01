@@ -25,7 +25,8 @@ const userController = {
                     responsesUsed,
                     responseCredits: user.subscription.responseCredits,
                     responsesLimit,
-                    hotelsLimit
+                    hotelsLimit,
+                    nextResetDate: user.subscription.nextResetDate
                 },
                 hotelsCount
             });
