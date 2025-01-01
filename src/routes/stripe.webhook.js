@@ -3,9 +3,9 @@ const User = require('../models/user.model');
 
 function getCreditsForPlan(plan) {
   const credits = {
-    'trial': 3,
-    'host': 20,
-    'manager': 80,
+    'trial': 10,
+    'host': 50,
+    'manager': 200,
     'director': 500
   }
   return credits[plan] || 0
@@ -14,7 +14,7 @@ function getCreditsForPlan(plan) {
 function getHotelsLimitForPlan(plan) {
   const limits = {
     'trial': 1,
-    'host': 1,
+    'host': 2,
     'manager': 5,
     'director': 15
   }
