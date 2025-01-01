@@ -25,10 +25,14 @@ router.post('/create-portal-session', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'No Stripe customer found' });
     }
 
+    // Assicuriamoci che l'URL di ritorno sia completo
+    const returnUrl = `${process.env.FRONTEND_URL}/billing`;
+    console.log('Return URL:', returnUrl);
+
     console.log('Creating Stripe portal session...');
     const session = await stripe.billingPortal.sessions.create({
       customer: user.subscription.stripeCustomerId,
-      return_url: `${process.env.FRONTEND_URL}/billing`,
+      return_url: returnUrl
     });
     console.log('Portal session created:', session.url);
 
