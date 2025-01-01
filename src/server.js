@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
 require('dotenv').config();
 
+const { setupCreditsResetJob } = require('./jobs/credits-reset.job');
 const authRoutes = require('./routes/auth.routes');
 const hotelRoutes = require('./routes/hotel.routes');
 const reviewRoutes = require('./routes/review.routes');
@@ -72,6 +73,11 @@ app.use((err, req, res, next) => {
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => {
         console.log('Connected to MongoDB');
+        
+        // Inizializza il cron job dopo la connessione al database
+        setupCreditsResetJob();
+        console.log('Credits reset job initialized');
+        
         const PORT = process.env.PORT || 3000;
         app.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
