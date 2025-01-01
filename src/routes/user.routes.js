@@ -8,24 +8,40 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 // Proteggi la rotta con il middleware di autenticazione
 router.get('/stats', authMiddleware, userController.getStats);
 
-// Nuovo endpoint per il portale Stripe
+// Endpoint per il portale Stripe
 router.post('/create-portal-session', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.userId);
+    console.log('Creating portal session for user:', req.userId);
     
-    if (!user.subscription.stripeCustomerId) {
+    const user = await User.findById(req.userId);
+    console.log('User found:', {
+      id: user._id,
+      email: user.email,
+      stripeCustomerId: user.subscription?.stripeCustomerId
+    });
+    
+    if (!user.subscription?.stripeCustomerId) {
+      console.log('No Stripe customer ID found for user');
       return res.status(400).json({ message: 'No Stripe customer found' });
     }
 
+    console.log('Creating Stripe portal session...');
     const session = await stripe.billingPortal.sessions.create({
       customer: user.subscription.stripeCustomerId,
       return_url: `${process.env.FRONTEND_URL}/billing`,
     });
+    console.log('Portal session created:', session.url);
 
     res.json({ url: session.url });
   } catch (error) {
-    console.error('Error creating portal session:', error);
-    res.status(500).json({ message: 'Error creating portal session' });
+    console.error('Error creating portal session:', {
+      message: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ 
+      message: 'Error creating portal session',
+      error: error.message 
+    });
   }
 });
 
