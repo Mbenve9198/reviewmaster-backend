@@ -4,7 +4,7 @@ const User = require('../models/user.model');
 function getCreditsForPlan(plan) {
   const credits = {
     'trial': 10,
-    'host': 50,
+    'host': 20,
     'manager': 200,
     'director': 500
   }
