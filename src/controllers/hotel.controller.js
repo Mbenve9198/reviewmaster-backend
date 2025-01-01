@@ -1,6 +1,13 @@
 const Hotel = require('../models/hotel.model');
 const User = require('../models/user.model');
 
+const SUBSCRIPTION_LIMITS = {
+    trial: { hotelsLimit: 1 },
+    host: { hotelsLimit: 2 },
+    manager: { hotelsLimit: 5 },
+    director: { hotelsLimit: 10 }
+};
+
 const hotelController = {
     createHotel: async (req, res) => {
         try {
@@ -27,11 +34,13 @@ const hotelController = {
             
             const hotelCount = await Hotel.countDocuments({ userId });
             console.log('Hotel count:', hotelCount);
-            console.log('Subscription limits:', userData.subscriptionLimits);
+            
+            const planLimits = SUBSCRIPTION_LIMITS[userData.subscription.plan];
+            console.log('Plan limits:', planLimits);
 
-            if (hotelCount >= userData.subscriptionLimits.hotelsLimit) {
+            if (hotelCount >= planLimits.hotelsLimit) {
                 return res.status(403).json({ 
-                    message: `Your ${userData.subscription.plan} plan is limited to ${userData.subscriptionLimits.hotelsLimit} hotels` 
+                    message: `Your ${userData.subscription.plan} plan is limited to ${planLimits.hotelsLimit} hotels` 
                 });
             }
 
