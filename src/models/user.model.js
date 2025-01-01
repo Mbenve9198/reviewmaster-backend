@@ -6,7 +6,7 @@ const SUBSCRIPTION_LIMITS = {
         hotelsLimit: 1
     },
     host: {
-        responsesLimit: 50,
+        responsesLimit: 20,
         hotelsLimit: 2
     },
     manager: {
