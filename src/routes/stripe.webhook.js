@@ -21,6 +21,15 @@ function getHotelsLimitForPlan(plan) {
   return limits[plan] || 0
 }
 
+// Nuova funzione per calcolare la prossima data di reset
+function calculateNextResetDate(currentDate = new Date()) {
+  return new Date(
+    currentDate.getFullYear(),
+    currentDate.getMonth() + 1,
+    currentDate.getDate()
+  );
+}
+
 module.exports = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -54,6 +63,11 @@ module.exports = async (req, res) => {
         await handleSubscriptionCancellation(deletedSubscription);
         break;
 
+      case 'invoice.payment_succeeded':
+        const successfulInvoice = event.data.object;
+        await handleSuccessfulPayment(successfulInvoice);
+        break;
+
       case 'invoice.payment_failed':
         const invoice = event.data.object;
         await handleFailedPayment(invoice);
@@ -77,7 +91,8 @@ async function updateUserSubscription(session) {
       'subscription.plan': 'host',
       'subscription.status': 'active',
       'subscription.responseCredits': getCreditsForPlan('host'),
-      'subscription.hotelsLimit': getHotelsLimitForPlan('host')
+      'subscription.hotelsLimit': getHotelsLimitForPlan('host'),
+      'subscription.nextResetDate': calculateNextResetDate()
     },
     { new: true }
   );
@@ -103,6 +118,20 @@ async function handleSubscriptionUpdate(subscription) {
   }
 }
 
+async function handleSuccessfulPayment(invoice) {
+  const customerId = invoice.customer;
+  
+  // Quando il pagamento va a buon fine, resettiamo i crediti e aggiorniamo la data del prossimo reset
+  const user = await User.findOne({ 'subscription.stripeCustomerId': customerId });
+  
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  // Reset dei crediti e aggiornamento data
+  await user.resetCredits();
+}
+
 async function handleSubscriptionCancellation(subscription) {
   const customerId = subscription.customer;
 
@@ -112,7 +141,8 @@ async function handleSubscriptionCancellation(subscription) {
       'subscription.status': 'canceled',
       'subscription.plan': 'trial',
       'subscription.responseCredits': getCreditsForPlan('trial'),
-      'subscription.hotelsLimit': getHotelsLimitForPlan('trial')
+      'subscription.hotelsLimit': getHotelsLimitForPlan('trial'),
+      'subscription.nextResetDate': calculateNextResetDate()
     },
     { new: true }
   );
