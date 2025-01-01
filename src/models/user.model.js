@@ -50,6 +50,15 @@ const userSchema = new mongoose.Schema({
             type: Number,
             default: 10
         },
+        nextResetDate: {
+            type: Date,
+            required: true,
+            default: () => {
+                const now = new Date();
+                const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+                return nextMonth;
+            }
+        },
         trialEndsAt: {
             type: Date,
             default: () => new Date(+new Date() + 14 * 24 * 60 * 60 * 1000) // 14 days from now
@@ -73,6 +82,21 @@ const userSchema = new mongoose.Schema({
 userSchema.virtual('subscriptionLimits').get(function() {
     return SUBSCRIPTION_LIMITS[this.subscription.plan];
 });
+
+// Metodo per resettare i crediti
+userSchema.methods.resetCredits = function() {
+    this.subscription.responseCredits = SUBSCRIPTION_LIMITS[this.subscription.plan].responsesLimit;
+    
+    // Aggiorna la data del prossimo reset
+    const currentResetDate = this.subscription.nextResetDate;
+    this.subscription.nextResetDate = new Date(
+        currentResetDate.getFullYear(),
+        currentResetDate.getMonth() + 1,
+        currentResetDate.getDate()
+    );
+    
+    return this.save();
+};
 
 // Assicurati che i virtual siano inclusi quando converti in JSON
 userSchema.set('toJSON', { virtuals: true });
