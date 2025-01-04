@@ -2,6 +2,7 @@ const User = require('../models/user.model');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const Hotel = require('../models/hotel.model');
+const verificationController = require('./verification.controller');
 
 const authController = {
     // Registrazione nuovo utente
@@ -24,6 +25,7 @@ const authController = {
                 email,
                 password: hashedPassword,
                 name,
+                isVerified: false,
                 subscription: {
                     plan: 'trial',
                     status: 'active',
@@ -36,6 +38,9 @@ const authController = {
 
             await user.save();
             console.log('User saved:', user._id);
+
+            // Invia email di verifica
+            await verificationController.sendVerificationEmail(user);
 
             // Genera token JWT
             const token = jwt.sign(
@@ -74,6 +79,14 @@ const authController = {
             const isValidPassword = await bcrypt.compare(password, user.password);
             if (!isValidPassword) {
                 return res.status(401).json({ message: 'Invalid credentials' });
+            }
+
+            // Verifica la verifica
+            if (!user.isVerified) {
+                return res.status(403).json({ 
+                    message: 'Please verify your email before logging in',
+                    code: 'EMAIL_NOT_VERIFIED'
+                });
             }
 
             // Genera il token
