@@ -26,7 +26,7 @@ app.use(cors({
     origin: [
         'http://localhost:3000',
         'http://localhost:3001',
-        ''https://replai.app',
+        'https://replai.app',
         'https://www.replai.app'
     ],
     credentials: true,
