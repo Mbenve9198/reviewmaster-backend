@@ -26,7 +26,8 @@ app.use(cors({
     origin: [
         'http://localhost:3000',
         'http://localhost:3001',
-        'https://reviewmaster-frontend.onrender.com'
+        ''https://replai.app',
+        'https://www.replai.app'
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
