@@ -69,10 +69,13 @@ const authController = {
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
 
-            // Verifica la verifica
+            // Se l'utente non è verificato, invia un codice specifico
             if (!user.isVerified) {
+                // Invia nuovamente l'email di verifica
+                await verificationController.sendVerificationEmail(user);
+                
                 return res.status(403).json({ 
-                    message: 'Please verify your email before logging in',
+                    message: 'Please verify your email before logging in. A new verification email has been sent.',
                     code: 'EMAIL_NOT_VERIFIED'
                 });
             }
@@ -94,7 +97,8 @@ const authController = {
                 user: {
                     id: user._id,
                     email: user.email,
-                    name: user.name
+                    name: user.name,
+                    isVerified: user.isVerified
                 }
             });
         } catch (error) {

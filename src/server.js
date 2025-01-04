@@ -24,6 +24,8 @@ app.use((req, res, next) => {
 
 // Security middlewares
 app.use(helmet());
+
+// Configurazione CORS aggiornata
 app.use(cors({
     origin: [
         'http://localhost:3000',
@@ -33,8 +35,14 @@ app.use(cors({
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature']
+    allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature'],
+    exposedHeaders: ['Authorization'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
 }));
+
+// Gestione esplicita delle richieste OPTIONS
+app.options('*', cors());
 
 // Middleware specifico per il webhook di Stripe
 app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
