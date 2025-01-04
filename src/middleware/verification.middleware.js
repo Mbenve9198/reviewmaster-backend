@@ -1,3 +1,5 @@
+const User = require('../models/user.model');
+
 const checkEmailVerification = async (req, res, next) => {
     try {
         const user = await User.findById(req.userId);
