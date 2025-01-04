@@ -6,11 +6,12 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 const { setupCreditsResetJob } = require('./jobs/credits-reset.job');
+const authMiddleware = require('./middleware/auth.middleware');
+const checkEmailVerification = require('./middleware/verification.middleware');
 const authRoutes = require('./routes/auth.routes');
 const hotelRoutes = require('./routes/hotel.routes');
 const reviewRoutes = require('./routes/review.routes');
 const userRoutes = require('./routes/user.routes');
-const checkEmailVerification = require('./middleware/verification.middleware');
 
 const app = express();
 
