@@ -42,21 +42,9 @@ const authController = {
             // Invia email di verifica
             await verificationController.sendVerificationEmail(user);
 
-            // Genera token JWT
-            const token = jwt.sign(
-                { userId: user._id },
-                process.env.JWT_SECRET,
-                { expiresIn: '24h' }
-            );
-
+            // Restituisci solo un messaggio di successo, senza token
             res.status(201).json({
-                token,
-                user: {
-                    id: user._id,
-                    email: user.email,
-                    name: user.name,
-                    subscription: user.subscription
-                }
+                message: 'Registration successful. Please check your email to verify your account.'
             });
         } catch (error) {
             console.error('Registration error:', error);
