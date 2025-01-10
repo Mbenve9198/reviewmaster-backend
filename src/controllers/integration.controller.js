@@ -62,18 +62,39 @@ const integrationController = {
             const { integrationId } = req.params;
             const userId = req.userId;
 
+            console.log('Starting sync for integration:', integrationId);
+
             const integration = await Integration.findById(integrationId)
                 .populate('hotelId');
 
             if (!integration) {
+                console.log('Integration not found:', integrationId);
                 return res.status(404).json({ message: 'Integration not found' });
             }
 
+            console.log('Integration found:', {
+                id: integration._id,
+                platform: integration.platform,
+                url: integration.url,
+                syncConfig: integration.syncConfig
+            });
+
+            if (!integration.hotelId || !integration.hotelId.userId) {
+                console.error('Invalid hotel data:', integration.hotelId);
+                return res.status(400).json({ message: 'Invalid hotel data' });
+            }
+
             if (integration.hotelId.userId.toString() !== userId) {
+                console.log('Unauthorized sync attempt:', {
+                    requestUserId: userId,
+                    hotelUserId: integration.hotelId.userId
+                });
                 return res.status(403).json({ message: 'Unauthorized' });
             }
 
+            console.log('Starting syncReviews...');
             const syncResult = await syncReviews(integration);
+            console.log('Sync completed:', syncResult);
 
             res.json({
                 message: 'Sync completed successfully',
@@ -81,10 +102,14 @@ const integrationController = {
                 totalReviews: syncResult.totalReviews
             });
         } catch (error) {
-            console.error('Sync now error:', error);
+            console.error('Sync now detailed error:', {
+                message: error.message,
+                stack: error.stack
+            });
             res.status(500).json({ 
                 message: 'Error starting sync',
-                error: error.message 
+                error: error.message,
+                details: process.env.NODE_ENV === 'development' ? error.stack : undefined
             });
         }
     },
