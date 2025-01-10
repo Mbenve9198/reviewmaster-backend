@@ -35,6 +35,25 @@ router.post('/:integrationId/sync',
     (req, res) => integrationController.syncNow(req, res)
 );
 
+// Funzione di utilità per estrarre il placeId
+function extractPlaceId(url, platform) {
+    try {
+        switch (platform) {
+            case 'google':
+                return url.split('/place/')[1]?.split('/')[0] || '';
+            case 'tripadvisor':
+                return url.split('Hotel_Review-')[1]?.split('-')[0] || '';
+            case 'booking':
+                return url.split('/hotel/')[1]?.split('.')[0] || '';
+            default:
+                return '';
+        }
+    } catch (error) {
+        console.error('Error extracting placeId:', error);
+        return '';
+    }
+}
+
 // Route per verificare la validità di un URL/placeId
 router.post('/verify-url', async (req, res) => {
     try {
@@ -51,19 +70,7 @@ router.post('/verify-url', async (req, res) => {
         const config = { maxReviews: 1 };
         await apifyService.runScraper(platform, url, config);
 
-        // Estrai placeId dall'URL
-        let placeId = '';
-        switch (platform) {
-            case 'google':
-                placeId = url.split('/place/')[1]?.split('/')[0] || '';
-                break;
-            case 'tripadvisor':
-                placeId = url.split('Hotel_Review-')[1]?.split('-')[0] || '';
-                break;
-            case 'booking':
-                placeId = url.split('/hotel/')[1]?.split('.')[0] || '';
-                break;
-        }
+        let placeId = extractPlaceId(url, platform);
 
         res.json({ 
             valid: true,
@@ -71,7 +78,6 @@ router.post('/verify-url', async (req, res) => {
             message: 'URL verified successfully'
         });
     } catch (error) {
-        console.error('URL verification error:', error);
         res.status(400).json({ 
             valid: false,
             message: error.message
