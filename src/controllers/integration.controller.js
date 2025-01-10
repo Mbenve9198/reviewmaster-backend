@@ -1,11 +1,7 @@
 const Integration = require('../models/integration.model');
 const Review = require('../models/review.model');
 const Hotel = require('../models/hotel.model');
-const { ApifyClient } = require('apify-client');
-
-const apifyClient = new ApifyClient({
-    token: process.env.APIFY_API_KEY,
-});
+const apifyService = require('../services/apify.service');
 
 const integrationController = {
     setupIntegration: async (req, res) => {
@@ -181,64 +177,29 @@ const integrationController = {
 // Funzioni di utilità
 async function syncReviews(integration) {
     try {
-        const input = await prepareApifyInput(integration);
-        const actor = await getApifyActor(integration.platform);
-        const run = await actor.call(input);
-        const dataset = await run.dataset();
-        const reviews = await dataset.items();
+        const config = {
+            language: integration.syncConfig.language,
+            maxReviews: 100,
+            personalData: true
+        };
+
+        const reviews = await apifyService.runScraper(
+            integration.platform,
+            integration.url,
+            config
+        );
 
         const newReviews = await processAndSaveReviews(reviews, integration);
-        await integration.updateSyncStats(newReviews);
+        await updateIntegrationStats(integration, reviews);
 
         return {
             newReviews: newReviews.length,
             totalReviews: reviews.length
         };
     } catch (error) {
-        await integration.handleSyncError(error);
+        await handleSyncError(integration, error);
         throw error;
     }
-}
-
-async function prepareApifyInput(integration) {
-    const baseInput = {
-        language: integration.syncConfig.language,
-        maxReviews: 100,
-        personalData: true
-    };
-
-    switch (integration.platform) {
-        case 'google':
-            return {
-                ...baseInput,
-                startUrls: [{ url: integration.url }]
-            };
-        case 'tripadvisor':
-            return {
-                ...baseInput,
-                startUrls: [{ url: integration.url }],
-                maxReviews: 100
-            };
-        case 'booking':
-            return {
-                ...baseInput,
-                startUrls: [{ url: integration.url }],
-                minScore: 1,
-                maxScore: 10
-            };
-        default:
-            throw new Error(`Unsupported platform: ${integration.platform}`);
-    }
-}
-
-async function getApifyActor(platform) {
-    const actorIds = {
-        google: 'compass/google-maps-reviews-scraper',
-        tripadvisor: 'compass/tripadvisor-scraper',
-        booking: 'compass/booking-scraper'
-    };
-
-    return apifyClient.actor(actorIds[platform]);
 }
 
 async function processAndSaveReviews(reviews, integration) {
