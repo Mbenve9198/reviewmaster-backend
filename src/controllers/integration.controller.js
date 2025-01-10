@@ -35,6 +35,14 @@ const integrationController = {
 
             await integration.save();
 
+            // Esegui la sincronizzazione iniziale
+            try {
+                await syncReviews(integration);
+            } catch (syncError) {
+                console.error('Initial sync error:', syncError);
+                // Continuiamo anche se la sync iniziale fallisce
+            }
+
             if (integration.syncConfig.type === 'automatic') {
                 await scheduleSyncForIntegration(integration);
             }
@@ -178,9 +186,12 @@ const integrationController = {
 async function syncReviews(integration) {
     try {
         const config = {
-            maxReviews: integration.syncConfig.maxReviews,
-            personalData: true
+            maxReviews: parseInt(integration.syncConfig.maxReviews) || 100,
+            personalData: true,
+            language: integration.syncConfig.language
         };
+
+        console.log('Starting sync with config:', config);
 
         const reviews = await apifyService.runScraper(
             integration.platform,
@@ -196,6 +207,7 @@ async function syncReviews(integration) {
             totalReviews: reviews.length
         };
     } catch (error) {
+        console.error('Sync error:', error);
         await handleSyncError(integration, error);
         throw error;
     }
