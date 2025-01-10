@@ -257,52 +257,40 @@ async function syncReviews(integration) {
 }
 
 async function processAndSaveReviews(reviews, integration) {
-    console.log('Processing reviews:', reviews.length); // Debug log
-    
     const newReviews = [];
     for (const reviewData of reviews) {
-        if (!reviewData.id) {
-            console.log('Review missing ID:', reviewData); // Debug log
-            continue;
-        }
-
         const existingReview = await Review.findOne({
             hotelId: integration.hotelId,
             platform: integration.platform,
-            externalReviewId: reviewData.id || reviewData.reviewId // Aggiungi fallback
+            externalReviewId: reviewData.reviewId
         });
 
         if (!existingReview) {
-            try {
-                const review = new Review({
-                    hotelId: integration.hotelId,
-                    integrationId: integration._id,
-                    platform: integration.platform,
-                    externalReviewId: reviewData.id || reviewData.reviewId,
-                    content: {
-                        text: reviewData.text || 'No text provided',
-                        rating: reviewData.rating || reviewData.score || 5,
-                        reviewerName: reviewData.reviewerName || reviewData.author || 'Anonymous',
-                        language: reviewData.language || 'en',
-                        images: reviewData.images || [],
-                        likes: reviewData.likes || 0,
-                        originalUrl: reviewData.url
-                    },
-                    metadata: {
-                        originalCreatedAt: reviewData.dateAdded || reviewData.date || new Date(),
-                        syncedAt: new Date()
-                    }
-                });
+            const review = new Review({
+                hotelId: integration.hotelId,
+                integrationId: integration._id,
+                platform: integration.platform,
+                externalReviewId: reviewData.reviewId,
+                content: {
+                    text: reviewData.text || reviewData.textTranslated || 'No text provided',
+                    rating: reviewData.stars || 5,
+                    reviewerName: reviewData.name || 'Anonymous',
+                    reviewerImage: reviewData.reviewerPhotoUrl,
+                    language: reviewData.language,
+                    images: reviewData.reviewImageUrls || [],
+                    likes: reviewData.likesCount || 0,
+                    originalUrl: reviewData.reviewUrl
+                },
+                metadata: {
+                    originalCreatedAt: new Date(reviewData.publishedAtDate),
+                    syncedAt: new Date()
+                }
+            });
 
-                await review.save();
-                console.log('Saved new review:', review._id); // Debug log
-                newReviews.push(review);
-            } catch (error) {
-                console.error('Error saving review:', error, reviewData);
-            }
+            await review.save();
+            newReviews.push(review);
         }
     }
-
     return newReviews;
 }
 
