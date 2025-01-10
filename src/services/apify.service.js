@@ -19,8 +19,7 @@ class ApifyService {
         const endpoint = `${APIFY_BASE_URL}/${actorId}/run-sync-get-dataset-items`;
         
         const input = {
-            ...this._getDefaultConfig(platform),
-            ...config,
+            ...this._getDefaultConfig(platform, config),
             startUrls: [{ url }]
         };
 
@@ -36,10 +35,9 @@ class ApifyService {
         }
     }
 
-    _getDefaultConfig(platform) {
+    _getDefaultConfig(platform, config) {
         const base = {
-            language: 'en',
-            maxReviews: 100,
+            maxReviews: config.maxReviews === 'all' ? null : parseInt(config.maxReviews),
             personalData: true
         };
 

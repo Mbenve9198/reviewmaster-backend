@@ -35,9 +35,10 @@ const integrationSchema = new mongoose.Schema({
             enum: ['daily', 'weekly', 'monthly'],
             default: 'weekly'
         },
-        language: {
+        maxReviews: {
             type: String,
-            default: 'en'
+            enum: ['100', '500', '1000', 'all'],
+            default: '100'
         },
         lastSync: Date,
         nextScheduledSync: Date,

@@ -29,7 +29,7 @@ const integrationController = {
                 syncConfig: {
                     type: syncConfig?.type || 'manual',
                     frequency: syncConfig?.frequency || 'weekly',
-                    language: syncConfig?.language || 'en'
+                    maxReviews: syncConfig?.maxReviews || '100'
                 }
             });
 
@@ -68,7 +68,7 @@ const integrationController = {
             const syncResult = await syncReviews(integration);
 
             res.json({
-                message: 'Sync started successfully',
+                message: 'Sync completed successfully',
                 newReviews: syncResult.newReviews,
                 totalReviews: syncResult.totalReviews
             });
@@ -178,8 +178,7 @@ const integrationController = {
 async function syncReviews(integration) {
     try {
         const config = {
-            language: integration.syncConfig.language,
-            maxReviews: 100,
+            maxReviews: integration.syncConfig.maxReviews,
             personalData: true
         };
 
