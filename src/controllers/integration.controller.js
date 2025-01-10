@@ -273,17 +273,17 @@ async function processAndSaveReviews(reviews, integration) {
                 platform: integration.platform,
                 externalReviewId: reviewData.id,
                 content: {
-                    text: reviewData.text,
-                    rating: reviewData.rating,
-                    reviewerName: reviewData.reviewerName,
-                    reviewerImage: reviewData.reviewerImage,
-                    language: reviewData.language,
-                    images: reviewData.images,
-                    likes: reviewData.likes,
-                    originalUrl: reviewData.url
+                    text: reviewData.text || 'No text provided',
+                    rating: reviewData.rating || 5,
+                    reviewerName: reviewData.reviewerName || 'Anonymous',
+                    reviewerImage: reviewData.reviewerImage || null,
+                    language: reviewData.language || 'en',
+                    images: reviewData.images || [],
+                    likes: reviewData.likes || 0,
+                    originalUrl: reviewData.url || null
                 },
                 metadata: {
-                    originalCreatedAt: reviewData.dateAdded,
+                    originalCreatedAt: reviewData.dateAdded || new Date(),
                     syncedAt: new Date()
                 }
             });
