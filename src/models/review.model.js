@@ -6,11 +6,18 @@ const reviewSchema = new mongoose.Schema({
         ref: 'Hotel',
         required: true
     },
+    integrationId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Integration'
+    },
     platform: {
         type: String,
         enum: ['booking', 'tripadvisor', 'google', 'expedia', 'manual'],
-        required: true,
-        default: 'manual'
+        required: true
+    },
+    externalReviewId: {
+        type: String,
+        sparse: true
     },
     content: {
         text: {
@@ -21,14 +28,20 @@ const reviewSchema = new mongoose.Schema({
             type: Number,
             required: true,
             min: 1,
-            max: 5,
-            default: 5
+            max: 5
         },
         reviewerName: {
             type: String,
             default: 'Guest'
         },
-        language: String
+        reviewerImage: String,
+        language: String,
+        images: [{
+            url: String,
+            caption: String
+        }],
+        likes: Number,
+        originalUrl: String
     },
     response: {
         text: String,
@@ -44,11 +57,40 @@ const reviewSchema = new mongoose.Schema({
                 enum: ['short', 'medium', 'long'],
                 default: 'medium'
             }
+        },
+        externalResponseId: String,
+        synced: {
+            type: Boolean,
+            default: false
+        },
+        error: {
+            message: String,
+            code: String,
+            timestamp: Date
         }
     },
-    createdAt: {
-        type: Date,
-        default: Date.now
+    metadata: {
+        originalCreatedAt: Date,
+        lastUpdated: Date,
+        syncedAt: Date
+    }
+}, {
+    timestamps: true,
+    indexes: [
+        { hotelId: 1, platform: 1 },
+        { externalReviewId: 1 },
+        { 'metadata.originalCreatedAt': -1 }
+    ]
+});
+
+// Middleware per aggiornare le statistiche dell'integrazione
+reviewSchema.post('save', async function(doc) {
+    if (doc.integrationId) {
+        const Integration = mongoose.model('Integration');
+        await Integration.findByIdAndUpdate(
+            doc.integrationId,
+            { $inc: { 'stats.totalReviews': 1 } }
+        );
     }
 });
 
