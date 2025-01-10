@@ -314,4 +314,25 @@ async function scheduleSyncForIntegration(integration) {
     await integration.save();
 }
 
+async function updateIntegrationStats(integration, reviews) {
+    integration.stats = {
+        totalReviews: reviews.length,
+        syncedReviews: integration.stats.syncedReviews + reviews.length,
+        lastSyncedReviewDate: new Date()
+    };
+    
+    return await integration.save();
+}
+
+async function handleSyncError(integration, error) {
+    integration.status = 'error';
+    integration.syncConfig.error = {
+        message: error.message,
+        code: error.name,
+        timestamp: new Date()
+    };
+    
+    return await integration.save();
+}
+
 module.exports = integrationController; 
