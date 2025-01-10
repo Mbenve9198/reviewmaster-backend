@@ -277,7 +277,10 @@ async function processAndSaveReviews(reviews, integration) {
                     reviewerName: reviewData.name || 'Anonymous',
                     reviewerImage: reviewData.reviewerPhotoUrl,
                     language: reviewData.language,
-                    images: reviewData.reviewImageUrls || [],
+                    images: reviewData.reviewImageUrls ? reviewData.reviewImageUrls.map(url => ({
+                        url: url,
+                        caption: ''
+                    })) : [],
                     likes: reviewData.likesCount || 0,
                     originalUrl: reviewData.reviewUrl
                 },
