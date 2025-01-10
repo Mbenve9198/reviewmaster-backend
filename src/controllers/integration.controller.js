@@ -217,6 +217,11 @@ async function syncReviews(integration) {
         };
 
         console.log('Starting sync with config:', config);
+        console.log('Integration details:', {
+            platform: integration.platform,
+            url: integration.url,
+            hotelId: integration.hotelId
+        });
 
         const reviews = await apifyService.runScraper(
             integration.platform,
@@ -224,15 +229,28 @@ async function syncReviews(integration) {
             config
         );
 
+        console.log(`Retrieved ${reviews.length} reviews from scraper`);
+
         const newReviews = await processAndSaveReviews(reviews, integration);
+        console.log(`Saved ${newReviews.length} new reviews`);
+        
         await updateIntegrationStats(integration, reviews);
+        console.log('Updated integration stats');
 
         return {
             newReviews: newReviews.length,
             totalReviews: reviews.length
         };
     } catch (error) {
-        console.error('Sync error:', error);
+        console.error('Detailed sync error:', {
+            message: error.message,
+            stack: error.stack,
+            integration: {
+                id: integration._id,
+                platform: integration.platform,
+                url: integration.url
+            }
+        });
         await handleSyncError(integration, error);
         throw error;
     }
