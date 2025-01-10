@@ -13,28 +13,6 @@ router.use(authMiddleware);
 router.use(checkEmailVerification);
 router.use(checkSubscription);
 
-// Routes per la gestione delle integrazioni
-router.post('/:hotelId', 
-    (req, res) => integrationController.setupIntegration(req, res)
-);
-
-router.get('/hotel/:hotelId',
-    (req, res) => integrationController.getHotelIntegrations(req, res)
-);
-
-router.put('/:integrationId',
-    (req, res) => integrationController.updateIntegration(req, res)
-);
-
-router.delete('/:integrationId',
-    (req, res) => integrationController.deleteIntegration(req, res)
-);
-
-// Routes per la sincronizzazione
-router.post('/:integrationId/sync',
-    (req, res) => integrationController.syncNow(req, res)
-);
-
 // Funzione di utilità per estrarre il placeId
 function extractPlaceId(url, platform) {
     try {
@@ -54,7 +32,7 @@ function extractPlaceId(url, platform) {
     }
 }
 
-// Route per verificare la validità di un URL/placeId
+// Route per verificare la validità di un URL/placeId (PRIMA delle routes con parametri)
 router.post('/verify-url', async (req, res) => {
     try {
         const { url, platform } = req.body;
@@ -84,6 +62,28 @@ router.post('/verify-url', async (req, res) => {
         });
     }
 });
+
+// Routes con parametri DOPO la route /verify-url
+router.post('/:hotelId', 
+    (req, res) => integrationController.setupIntegration(req, res)
+);
+
+router.get('/hotel/:hotelId',
+    (req, res) => integrationController.getHotelIntegrations(req, res)
+);
+
+router.put('/:integrationId',
+    (req, res) => integrationController.updateIntegration(req, res)
+);
+
+router.delete('/:integrationId',
+    (req, res) => integrationController.deleteIntegration(req, res)
+);
+
+// Routes per la sincronizzazione
+router.post('/:integrationId/sync',
+    (req, res) => integrationController.syncNow(req, res)
+);
 
 // Route per ottenere lo stato di una sincronizzazione
 router.get('/:integrationId/sync/status',
