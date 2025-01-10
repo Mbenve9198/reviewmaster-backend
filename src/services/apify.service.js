@@ -36,20 +36,6 @@ class ApifyService {
         }
     }
 
-    async checkRunStatus(platform, runId) {
-        const actorId = ACTORS[platform];
-        const endpoint = `${APIFY_BASE_URL}/${actorId}/runs/${runId}`;
-
-        try {
-            const response = await axios.get(endpoint, {
-                params: { token: this.token }
-            });
-            return response.data;
-        } catch (error) {
-            throw this._handleError(error);
-        }
-    }
-
     _getDefaultConfig(platform) {
         const base = {
             language: 'en',
