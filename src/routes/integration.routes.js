@@ -58,7 +58,7 @@ router.post('/verify-url', async (req, res) => {
    }
 });
 
-router.post('/:hotelId', integrationController.setupIntegration);
+router.post('/hotel/:hotelId', integrationController.setupIntegration);
 router.get('/hotel/:hotelId', integrationController.getHotelIntegrations);
 router.put('/:integrationId', integrationController.updateIntegration);
 router.delete('/:integrationId', integrationController.deleteIntegration);
