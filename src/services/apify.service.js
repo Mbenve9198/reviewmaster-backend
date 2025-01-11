@@ -4,7 +4,7 @@ const APIFY_BASE_URL = 'https://api.apify.com/v2/acts';
 const ACTORS = {
     google: 'compass~google-maps-reviews-scraper',
     tripadvisor: 'maxcopell~tripadvisor-reviews',
-    booking: 'arel~booking-com-reviews-scraper'
+    booking: 'voyager~booking-reviews-scraper'
 };
 
 class ApifyService {
@@ -58,9 +58,13 @@ class ApifyService {
             case 'booking':
                 return {
                     ...base,
-                    minScore: 1,
-                    maxScore: 10,
-                    minimizeRequestCount: true
+                    maxReviewsPerHotel: config.maxReviews || 100,
+                    reviewScores: ['ALL'],
+                    sortReviewsBy: 'f_recent_desc',
+                    startUrls: [{ 
+                        url: url,
+                        method: 'GET'
+                    }]
                 };
             default:
                 return base;

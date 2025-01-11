@@ -27,8 +27,18 @@ const reviewSchema = new mongoose.Schema({
         rating: {
             type: Number,
             required: true,
-            min: 1,
-            max: 5
+            validate: {
+                validator: function(rating) {
+                    const maxRatings = {
+                        'google': 5,
+                        'tripadvisor': 5,
+                        'booking': 10,
+                        'manual': 5
+                    };
+                    return rating >= 1 && rating <= maxRatings[this.platform];
+                },
+                message: props => `Rating must be between 1 and max rating for the platform!`
+            }
         },
         reviewerName: {
             type: String,

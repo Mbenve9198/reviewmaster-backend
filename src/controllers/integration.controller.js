@@ -259,7 +259,6 @@ async function syncReviews(integration) {
 async function processAndSaveReviews(reviews, integration) {
     const newReviews = [];
     for (const reviewData of reviews) {
-        // Mappiamo i campi in base alla piattaforma
         let mappedData = {};
         
         switch(integration.platform) {
@@ -280,6 +279,30 @@ async function processAndSaveReviews(reviews, integration) {
                     date: reviewData.publishedAtDate
                 };
                 break;
+
+            case 'booking':
+                mappedData = {
+                    externalId: `${reviewData.userName}_${reviewData.reviewDate}`,
+                    text: [
+                        reviewData.reviewTitle,
+                        reviewData.likedText,
+                        reviewData.dislikedText
+                    ].filter(Boolean).join('\n\n'),
+                    rating: reviewData.rating, // Manteniamo il rating originale 1-10
+                    reviewerName: reviewData.userName || 'Anonymous',
+                    reviewerImage: null,
+                    language: 'en',
+                    images: [],
+                    likes: 0,
+                    originalUrl: null,
+                    date: reviewData.reviewDate,
+                    metadata: {
+                        numberOfNights: reviewData.numberOfNights,
+                        travelerType: reviewData.travelerType
+                    }
+                };
+                break;
+
             case 'tripadvisor':
                 mappedData = {
                     externalId: reviewData.id || reviewData.reviewId,
@@ -297,7 +320,7 @@ async function processAndSaveReviews(reviews, integration) {
                     date: reviewData.publishedDate || reviewData.date
                 };
                 break;
-            // Aggiungi altri casi per altre piattaforme
+
             default:
                 console.warn(`Platform ${integration.platform} not explicitly handled`);
                 mappedData = {
