@@ -6,7 +6,34 @@ const apifyService = require('../services/apify.service');
 const integrationController = {
     setupIntegration: async (req, res) => {
         try {
-            const { hotelId, platform, placeId, url, syncConfig } = req.body;
+            const { hotelId, platform, url } = req.body;
+
+            // Validazione di base
+            if (!hotelId || !platform || !url) {
+                return res.status(400).json({ message: 'Missing required fields' });
+            }
+
+            // Validazione URL per piattaforma
+            if (platform === 'google') {
+                if (!url.match(/^https:\/\/(www\.)?google\.com\/maps\/place\/.*/)) {
+                    return res.status(400).json({
+                        message: 'Invalid Google Maps URL format'
+                    });
+                }
+            } else if (platform === 'booking') {
+                if (!url.match(/^https:\/\/www\.booking\.com\/hotel\/[a-z]{2}\/.*\.[a-z]{2}\.html$/)) {
+                    return res.status(400).json({
+                        message: 'Invalid Booking.com URL format. Please use the complete hotel URL (e.g., https://www.booking.com/hotel/it/hotel-name.it.html)'
+                    });
+                }
+            } else if (platform === 'tripadvisor') {
+                if (!url.match(/^https:\/\/www\.tripadvisor\.com\/Hotel_Review-.*/)) {
+                    return res.status(400).json({
+                        message: 'Invalid TripAdvisor URL format'
+                    });
+                }
+            }
+
             const userId = req.userId;
 
             const hotel = await Hotel.findOne({ _id: hotelId, userId });
@@ -24,12 +51,11 @@ const integrationController = {
             const integration = new Integration({
                 hotelId,
                 platform,
-                placeId,
                 url,
                 syncConfig: {
-                    type: syncConfig?.type || 'manual',
-                    frequency: syncConfig?.frequency || 'weekly',
-                    maxReviews: syncConfig?.maxReviews || '100'
+                    type: 'manual',
+                    frequency: 'weekly',
+                    maxReviews: '100'
                 }
             });
 
@@ -50,10 +76,7 @@ const integrationController = {
             res.status(201).json(integration);
         } catch (error) {
             console.error('Setup integration error:', error);
-            res.status(500).json({ 
-                message: 'Error setting up integration',
-                error: error.message 
-            });
+            res.status(500).json({ message: 'Error setting up integration' });
         }
     },
 
