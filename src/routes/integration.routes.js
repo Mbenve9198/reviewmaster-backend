@@ -60,9 +60,70 @@ router.post('/verify-url', async (req, res) => {
 
 router.post('/hotel/:hotelId', integrationController.setupIntegration);
 router.get('/hotel/:hotelId', integrationController.getHotelIntegrations);
-router.put('/:integrationId', integrationController.updateIntegration);
 router.delete('/:integrationId', integrationController.deleteIntegration);
 router.post('/:integrationId/sync', integrationController.syncNow);
+
+// Gestione dell'update dell'integrazione
+router.put('/:integrationId', async (req, res) => {
+    try {
+        const { integrationId } = req.params;
+        const { syncConfig, status } = req.body;
+        const userId = req.userId;
+
+        const integration = await Integration.findById(integrationId)
+            .populate('hotelId');
+
+        if (!integration) {
+            return res.status(404).json({ message: 'Integration not found' });
+        }
+
+        // Verifica che l'utente sia autorizzato
+        if (!integration.hotelId || integration.hotelId.userId.toString() !== userId) {
+            return res.status(403).json({ message: 'Unauthorized' });
+        }
+
+        // Aggiorna la configurazione se fornita
+        if (syncConfig) {
+            integration.syncConfig = {
+                ...integration.syncConfig,
+                ...syncConfig
+            };
+        }
+
+        // Aggiorna lo stato se fornito
+        if (status) {
+            integration.status = status;
+        }
+
+        await integration.save();
+
+        // Se il tipo di sync è cambiato in automatico, schedula la prossima sync
+        if (syncConfig?.type === 'automatic') {
+            const nextSync = new Date();
+            switch(integration.syncConfig.frequency) {
+                case 'daily':
+                    nextSync.setDate(nextSync.getDate() + 1);
+                    break;
+                case 'weekly':
+                    nextSync.setDate(nextSync.getDate() + 7);
+                    break;
+                case 'monthly':
+                    nextSync.setMonth(nextSync.getMonth() + 1);
+                    break;
+            }
+            integration.syncConfig.nextScheduledSync = nextSync;
+            await integration.save();
+        }
+
+        res.json(integration);
+    } catch (error) {
+        console.error('Update integration error:', error);
+        res.status(500).json({ 
+            message: 'Error updating integration',
+            error: error.message 
+        });
+    }
+});
 
 router.get('/:integrationId/sync/status', async (req, res) => {
    try {
@@ -94,7 +155,7 @@ router.get('/hotel/:hotelId/stats', async (req, res) => {
        const stats = await Integration.aggregate([
            { 
                $match: { 
-                   hotelId: mongoose.Types.ObjectId(req.params.hotelId) 
+                   hotelId: new mongoose.Types.ObjectId(req.params.hotelId)
                } 
            },
            {
