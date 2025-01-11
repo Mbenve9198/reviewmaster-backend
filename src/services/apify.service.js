@@ -18,10 +18,7 @@ class ApifyService {
 
         const endpoint = `${APIFY_BASE_URL}/${actorId}/run-sync-get-dataset-items`;
         
-        const input = {
-            ...this._getDefaultConfig(platform, config),
-            startUrls: [{ url }]
-        };
+        const input = this._getDefaultConfig(platform, { ...config, url });
 
         try {
             const response = await axios.post(endpoint, input, {
@@ -36,38 +33,40 @@ class ApifyService {
     }
 
     _getDefaultConfig(platform, config) {
-        const base = {
-            maxReviews: config.maxReviews === 'all' ? null : parseInt(config.maxReviews),
-            personalData: true
-        };
-
         switch (platform) {
             case 'google':
                 return {
-                    ...base,
+                    maxReviews: config.maxReviews === 'all' ? null : parseInt(config.maxReviews),
+                    personalData: true,
                     maxImages: 0,
-                    maxCrawledPlaces: 1
+                    maxCrawledPlaces: 1,
+                    startUrls: [{ url: config.url }]
                 };
             case 'tripadvisor':
                 return {
-                    ...base,
+                    maxReviews: config.maxReviews === 'all' ? null : parseInt(config.maxReviews),
+                    personalData: true,
                     includeAttractions: false,
                     includeRestaurants: false,
-                    includeHotels: true
+                    includeHotels: true,
+                    startUrls: [{ url: config.url }]
                 };
             case 'booking':
                 return {
-                    ...base,
-                    maxReviewsPerHotel: config.maxReviews || 100,
+                    maxReviewsPerHotel: config.maxReviews === 'all' ? null : parseInt(config.maxReviews),
                     reviewScores: ['ALL'],
                     sortReviewsBy: 'f_recent_desc',
                     startUrls: [{ 
-                        url: url,
+                        url: config.url,
                         method: 'GET'
                     }]
                 };
             default:
-                return base;
+                return {
+                    maxReviews: config.maxReviews === 'all' ? null : parseInt(config.maxReviews),
+                    personalData: true,
+                    startUrls: [{ url: config.url }]
+                };
         }
     }
 
