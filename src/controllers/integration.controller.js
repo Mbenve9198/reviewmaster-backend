@@ -149,6 +149,41 @@ const integrationController = {
             console.error('Get integrations error:', error);
             res.status(500).json({ message: 'Error fetching integrations' });
         }
+    },
+
+    deleteIntegration: async (req, res) => {
+        try {
+            const { integrationId } = req.params;
+            const userId = req.userId;
+
+            const integration = await Integration.findById(integrationId)
+                .populate('hotelId');
+
+            if (!integration) {
+                return res.status(404).json({ message: 'Integration not found' });
+            }
+
+            if (!integration.hotelId || integration.hotelId.userId.toString() !== userId) {
+                return res.status(403).json({ message: 'Unauthorized' });
+            }
+
+            // Elimina tutte le review associate
+            await Review.deleteMany({ integrationId });
+
+            // Elimina l'integrazione
+            await integration.deleteOne();
+
+            res.json({ 
+                message: 'Integration and associated reviews deleted successfully',
+                deletedIntegration: integration
+            });
+        } catch (error) {
+            console.error('Delete integration error:', error);
+            res.status(500).json({ 
+                message: 'Error deleting integration',
+                error: error.message 
+            });
+        }
     }
 };
 
