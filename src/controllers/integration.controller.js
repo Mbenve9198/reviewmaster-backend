@@ -6,10 +6,11 @@ const apifyService = require('../services/apify.service');
 const integrationController = {
     setupIntegration: async (req, res) => {
         try {
-            const { hotelId, platform, url } = req.body;
+            const { hotelId, platform, url, placeId, syncConfig } = req.body;
+            const userId = req.userId;
 
             // Validazione di base
-            if (!hotelId || !platform || !url) {
+            if (!hotelId || !platform || !url || !placeId) {
                 return res.status(400).json({ message: 'Missing required fields' });
             }
 
@@ -23,7 +24,7 @@ const integrationController = {
             } else if (platform === 'booking') {
                 if (!url.match(/^https:\/\/www\.booking\.com\/hotel\/[a-z]{2}\/.*\.[a-z]{2}\.html$/)) {
                     return res.status(400).json({
-                        message: 'Invalid Booking.com URL format. Please use the complete hotel URL (e.g., https://www.booking.com/hotel/it/hotel-name.it.html)'
+                        message: 'Invalid Booking.com URL format'
                     });
                 }
             } else if (platform === 'tripadvisor') {
@@ -33,8 +34,6 @@ const integrationController = {
                     });
                 }
             }
-
-            const userId = req.userId;
 
             const hotel = await Hotel.findOne({ _id: hotelId, userId });
             if (!hotel) {
@@ -51,11 +50,13 @@ const integrationController = {
             const integration = new Integration({
                 hotelId,
                 platform,
+                placeId,
                 url,
                 syncConfig: {
-                    type: 'manual',
-                    frequency: 'weekly',
-                    maxReviews: '100'
+                    type: syncConfig?.type || 'manual',
+                    frequency: syncConfig?.frequency || 'weekly',
+                    maxReviews: syncConfig?.maxReviews || '100',
+                    language: syncConfig?.language || 'en'
                 }
             });
 
@@ -76,7 +77,10 @@ const integrationController = {
             res.status(201).json(integration);
         } catch (error) {
             console.error('Setup integration error:', error);
-            res.status(500).json({ message: 'Error setting up integration' });
+            res.status(500).json({ 
+                message: 'Error setting up integration',
+                error: error.message 
+            });
         }
     },
 
@@ -94,13 +98,6 @@ const integrationController = {
                 console.log('Integration not found:', integrationId);
                 return res.status(404).json({ message: 'Integration not found' });
             }
-
-            console.log('Integration found:', {
-                id: integration._id,
-                platform: integration.platform,
-                url: integration.url,
-                syncConfig: integration.syncConfig
-            });
 
             if (!integration.hotelId || !integration.hotelId.userId) {
                 console.error('Invalid hotel data:', integration.hotelId);
@@ -131,52 +128,7 @@ const integrationController = {
             });
             res.status(500).json({ 
                 message: 'Error starting sync',
-                error: error.message,
-                details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-            });
-        }
-    },
-
-    updateIntegration: async (req, res) => {
-        try {
-            const { integrationId } = req.params;
-            const { syncConfig, status } = req.body;
-            const userId = req.userId;
-
-            const integration = await Integration.findById(integrationId)
-                .populate('hotelId');
-
-            if (!integration) {
-                return res.status(404).json({ message: 'Integration not found' });
-            }
-
-            if (integration.hotelId.userId.toString() !== userId) {
-                return res.status(403).json({ message: 'Unauthorized' });
-            }
-
-            if (syncConfig) {
-                integration.syncConfig = {
-                    ...integration.syncConfig,
-                    ...syncConfig
-                };
-            }
-
-            if (status) {
-                integration.status = status;
-            }
-
-            await integration.save();
-
-            if (syncConfig?.type === 'automatic' && integration.syncConfig.type === 'manual') {
-                await scheduleSyncForIntegration(integration);
-            }
-
-            res.json(integration);
-        } catch (error) {
-            console.error('Update integration error:', error);
-            res.status(500).json({ 
-                message: 'Error updating integration',
-                error: error.message 
+                error: error.message
             });
         }
     },
@@ -195,48 +147,16 @@ const integrationController = {
             res.json(integrations);
         } catch (error) {
             console.error('Get integrations error:', error);
-            res.status(500).json({ 
-                message: 'Error fetching integrations',
-                error: error.message 
-            });
-        }
-    },
-
-    deleteIntegration: async (req, res) => {
-        try {
-            const { integrationId } = req.params;
-            const userId = req.userId;
-
-            const integration = await Integration.findById(integrationId)
-                .populate('hotelId');
-
-            if (!integration) {
-                return res.status(404).json({ message: 'Integration not found' });
-            }
-
-            if (integration.hotelId.userId.toString() !== userId) {
-                return res.status(403).json({ message: 'Unauthorized' });
-            }
-
-            await integration.remove();
-            res.json({ message: 'Integration deleted successfully' });
-        } catch (error) {
-            console.error('Delete integration error:', error);
-            res.status(500).json({ 
-                message: 'Error deleting integration',
-                error: error.message 
-            });
+            res.status(500).json({ message: 'Error fetching integrations' });
         }
     }
 };
 
-// Funzioni di utilità
 async function syncReviews(integration) {
     try {
         const config = {
             maxReviews: parseInt(integration.syncConfig.maxReviews) || 100,
-            personalData: true,
-            language: integration.syncConfig.language
+            language: integration.syncConfig.language || 'en'
         };
 
         console.log('Starting sync with config:', config);
@@ -308,8 +228,8 @@ async function processAndSaveReviews(reviews, integration) {
                     externalId: `${reviewData.userName}_${reviewData.reviewDate}`,
                     text: [
                         reviewData.reviewTitle,
-                        reviewData.likedText,
-                        reviewData.dislikedText
+                        `Liked: ${reviewData.likedText || 'No comments'}`,
+                        reviewData.dislikedText ? `Disliked: ${reviewData.dislikedText}` : null
                     ].filter(Boolean).join('\n\n'),
                     rating: reviewData.rating, // Manteniamo il rating originale 1-10
                     reviewerName: reviewData.userName || 'Anonymous',
@@ -343,21 +263,6 @@ async function processAndSaveReviews(reviews, integration) {
                     date: reviewData.publishedDate || reviewData.date
                 };
                 break;
-
-            default:
-                console.warn(`Platform ${integration.platform} not explicitly handled`);
-                mappedData = {
-                    externalId: reviewData.reviewId || reviewData.id,
-                    text: reviewData.text || 'No text provided',
-                    rating: reviewData.rating || 5,
-                    reviewerName: reviewData.name || 'Anonymous',
-                    reviewerImage: reviewData.reviewerImage,
-                    language: reviewData.language || 'en',
-                    images: [],
-                    likes: 0,
-                    originalUrl: reviewData.url,
-                    date: reviewData.date
-                };
         }
 
         const existingReview = await Review.findOne({
@@ -385,7 +290,9 @@ async function processAndSaveReviews(reviews, integration) {
                     },
                     metadata: {
                         originalCreatedAt: new Date(mappedData.date),
-                        syncedAt: new Date()
+                        syncedAt: new Date(),
+                        numberOfNights: mappedData.metadata?.numberOfNights,
+                        travelerType: mappedData.metadata?.travelerType
                     }
                 });
 
@@ -438,4 +345,4 @@ async function handleSyncError(integration, error) {
     return await integration.save();
 }
 
-module.exports = integrationController; 
+module.exports = integrationController;
