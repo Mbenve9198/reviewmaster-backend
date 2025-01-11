@@ -259,19 +259,13 @@ async function syncReviews(integration) {
 async function processAndSaveReviews(reviews, integration) {
     const newReviews = [];
     for (const reviewData of reviews) {
-        const existingReview = await Review.findOne({
-            hotelId: integration.hotelId,
-            platform: integration.platform,
-            externalReviewId: reviewData.reviewId
-        });
-
-        if (!existingReview) {
-            const review = new Review({
-                hotelId: integration.hotelId,
-                integrationId: integration._id,
-                platform: integration.platform,
-                externalReviewId: reviewData.reviewId,
-                content: {
+        // Mappiamo i campi in base alla piattaforma
+        let mappedData = {};
+        
+        switch(integration.platform) {
+            case 'google':
+                mappedData = {
+                    externalId: reviewData.reviewId,
                     text: reviewData.text || reviewData.textTranslated || 'No text provided',
                     rating: reviewData.stars || 5,
                     reviewerName: reviewData.name || 'Anonymous',
@@ -282,16 +276,78 @@ async function processAndSaveReviews(reviews, integration) {
                         caption: ''
                     })) : [],
                     likes: reviewData.likesCount || 0,
-                    originalUrl: reviewData.reviewUrl
-                },
-                metadata: {
-                    originalCreatedAt: new Date(reviewData.publishedAtDate),
-                    syncedAt: new Date()
-                }
-            });
+                    originalUrl: reviewData.reviewUrl,
+                    date: reviewData.publishedAtDate
+                };
+                break;
+            case 'tripadvisor':
+                mappedData = {
+                    externalId: reviewData.id || reviewData.reviewId,
+                    text: reviewData.text || reviewData.review || 'No text provided',
+                    rating: reviewData.rating || reviewData.bubbles / 10 || 5,
+                    reviewerName: reviewData.userName || reviewData.user?.username || 'Anonymous',
+                    reviewerImage: reviewData.userImage || reviewData.user?.avatar,
+                    language: reviewData.language || 'en',
+                    images: (reviewData.photos || []).map(photo => ({
+                        url: photo.url || photo,
+                        caption: photo.caption || ''
+                    })),
+                    likes: reviewData.helpfulVotes || 0,
+                    originalUrl: reviewData.url || reviewData.reviewUrl,
+                    date: reviewData.publishedDate || reviewData.date
+                };
+                break;
+            // Aggiungi altri casi per altre piattaforme
+            default:
+                console.warn(`Platform ${integration.platform} not explicitly handled`);
+                mappedData = {
+                    externalId: reviewData.reviewId || reviewData.id,
+                    text: reviewData.text || 'No text provided',
+                    rating: reviewData.rating || 5,
+                    reviewerName: reviewData.name || 'Anonymous',
+                    reviewerImage: reviewData.reviewerImage,
+                    language: reviewData.language || 'en',
+                    images: [],
+                    likes: 0,
+                    originalUrl: reviewData.url,
+                    date: reviewData.date
+                };
+        }
 
-            await review.save();
-            newReviews.push(review);
+        const existingReview = await Review.findOne({
+            hotelId: integration.hotelId,
+            platform: integration.platform,
+            externalReviewId: mappedData.externalId
+        });
+
+        if (!existingReview) {
+            try {
+                const review = new Review({
+                    hotelId: integration.hotelId,
+                    integrationId: integration._id,
+                    platform: integration.platform,
+                    externalReviewId: mappedData.externalId,
+                    content: {
+                        text: mappedData.text,
+                        rating: mappedData.rating,
+                        reviewerName: mappedData.reviewerName,
+                        reviewerImage: mappedData.reviewerImage,
+                        language: mappedData.language,
+                        images: mappedData.images,
+                        likes: mappedData.likes,
+                        originalUrl: mappedData.originalUrl
+                    },
+                    metadata: {
+                        originalCreatedAt: new Date(mappedData.date),
+                        syncedAt: new Date()
+                    }
+                });
+
+                await review.save();
+                newReviews.push(review);
+            } catch (error) {
+                console.error('Error saving review:', error, mappedData);
+            }
         }
     }
     return newReviews;
