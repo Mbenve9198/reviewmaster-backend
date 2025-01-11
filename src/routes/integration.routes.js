@@ -17,6 +17,9 @@ router.post('/hotel/:hotelId', integrationController.setupIntegration);
 router.get('/hotel/:hotelId', integrationController.getHotelIntegrations);
 router.post('/:integrationId/sync', integrationController.syncNow);
 
+// Aggiungiamo la route DELETE
+router.delete('/:integrationId', integrationController.deleteIntegration);
+
 // Aggiungiamo il metodo updateIntegration al controller che mancava
 router.get('/:integrationId/sync/status', async (req, res) => {
    try {
