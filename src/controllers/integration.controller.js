@@ -28,7 +28,7 @@ const integrationController = {
                     });
                 }
             } else if (platform === 'tripadvisor') {
-                if (!url.match(/^https:\/\/www\.tripadvisor\.com\/Hotel_Review-.*/)) {
+                if (!url.match(/^https:\/\/(www\.)?tripadvisor\.[a-z]+\/Hotel_Review-.*\.html$/)) {
                     return res.status(400).json({
                         message: 'Invalid TripAdvisor URL format'
                     });
