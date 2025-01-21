@@ -155,6 +155,12 @@ Respond in the same language as the review. Format the response appropriately wi
     getHotelReviews: async (req, res) => {
         try {
             const { hotelId } = req.params;
+            const { 
+                status,      // 'all', 'responded', 'not-responded'
+                platform,    // 'all' o nome piattaforma specifica
+                rating,      // 'all' o valore numerico
+                search      // testo di ricerca
+            } = req.query;
             const userId = req.userId;
 
             // Verifica che l'hotel appartenga all'utente
@@ -163,7 +169,32 @@ Respond in the same language as the review. Format the response appropriately wi
                 return res.status(404).json({ message: 'Hotel not found' });
             }
 
-            const reviews = await Review.find({ hotelId })
+            // Costruisci il filtro base
+            let filter = { hotelId };
+
+            // Filtro per stato risposta
+            if (status === 'responded') {
+                filter['response'] = { $exists: true };
+            } else if (status === 'not-responded') {
+                filter['response'] = { $exists: false };
+            }
+
+            // Filtro per piattaforma
+            if (platform && platform !== 'all') {
+                filter['platform'] = platform;
+            }
+
+            // Filtro per rating
+            if (rating && rating !== 'all') {
+                filter['content.rating'] = parseInt(rating);
+            }
+
+            // Filtro per testo di ricerca
+            if (search) {
+                filter['content.text'] = { $regex: search, $options: 'i' };
+            }
+
+            const reviews = await Review.find(filter)
                 .sort({ 'content.createdAt': -1 });
 
             res.json(reviews);
