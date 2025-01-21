@@ -156,40 +156,45 @@ Respond in the same language as the review. Format the response appropriately wi
         try {
             const { hotelId } = req.params;
             const { 
-                status,      // 'all', 'responded', 'not-responded'
-                platform,    // 'all' o nome piattaforma specifica
-                rating,      // 'all' o valore numerico
-                search      // testo di ricerca
+                status,
+                platform,
+                rating,
+                search
             } = req.query;
             const userId = req.userId;
 
-            // Verifica che l'hotel appartenga all'utente
-            const hotel = await Hotel.findOne({ _id: hotelId, userId });
-            if (!hotel) {
-                return res.status(404).json({ message: 'Hotel not found' });
+            // Costruisci il filtro base
+            let filter = {};
+
+            // Se hotelId non è 'all', aggiungi il filtro per hotel specifico
+            if (hotelId !== 'all') {
+                // Verifica che l'hotel appartenga all'utente
+                const hotel = await Hotel.findOne({ _id: hotelId, userId });
+                if (!hotel) {
+                    return res.status(404).json({ message: 'Hotel not found' });
+                }
+                filter.hotelId = hotelId;
+            } else {
+                // Se hotelId è 'all', ottieni tutti gli hotel dell'utente
+                const userHotels = await Hotel.find({ userId });
+                filter.hotelId = { $in: userHotels.map(h => h._id) };
             }
 
-            // Costruisci il filtro base
-            let filter = { hotelId };
-
-            // Filtro per stato risposta
+            // Resto dei filtri...
             if (status === 'responded') {
                 filter['response'] = { $exists: true };
             } else if (status === 'not-responded') {
                 filter['response'] = { $exists: false };
             }
 
-            // Filtro per piattaforma
             if (platform && platform !== 'all') {
                 filter['platform'] = platform;
             }
 
-            // Filtro per rating
             if (rating && rating !== 'all') {
                 filter['content.rating'] = parseInt(rating);
             }
 
-            // Filtro per testo di ricerca
             if (search) {
                 filter['content.text'] = { $regex: search, $options: 'i' };
             }
