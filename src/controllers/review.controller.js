@@ -7,13 +7,14 @@ const reviewController = {
     generateResponse: async (req, res) => {
         try {
             const userId = req.userId;
-            const { hotelId, review, responseSettings } = req.body;
+            const { hotelId, review, responseSettings, previousMessages } = req.body;
 
             console.log('Request received:', {
                 userId,
                 hotelId,
                 review,
-                responseSettings
+                responseSettings,
+                previousMessages
             });
 
             // Verifica l'utente e i suoi crediti
@@ -94,43 +95,58 @@ ${hotel.name}
 
 Respond in the same language as the review. Format the response appropriately with proper spacing and paragraphs.`;
 
+            // Se ci sono messaggi precedenti, costruisci un contesto diverso
+            let messages = [];
+            
+            if (previousMessages && previousMessages.length > 0) {
+                // Aggiungi il contesto originale e i messaggi precedenti
+                messages = previousMessages.map(msg => ({
+                    role: msg.sender === "ai" ? "assistant" : "user",
+                    content: msg.content
+                }));
+            } else {
+                // Prima richiesta, usa il prompt originale
+                messages = [{ 
+                    role: "user", 
+                    content: `Please generate a response to this hotel review: ${review}`
+                }];
+            }
+
             // Genera la risposta con Claude
             const response = await anthropic.messages.create({
                 model: "claude-3-sonnet-20240229",
                 max_tokens: 1000,
                 temperature: 0.7,
                 system: systemPrompt,
-                messages: [
-                    { 
-                        role: "user", 
-                        content: `Please generate a response to this hotel review: ${review}`
-                    }
-                ]
+                messages: messages
             });
 
             const aiResponse = response.content[0].text;
 
-            // Salva la recensione nel database
-            const reviewDoc = new Review({
-                hotelId,
-                platform: 'manual',
-                content: {
-                    text: review,
-                    language: detectedLanguage,
-                    rating: 5,
-                    reviewerName: 'Guest'
-                },
-                response: {
-                    text: aiResponse,
-                    createdAt: new Date(),
-                    settings: responseSettings || {
-                        style: 'professional',
-                        length: 'medium'
+            // Se è una modifica, non salvare una nuova recensione
+            if (!previousMessages) {
+                // Salva la recensione nel database
+                const reviewDoc = new Review({
+                    hotelId,
+                    platform: 'manual',
+                    content: {
+                        text: review,
+                        language: detectedLanguage,
+                        rating: 5,
+                        reviewerName: 'Guest'
+                    },
+                    response: {
+                        text: aiResponse,
+                        createdAt: new Date(),
+                        settings: responseSettings || {
+                            style: 'professional',
+                            length: 'medium'
+                        }
                     }
-                }
-            });
+                });
 
-            await reviewDoc.save();
+                await reviewDoc.save();
+            }
 
             // Decrementa i crediti
             await User.findByIdAndUpdate(userId, {
