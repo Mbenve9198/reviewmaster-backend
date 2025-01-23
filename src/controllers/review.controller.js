@@ -45,14 +45,24 @@ const reviewController = {
             // Rileva la lingua solo alla prima richiesta
             let detectedLanguage = null;
             if (!previousMessages) {
-                const languageDetectionMessage = await anthropic.messages.create({
-                    model: "claude-3-sonnet-20240229",
-                    max_tokens: 50,
-                    temperature: 0,
-                    system: "You are a language detection expert. Respond only with the ISO language code.",
-                    messages: [{ role: "user", content: review }]
-                });
-                detectedLanguage = languageDetectionMessage.content[0].text.trim();
+                try {
+                    const languageDetectionMessage = await anthropic.messages.create({
+                        model: "claude-3-sonnet-20240229",
+                        max_tokens: 50,
+                        temperature: 0,
+                        system: "You are a language detection expert. Respond only with the ISO language code.",
+                        messages: [{ role: "user", content: review }]
+                    });
+                    
+                    if (languageDetectionMessage?.content?.[0]?.text) {
+                        detectedLanguage = languageDetectionMessage.content[0].text.trim();
+                    } else {
+                        detectedLanguage = 'en'; // fallback to English
+                    }
+                } catch (error) {
+                    console.error('Language detection error:', error);
+                    detectedLanguage = 'en'; // fallback to English
+                }
             }
 
             // Costruisci il prompt in base alle impostazioni
@@ -98,7 +108,7 @@ Respond in the same language as the review. Format the response appropriately wi
 
             // Costruisci il prompt e i messaggi
             let messages = [];
-            if (previousMessages && previousMessages.length > 0) {
+            if (previousMessages?.length > 0) {
                 messages = previousMessages.map(msg => ({
                     role: msg.sender === "ai" ? "assistant" : "user",
                     content: msg.content
@@ -119,7 +129,10 @@ Respond in the same language as the review. Format the response appropriately wi
                 messages: messages
             });
 
-            const aiResponse = response.content[0].text;
+            let aiResponse = 'We apologize, but we could not generate a response at this time.';
+            if (response?.content?.[0]?.text) {
+                aiResponse = response.content[0].text;
+            }
 
             // Salva la recensione solo alla prima richiesta
             if (!previousMessages) {
