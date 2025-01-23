@@ -104,9 +104,11 @@ Always end the response with:
 ${hotel.managerSignature}
 ${hotel.name}
 
-Respond in the same language as the review. Format the response appropriately with proper spacing and paragraphs.`;
+Respond in the same language as the review. Format the response appropriately with proper spacing and paragraphs.
 
-            // Costruisci il prompt e i messaggi
+If the user asks for modifications to your previous response, adjust it according to their request while maintaining the same language and format.`;
+
+            // Costruisci i messaggi
             let messages = [];
             if (previousMessages?.length > 0) {
                 messages = previousMessages.map(msg => ({
