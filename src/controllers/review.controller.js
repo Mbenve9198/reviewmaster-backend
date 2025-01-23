@@ -42,17 +42,18 @@ const reviewController = {
                 apiKey: process.env.CLAUDE_API_KEY,
             });
 
-            // Prima chiediamo a Claude di identificare la lingua
-            const languageDetectionMessage = await anthropic.messages.create({
-                model: "claude-3-sonnet-20240229",
-                max_tokens: 50,
-                temperature: 0,
-                system: "You are a language detection expert. Respond only with the ISO language code.",
-                messages: [{ role: "user", content: review }]
-            });
-
-            // Estrai il codice lingua dalla risposta di Claude
-            const detectedLanguage = languageDetectionMessage.content[0].text.trim();
+            // Rileva la lingua solo alla prima richiesta
+            let detectedLanguage = null;
+            if (!previousMessages) {
+                const languageDetectionMessage = await anthropic.messages.create({
+                    model: "claude-3-sonnet-20240229",
+                    max_tokens: 50,
+                    temperature: 0,
+                    system: "You are a language detection expert. Respond only with the ISO language code.",
+                    messages: [{ role: "user", content: review }]
+                });
+                detectedLanguage = languageDetectionMessage.content[0].text.trim();
+            }
 
             // Costruisci il prompt in base alle impostazioni
             const style = responseSettings?.style || 'professional';
@@ -95,17 +96,14 @@ ${hotel.name}
 
 Respond in the same language as the review. Format the response appropriately with proper spacing and paragraphs.`;
 
-            // Se ci sono messaggi precedenti, costruisci un contesto diverso
+            // Costruisci il prompt e i messaggi
             let messages = [];
-            
             if (previousMessages && previousMessages.length > 0) {
-                // Aggiungi il contesto originale e i messaggi precedenti
                 messages = previousMessages.map(msg => ({
                     role: msg.sender === "ai" ? "assistant" : "user",
                     content: msg.content
                 }));
             } else {
-                // Prima richiesta, usa il prompt originale
                 messages = [{ 
                     role: "user", 
                     content: `Please generate a response to this hotel review: ${review}`
@@ -123,7 +121,7 @@ Respond in the same language as the review. Format the response appropriately wi
 
             const aiResponse = response.content[0].text;
 
-            // Se è una modifica, non salvare una nuova recensione
+            // Salva la recensione solo alla prima richiesta
             if (!previousMessages) {
                 // Salva la recensione nel database
                 const reviewDoc = new Review({
