@@ -295,6 +295,38 @@ If the user asks for modifications to your previous response, adjust it accordin
             console.error('Get stats error:', error);
             res.status(500).json({ message: 'Error fetching statistics' });
         }
+    },
+
+    deleteReview: async (req, res) => {
+        try {
+            const { reviewId } = req.params;
+            const userId = req.userId;
+
+            // Trova la recensione e popola l'hotelId per verificare la proprietà
+            const review = await Review.findById(reviewId).populate({
+                path: 'hotelId',
+                select: 'userId'
+            });
+
+            if (!review) {
+                return res.status(404).json({ message: 'Review not found' });
+            }
+
+            // Verifica che l'utente sia il proprietario dell'hotel
+            if (review.hotelId.userId.toString() !== userId) {
+                return res.status(403).json({ message: 'Unauthorized' });
+            }
+
+            await Review.findByIdAndDelete(reviewId);
+            
+            res.json({ message: 'Review deleted successfully' });
+        } catch (error) {
+            console.error('Delete review error:', error);
+            res.status(500).json({ 
+                message: 'Error deleting review',
+                error: error.message 
+            });
+        }
     }
 };
 
