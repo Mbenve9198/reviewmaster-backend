@@ -123,20 +123,21 @@ If the user asks for modifications to your previous response, adjust it accordin
             // Costruisci i messaggi con validazione
             let messages = [];
             if (Array.isArray(previousMessages) && previousMessages.length > 0) {
-                messages = previousMessages
-                    .filter(msg => msg && typeof msg.content === 'string' && ['user', 'ai'].includes(msg.sender))
-                    .map(msg => ({
-                        role: msg.sender === "ai" ? "assistant" : "user",
-                        content: msg.content
-                    }));
+                messages = previousMessages.map(msg => ({
+                    role: msg.sender === "ai" ? "assistant" : "user",
+                    content: msg.content
+                }));
                 
-                console.log('Using previous messages:', messages.length);
+                // Add the original review as first message for context
+                messages.unshift({
+                    role: "user",
+                    content: `Please generate a response to this hotel review: ${review}`
+                });
             } else {
                 messages = [{ 
                     role: "user", 
                     content: `Please generate a response to this hotel review: ${review}`
                 }];
-                console.log('Starting new conversation');
             }
 
             // Genera la risposta con Claude con gestione errori
