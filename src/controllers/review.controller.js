@@ -327,6 +327,47 @@ If the user asks for modifications to your previous response, adjust it accordin
                 error: error.message 
             });
         }
+    },
+
+    bulkDeleteReviews: async (req, res) => {
+        try {
+            const { reviewIds } = req.body;
+            const userId = req.userId;
+
+            if (!Array.isArray(reviewIds) || reviewIds.length === 0) {
+                return res.status(400).json({ message: 'No reviews selected' });
+            }
+
+            // Verifica che tutte le recensioni appartengano a hotel dell'utente
+            const reviews = await Review.find({
+                _id: { $in: reviewIds }
+            }).populate({
+                path: 'hotelId',
+                select: 'userId'
+            });
+
+            // Verifica autorizzazione per ogni recensione
+            const unauthorized = reviews.some(review => 
+                review.hotelId.userId.toString() !== userId
+            );
+
+            if (unauthorized) {
+                return res.status(403).json({ message: 'Unauthorized to delete some reviews' });
+            }
+
+            await Review.deleteMany({ _id: { $in: reviewIds } });
+            
+            res.json({ 
+                message: 'Reviews deleted successfully',
+                count: reviewIds.length
+            });
+        } catch (error) {
+            console.error('Bulk delete reviews error:', error);
+            res.status(500).json({ 
+                message: 'Error deleting reviews',
+                error: error.message 
+            });
+        }
     }
 };
 
