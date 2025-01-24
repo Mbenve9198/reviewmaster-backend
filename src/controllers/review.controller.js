@@ -6,15 +6,27 @@ const Anthropic = require('@anthropic-ai/sdk');
 const reviewController = {
     generateResponse: async (req, res) => {
         try {
-            const userId = req.userId;
-            const { hotelId, review, responseSettings, previousMessages } = req.body;
+            console.log('Request body:', req.body);
+            
+            // Validazione input
+            if (!req.body) {
+                throw new Error('Request body is missing');
+            }
 
-            console.log('Request received:', {
+            const { hotelId, review, responseSettings, previousMessages } = req.body;
+            const userId = req.userId;
+
+            // Validazione campi obbligatori
+            if (!hotelId || !review) {
+                throw new Error('Missing required fields: hotelId and review are required');
+            }
+
+            console.log('Processing request with:', {
                 userId,
                 hotelId,
-                review,
+                review: review.substring(0, 100) + '...', // Log solo l'inizio della recensione
                 responseSettings,
-                previousMessages
+                previousMessagesCount: previousMessages?.length
             });
 
             // Verifica l'utente e i suoi crediti
@@ -108,32 +120,41 @@ Respond in the same language as the review. Format the response appropriately wi
 
 If the user asks for modifications to your previous response, adjust it according to their request while maintaining the same language and format.`;
 
-            // Costruisci i messaggi
+            // Costruisci i messaggi con validazione
             let messages = [];
-            if (previousMessages?.length > 0) {
-                messages = previousMessages.map(msg => ({
-                    role: msg.sender === "ai" ? "assistant" : "user",
-                    content: msg.content
-                }));
+            if (Array.isArray(previousMessages) && previousMessages.length > 0) {
+                messages = previousMessages
+                    .filter(msg => msg && typeof msg.content === 'string' && ['user', 'ai'].includes(msg.sender))
+                    .map(msg => ({
+                        role: msg.sender === "ai" ? "assistant" : "user",
+                        content: msg.content
+                    }));
+                
+                console.log('Using previous messages:', messages.length);
             } else {
                 messages = [{ 
                     role: "user", 
                     content: `Please generate a response to this hotel review: ${review}`
                 }];
+                console.log('Starting new conversation');
             }
 
-            // Genera la risposta con Claude
+            // Genera la risposta con Claude con gestione errori
             const response = await anthropic.messages.create({
                 model: "claude-3-sonnet-20240229",
                 max_tokens: 1000,
                 temperature: 0.7,
                 system: systemPrompt,
                 messages: messages
+            }).catch(error => {
+                console.error('Claude API error:', error);
+                throw new Error('Failed to generate response from AI');
             });
 
             let aiResponse = 'We apologize, but we could not generate a response at this time.';
             if (response?.content?.[0]?.text) {
                 aiResponse = response.content[0].text;
+                console.log('Generated response successfully');
             }
 
             // Salva la recensione solo alla prima richiesta
@@ -176,7 +197,8 @@ If the user asks for modifications to your previous response, adjust it accordin
             console.error('Generate response error:', error);
             res.status(500).json({ 
                 message: 'Error generating response',
-                error: error.message
+                error: error.message,
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
             });
         }
     },
