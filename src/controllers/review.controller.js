@@ -368,6 +368,59 @@ If the user asks for modifications to your previous response, adjust it accordin
                 error: error.message 
             });
         }
+    },
+
+    updateReviewResponse: async (req, res) => {
+        try {
+            const { reviewId } = req.params;
+            const { response } = req.body;
+            const userId = req.userId;
+
+            // Validazione input
+            if (!response || !response.text) {
+                return res.status(400).json({ message: 'Response text is required' });
+            }
+
+            // Trova la recensione e popola l'hotelId per verificare la proprietà
+            const review = await Review.findById(reviewId).populate({
+                path: 'hotelId',
+                select: 'userId'
+            });
+
+            if (!review) {
+                return res.status(404).json({ message: 'Review not found' });
+            }
+
+            // Verifica che l'utente sia il proprietario dell'hotel
+            if (review.hotelId.userId.toString() !== userId) {
+                return res.status(403).json({ message: 'Unauthorized' });
+            }
+
+            // Aggiorna la risposta
+            review.response = {
+                text: response.text,
+                createdAt: response.createdAt || new Date(),
+                settings: response.settings || {
+                    style: 'professional',
+                    length: 'medium'
+                },
+                synced: false // La risposta dovrà essere sincronizzata con la piattaforma
+            };
+
+            await review.save();
+
+            res.json({ 
+                message: 'Response updated successfully',
+                review
+            });
+
+        } catch (error) {
+            console.error('Update review response error:', error);
+            res.status(500).json({ 
+                message: 'Error updating review response',
+                error: error.message 
+            });
+        }
     }
 };
 

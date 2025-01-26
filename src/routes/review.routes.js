@@ -12,5 +12,6 @@ router.get('/hotel/:hotelId', (req, res) => reviewController.getHotelReviews(req
 router.get('/stats/:hotelId', (req, res) => reviewController.getReviewStats(req, res));
 router.delete('/:reviewId', (req, res) => reviewController.deleteReview(req, res));
 router.post('/bulk-delete', (req, res) => reviewController.bulkDeleteReviews(req, res));
+router.patch('/:reviewId', (req, res) => reviewController.updateReviewResponse(req, res));
 
 module.exports = router;
