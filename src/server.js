@@ -35,7 +35,7 @@ app.use(cors({
         'https://www.replai.app'
     ],
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature'],
     exposedHeaders: ['Authorization'],
     preflightContinue: false,
