@@ -225,7 +225,11 @@ If the user asks for modifications to your previous response, adjust it accordin
             if (responseStatus === 'responded') {
                 query['response.text'] = { $exists: true, $ne: '' };
             } else if (responseStatus === 'unresponded') {
-                query['response.text'] = { $exists: false };
+                query['$or'] = [
+                    { 'response.text': { $exists: false } },
+                    { 'response.text': '' },
+                    { 'response.text': null }
+                ];
             }
 
             if (rating && rating !== 'all') {
