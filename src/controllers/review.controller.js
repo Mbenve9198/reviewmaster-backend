@@ -59,7 +59,7 @@ const reviewController = {
             if (!previousMessages) {
                 try {
                     const languageDetectionMessage = await anthropic.messages.create({
-                        model: "claude-3-sonnet-20240229",
+                        model: "claude-3.5-sonnet-20240307",
                         max_tokens: 50,
                         temperature: 0,
                         system: "You are a language detection expert. Respond only with the ISO language code.",
@@ -110,6 +110,12 @@ Use the following hotel information in your response when relevant:
 - Hotel Type: ${hotel.type}
 - Hotel Description: ${hotel.description}
 
+If the review has limited or no text content, create a polite response based on:
+- The rating (if available)
+- The reviewer's name (if available)
+- General appreciation for feedback
+- An invitation to return
+
 If you find a name in the review, address that person. Otherwise, use a generic greeting like 'Dear Guest' or equivalent in the review language.
 
 Always end the response with:
@@ -142,7 +148,7 @@ If the user asks for modifications to your previous response, adjust it accordin
 
             // Genera la risposta con Claude con gestione errori
             const response = await anthropic.messages.create({
-                model: "claude-3-sonnet-20240229",
+                model: "claude-3.5-sonnet-20240307",
                 max_tokens: 1000,
                 temperature: 0.7,
                 system: systemPrompt,
