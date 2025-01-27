@@ -226,6 +226,8 @@ If the user asks for modifications to your previous response, adjust it accordin
                 query['response.text'] = { $exists: true, $ne: '' };
             } else if (responseStatus === 'unresponded') {
                 query['$or'] = [
+                    { response: { $exists: false } },
+                    { response: null },
                     { 'response.text': { $exists: false } },
                     { 'response.text': '' },
                     { 'response.text': null }
