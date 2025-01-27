@@ -6,9 +6,9 @@ const analyticsController = {
             const { reviews, prompt } = req.body;
             const userId = req.userId;
 
-            if (!reviews || reviews.length < 10) {
+            if (!Array.isArray(reviews) || reviews.length === 0) {
                 return res.status(400).json({ 
-                    message: 'Minimum 10 reviews required for analysis' 
+                    message: 'Reviews array is required and must not be empty' 
                 });
             }
 
@@ -17,12 +17,12 @@ const analyticsController = {
                 apiKey: process.env.CLAUDE_API_KEY,
             });
 
-            // Prepara i dati delle recensioni per l'analisi
+            // Prepara i dati delle recensioni in un formato più sicuro
             const reviewsData = reviews.map(review => ({
-                rating: review.content.rating,
-                text: review.content.text,
-                date: review.metadata.originalCreatedAt,
-                platform: review.platform
+                content: review.content?.text || '',
+                rating: review.content?.rating || 0,
+                date: review.metadata?.originalCreatedAt || new Date().toISOString(),
+                platform: review.metadata?.platform || 'unknown'
             }));
 
             // Costruisci il prompt per l'analisi
