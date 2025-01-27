@@ -213,57 +213,38 @@ If the user asks for modifications to your previous response, adjust it accordin
     getHotelReviews: async (req, res) => {
         try {
             const { hotelId } = req.params;
-            const { 
-                status,
-                platform,
-                rating,
-                search
-            } = req.query;
+            const { platform, responseStatus, rating, search } = req.query;
             const userId = req.userId;
 
-            // Costruisci il filtro base
-            let filter = {};
-
-            // Se hotelId non è 'all', aggiungi il filtro per hotel specifico
-            if (hotelId !== 'all') {
-                // Verifica che l'hotel appartenga all'utente
-                const hotel = await Hotel.findOne({ _id: hotelId, userId });
-                if (!hotel) {
-                    return res.status(404).json({ message: 'Hotel not found' });
-                }
-                filter.hotelId = hotelId;
-            } else {
-                // Se hotelId è 'all', ottieni tutti gli hotel dell'utente
-                const userHotels = await Hotel.find({ userId });
-                filter.hotelId = { $in: userHotels.map(h => h._id) };
-            }
-
-            // Resto dei filtri...
-            if (status === 'responded') {
-                filter['response'] = { $exists: true };
-            } else if (status === 'not-responded') {
-                filter['response'] = { $exists: false };
-            }
+            let query = { hotelId };
 
             if (platform && platform !== 'all') {
-                filter['platform'] = platform;
+                query.platform = platform;
+            }
+
+            if (responseStatus === 'responded') {
+                query['response.text'] = { $exists: true, $ne: '' };
+            } else if (responseStatus === 'unresponded') {
+                query['response.text'] = { $exists: false };
             }
 
             if (rating && rating !== 'all') {
-                filter['content.rating'] = parseInt(rating);
+                query['content.rating'] = parseInt(rating);
             }
 
             if (search) {
-                filter['content.text'] = { $regex: search, $options: 'i' };
+                query['content.text'] = { $regex: search, $options: 'i' };
             }
 
-            const reviews = await Review.find(filter)
-                .sort({ 'content.createdAt': -1 });
+            const reviews = await Review.find(query)
+                .sort({ 'content.date': -1 })
+                .lean()
+                .exec();
 
             res.json(reviews);
         } catch (error) {
-            console.error('Get reviews error:', error);
-            res.status(500).json({ message: 'Error fetching reviews' });
+            console.error('Get hotel reviews error:', error);
+            res.status(500).json({ message: 'Failed to fetch reviews' });
         }
     },
 
