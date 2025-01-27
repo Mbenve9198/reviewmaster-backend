@@ -1,4 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY
+});
 
 const analyticsController = {
     analyzeReviews: async (req, res) => {
@@ -16,7 +19,7 @@ const analyticsController = {
                 content: review.content?.text || '',
                 rating: review.content?.rating || 0,
                 date: review.metadata?.originalCreatedAt || new Date().toISOString(),
-                platform: review.platform || 'unknown'
+                platform: review.metadata?.platform || 'unknown'
             }));
 
             // Calcola alcune statistiche di base
@@ -70,9 +73,7 @@ LINEE GUIDA:
 - Prioritizza per impatto sul business
 - Suggerisci solo azioni concrete e fattibili
 - Se non ci sono dati sufficienti per un'analisi, specificalo
-- Inserisci sempre una citazione testuale per ogni punto
-
-Rispondi nella stessa lingua del prompt.`;
+- Inserisci sempre una citazione testuale per ogni punto`;
 
             const message = await anthropic.messages.create({
                 model: "claude-3-5-sonnet-20241022",
