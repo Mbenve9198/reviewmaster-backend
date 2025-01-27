@@ -59,7 +59,7 @@ const reviewController = {
             if (!previousMessages) {
                 try {
                     const languageDetectionMessage = await anthropic.messages.create({
-                        model: "claude-3.5-sonnet-20240307",
+                        model: "claude-3-sonnet-20241022",
                         max_tokens: 50,
                         temperature: 0,
                         system: "You are a language detection expert. Respond only with the ISO language code.",
@@ -148,7 +148,7 @@ If the user asks for modifications to your previous response, adjust it accordin
 
             // Genera la risposta con Claude con gestione errori
             const response = await anthropic.messages.create({
-                model: "claude-3.5-sonnet-20240307",
+                model: "claude-3-sonnet-20241022",
                 max_tokens: 1000,
                 temperature: 0.7,
                 system: systemPrompt,
