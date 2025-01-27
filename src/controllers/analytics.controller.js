@@ -12,43 +12,77 @@ const analyticsController = {
                 });
             }
 
-            // Inizializza il client Claude
-            const anthropic = new Anthropic({
-                apiKey: process.env.CLAUDE_API_KEY,
-            });
-
-            // Prepara i dati delle recensioni in un formato più sicuro
             const reviewsData = reviews.map(review => ({
                 content: review.content?.text || '',
                 rating: review.content?.rating || 0,
                 date: review.metadata?.originalCreatedAt || new Date().toISOString(),
-                platform: review.metadata?.platform || 'unknown'
+                platform: review.platform || 'unknown'
             }));
 
-            // Costruisci il prompt per l'analisi
-            const systemPrompt = `You are an expert hotel review analyst. Analyze the following ${reviews.length} reviews and provide insights based on the user's request.
+            // Calcola alcune statistiche di base
+            const avgRating = (reviewsData.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1);
+            const platforms = [...new Set(reviewsData.map(r => r.platform))];
+            
+            const systemPrompt = `Sei un esperto analista del settore hospitality con oltre 20 anni di esperienza.
+Analizza ${reviews.length} recensioni da ${platforms.join(', ')} e fornisci insights strategici.
 
-Key guidelines:
-- Base patterns on minimum 10 reviews
-- Provide evidence from reviews for each insight
-- Prioritize by impact
-- Suggest concrete, actionable solutions when relevant
-- Be objective and data-driven
-- Format the response with clear sections and bullet points
-- Respond in the same language as the prompt
+FORMATO OUTPUT RICHIESTO:
+====================
+📊 PANORAMICA
+====================
+- Rating medio: ${avgRating}/5
+- Recensioni analizzate: ${reviews.length}
+- Periodo: [data più vecchia] - [data più recente]
+- Piattaforme: ${platforms.join(', ')}
 
-The reviews data is provided in a structured format with ratings, text, dates and platforms.`;
+====================
+⚠️ PROBLEMI CHIAVE
+====================
+[Per ogni problema con almeno 3 menzioni]
 
-            // Esegui l'analisi con Claude
+PROBLEMA: [Titolo]
+Frequenza: [X recensioni su ${reviews.length}]
+> "[citazione più rappresentativa]"
+Impatto: [ALTO/MEDIO/BASSO]
+
+SOLUZIONE PROPOSTA:
+- Azione concreta da implementare
+- Tempo stimato per implementazione
+- Costo stimato (€/€€/€€€)
+- ROI atteso
+
+====================
+💪 PUNTI DI FORZA
+====================
+[Per ogni punto di forza citato frequentemente]
+
+PUNTO DI FORZA: [Titolo]
+Menzionato in: [X recensioni]
+> "[citazione più efficace per marketing]"
+Come valorizzarlo:
+- Suggerimento per marketing
+- Opportunità di sviluppo
+
+LINEE GUIDA:
+- Usa dati quantitativi dove possibile
+- Cita SEMPRE la fonte (es: "menzionato in 5 recensioni su Booking")
+- NO pattern se menzionati meno di 3 volte
+- Prioritizza per impatto sul business
+- Suggerisci solo azioni concrete e fattibili
+- Se non ci sono dati sufficienti per un'analisi, specificalo
+- Inserisci sempre una citazione testuale per ogni punto
+
+Rispondi nella stessa lingua del prompt.`;
+
             const message = await anthropic.messages.create({
                 model: "claude-3-5-sonnet-20241022",
-                max_tokens: 1000,
+                max_tokens: 4000,
                 temperature: 0,
                 system: systemPrompt,
                 messages: [
                     {
                         role: "user",
-                        content: `${prompt}\n\nReviews data:\n${JSON.stringify(reviewsData, null, 2)}`
+                        content: `${prompt}\n\nRecensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
                     }
                 ]
             });
@@ -59,7 +93,9 @@ The reviews data is provided in a structured format with ratings, text, dates an
 
             res.json({ 
                 analysis: message.content[0].text,
-                reviewsAnalyzed: reviews.length
+                reviewsAnalyzed: reviews.length,
+                avgRating,
+                platforms
             });
 
         } catch (error) {
@@ -72,4 +108,4 @@ The reviews data is provided in a structured format with ratings, text, dates an
     }
 };
 
-module.exports = analyticsController; 
+module.exports = analyticsController;
