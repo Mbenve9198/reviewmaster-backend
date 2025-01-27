@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
+const bodyParser = require('body-parser');
 require('dotenv').config();
 
 const { setupCreditsResetJob } = require('./jobs/credits-reset.job');
@@ -50,8 +51,8 @@ app.options('*', cors());
 app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
 
 // Standard middlewares
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // Health check
 app.get('/', (req, res) => {
