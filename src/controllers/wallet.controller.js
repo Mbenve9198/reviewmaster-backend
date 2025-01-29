@@ -99,31 +99,39 @@ const walletController = {
         try {
             const userId = req.userId;
             const page = parseInt(req.query.page) || 1;
-            const limit = parseInt(req.query.limit) || 20;
+            const limit = parseInt(req.query.limit) || 10;
             const skip = (page - 1) * limit;
 
-            const [transactions, total] = await Promise.all([
-                Transaction.find({ userId })
-                    .sort({ createdAt: -1 })
-                    .skip(skip)
-                    .limit(limit)
-                    .exec(),
-                Transaction.countDocuments({ userId })
-            ]);
+            // Modifichiamo la query per prendere solo le transazioni completate
+            const transactions = await Transaction.find({ 
+                userId,
+                status: 'completed' // Mostra solo le transazioni completate
+            })
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit);
+
+            // Contiamo solo le transazioni completate
+            const total = await Transaction.countDocuments({ 
+                userId,
+                status: 'completed'
+            });
+
+            const totalPages = Math.ceil(total / limit);
 
             res.json({
-                transactions: transactions.map(t => t.getFormattedDetails()),
+                transactions,
                 pagination: {
-                    page,
-                    limit,
-                    total,
-                    pages: Math.ceil(total / limit)
+                    currentPage: page,
+                    totalPages,
+                    totalItems: total,
+                    itemsPerPage: limit
                 }
             });
         } catch (error) {
             console.error('Get transactions error:', error);
             res.status(500).json({ 
-                message: 'Error fetching transactions',
+                message: 'Failed to fetch transactions',
                 error: error.message 
             });
         }
