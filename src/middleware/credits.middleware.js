@@ -1,3 +1,5 @@
+const User = require('../models/user.model');
+
 const checkCredits = async (req, res, next) => {
   try {
     const userId = req.userId;
