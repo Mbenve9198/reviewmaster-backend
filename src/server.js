@@ -16,6 +16,7 @@ const userRoutes = require('./routes/user.routes');
 const integrationRoutes = require('./routes/integration.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
 const walletRoutes = require('./routes/wallet.routes');
+const checkCredits = require('./middleware/credits.middleware');
 
 const app = express();
 
@@ -63,11 +64,11 @@ app.get('/', (req, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/hotels', authMiddleware, checkEmailVerification, hotelRoutes);
-app.use('/api/reviews', authMiddleware, checkEmailVerification, reviewRoutes);
+app.use('/api/reviews', authMiddleware, checkCredits, reviewRoutes);
 app.use('/api/users', authMiddleware, checkEmailVerification, userRoutes);
-app.use('/api/integrations', authMiddleware, checkEmailVerification, integrationRoutes);
-app.use('/api/analytics', authMiddleware, checkEmailVerification, analyticsRoutes);
-app.use('/api/wallet', authMiddleware, checkEmailVerification, walletRoutes);
+app.use('/api/integrations', authMiddleware, checkCredits, integrationRoutes);
+app.use('/api/analytics', authMiddleware, checkCredits, analyticsRoutes);
+app.use('/api/wallet', authMiddleware, walletRoutes);
 
 // Stripe webhook route
 app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));
