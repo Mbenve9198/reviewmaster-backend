@@ -2,6 +2,7 @@ const Integration = require('../models/integration.model');
 const Review = require('../models/review.model');
 const Hotel = require('../models/hotel.model');
 const apifyService = require('../services/apify.service');
+const User = require('../models/user.model');
 
 const integrationController = {
     setupIntegration: async (req, res) => {
@@ -135,52 +136,98 @@ const integrationController = {
 
     getHotelIntegrations: async (req, res) => {
         try {
-            const { hotelId } = req.params;
-            const userId = req.userId;
-
-            const hotel = await Hotel.findOne({ _id: hotelId, userId });
-            if (!hotel) {
-                return res.status(404).json({ message: 'Hotel not found' });
+            const hotelId = req.params.hotelId;
+            
+            // Verifica che l'utente abbia abbastanza crediti per l'operazione
+            const user = await User.findById(req.userId);
+            if (!user) {
+                return res.status(404).json({ message: 'User not found' });
             }
 
-            const integrations = await Integration.find({ hotelId });
+            const integrations = await Integration.find({ hotelId })
+                .sort({ createdAt: -1 });
+
             res.json(integrations);
         } catch (error) {
-            console.error('Get integrations error:', error);
-            res.status(500).json({ message: 'Error fetching integrations' });
+            console.error('Get hotel integrations error:', error);
+            res.status(500).json({ 
+                message: 'Failed to fetch integrations',
+                error: error.message 
+            });
         }
     },
 
-    deleteIntegration: async (req, res) => {
+    createIntegration: async (req, res) => {
         try {
-            const { integrationId } = req.params;
-            const userId = req.userId;
+            const hotelId = req.params.hotelId;
+            const integrationData = req.body;
 
-            const integration = await Integration.findById(integrationId)
-                .populate('hotelId');
+            // Verifica che l'utente abbia abbastanza crediti per l'operazione
+            const user = await User.findById(req.userId);
+            if (!user) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+
+            // Crea la nuova integrazione
+            const integration = await Integration.create({
+                ...integrationData,
+                hotelId,
+                userId: req.userId
+            });
+
+            res.status(201).json(integration);
+        } catch (error) {
+            console.error('Create integration error:', error);
+            res.status(500).json({ 
+                message: 'Failed to create integration',
+                error: error.message 
+            });
+        }
+    },
+
+    updateIntegration: async (req, res) => {
+        try {
+            const integrationId = req.params.id;
+            const updates = req.body;
+
+            const integration = await Integration.findOneAndUpdate(
+                { _id: integrationId, userId: req.userId },
+                updates,
+                { new: true }
+            );
 
             if (!integration) {
                 return res.status(404).json({ message: 'Integration not found' });
             }
 
-            if (!integration.hotelId || integration.hotelId.userId.toString() !== userId) {
-                return res.status(403).json({ message: 'Unauthorized' });
+            res.json(integration);
+        } catch (error) {
+            console.error('Update integration error:', error);
+            res.status(500).json({ 
+                message: 'Failed to update integration',
+                error: error.message 
+            });
+        }
+    },
+
+    deleteIntegration: async (req, res) => {
+        try {
+            const integrationId = req.params.id;
+
+            const integration = await Integration.findOneAndDelete({
+                _id: integrationId,
+                userId: req.userId
+            });
+
+            if (!integration) {
+                return res.status(404).json({ message: 'Integration not found' });
             }
 
-            // Elimina tutte le review associate
-            await Review.deleteMany({ integrationId });
-
-            // Elimina l'integrazione
-            await integration.deleteOne();
-
-            res.json({ 
-                message: 'Integration and associated reviews deleted successfully',
-                deletedIntegration: integration
-            });
+            res.json({ message: 'Integration deleted successfully' });
         } catch (error) {
             console.error('Delete integration error:', error);
             res.status(500).json({ 
-                message: 'Error deleting integration',
+                message: 'Failed to delete integration',
                 error: error.message 
             });
         }
