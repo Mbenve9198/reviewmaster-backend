@@ -25,7 +25,7 @@ module.exports = async (req, res) => {
                 break;
 
             case 'payment_intent.payment_failed':
-                await handleFailedPayment(event.data.object);
+                await handlePaymentFailed(event.data.object);
                 break;
         }
 
@@ -116,17 +116,20 @@ async function handleSuccessfulPayment(paymentIntent) {
     }
 }
 
-async function handleFailedPayment(paymentIntent) {
+async function handlePaymentFailed(paymentIntent) {
     try {
-        // Update the transaction status to failed
+        // Aggiorna lo stato della transazione a failed
         await Transaction.findOneAndUpdate(
             { 'metadata.stripePaymentIntentId': paymentIntent.id },
-            { status: 'failed' }
+            { 
+                status: 'failed',
+                error: paymentIntent.last_payment_error?.message || 'Payment failed',
+                updatedAt: new Date()
+            }
         );
 
         console.log(`Payment failed for payment intent ${paymentIntent.id}`);
     } catch (error) {
         console.error('Error handling failed payment:', error);
-        throw error;
     }
 }
