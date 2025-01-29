@@ -8,26 +8,15 @@ const reviewController = {
         try {
             console.log('Request body:', req.body);
             
-            // Validazione input
-            if (!req.body) {
-                throw new Error('Request body is missing');
-            }
-
             const { hotelId, review, responseSettings, previousMessages } = req.body;
             const userId = req.userId;
 
-            // Validazione campi obbligatori
+            // Validazione input
             if (!hotelId || !review) {
-                throw new Error('Missing required fields: hotelId and review are required');
+                return res.status(400).json({ 
+                    message: 'Missing required fields: hotelId and review are required' 
+                });
             }
-
-            console.log('Processing request with:', {
-                userId,
-                hotelId,
-                review: review.substring(0, 100) + '...', // Log solo l'inizio della recensione
-                responseSettings,
-                previousMessagesCount: previousMessages?.length
-            });
 
             // Verifica l'utente e i suoi crediti
             const user = await User.findById(userId);
@@ -36,9 +25,9 @@ const reviewController = {
             }
 
             // Verifica se l'utente ha crediti disponibili
-            if (user.subscription.responseCredits <= 0) {
+            if (!user.wallet?.credits && user.wallet?.freeScrapingRemaining <= 0) {
                 return res.status(403).json({ 
-                    message: 'No credits available. Please upgrade your plan to continue generating responses.',
+                    message: 'No credits available. Please purchase credits to continue.',
                     type: 'NO_CREDITS'
                 });
             }
@@ -191,21 +180,23 @@ If the user asks for modifications to your previous response, adjust it accordin
 
             // Decrementa i crediti
             await User.findByIdAndUpdate(userId, {
-                $inc: { 'subscription.responseCredits': -1 }
+                $inc: { 
+                    'wallet.credits': -1,
+                    'wallet.freeScrapingRemaining': user.wallet?.freeScrapingRemaining > 0 ? -1 : 0
+                }
             });
 
             res.json({ 
                 response: aiResponse,
                 detectedLanguage,
-                creditsRemaining: user.subscription.responseCredits - 1
+                creditsRemaining: (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0) - 1
             });
 
         } catch (error) {
             console.error('Generate response error:', error);
             res.status(500).json({ 
                 message: 'Error generating response',
-                error: error.message,
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+                error: error.message
             });
         }
     },
