@@ -11,69 +11,51 @@ const SUBSCRIPTION_LIMITS = {
 const hotelController = {
     createHotel: async (req, res) => {
         try {
-            console.log('Request body received:', req.body);
-            
             const { name, type, description, managerSignature, responseSettings } = req.body;
             const userId = req.userId;
 
-            // Validazione dei campi richiesti
+            // Validazione input
             if (!name || !type || !description || !managerSignature) {
                 return res.status(400).json({
                     message: 'Missing required fields',
-                    error: 'All fields (name, type, description, managerSignature) are required'
+                    details: 'name, type, description, and managerSignature are required'
                 });
             }
 
-            // Verifica limiti del piano
-            const userData = await User.findById(userId);
-            if (!userData) {
+            // Verifica che l'utente esista
+            const user = await User.findById(userId);
+            if (!user) {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            console.log('User data:', userData.toObject());
-            
-            const hotelCount = await Hotel.countDocuments({ userId });
-            console.log('Hotel count:', hotelCount);
-            
-            const planLimits = SUBSCRIPTION_LIMITS[userData.subscription.plan];
-            console.log('Plan limits:', planLimits);
-
-            if (hotelCount >= planLimits.hotelsLimit) {
+            // Verifica che l'utente abbia abbastanza crediti
+            if (!user.wallet?.credits && user.wallet?.freeScrapingRemaining <= 0) {
                 return res.status(403).json({ 
-                    message: `Your ${userData.subscription.plan} plan is limited to ${planLimits.hotelsLimit} hotels` 
+                    message: 'Insufficient credits',
+                    details: 'Please purchase credits to add a new hotel'
                 });
             }
 
-            // Aggiungiamo i campi legacy mantenendo quello nuovo
-            const hotel = new Hotel({
+            // Crea il nuovo hotel
+            const hotel = await Hotel.create({
                 name,
                 userId,
-                type,
+                type: type.toLowerCase(),
                 description,
                 managerSignature,
-                managerName: managerSignature,  // Usiamo managerSignature anche per il vecchio campo
-                signature: managerSignature,    // Usiamo managerSignature anche per il vecchio campo
                 responseSettings: responseSettings || {
                     style: 'professional',
                     length: 'medium'
                 }
             });
 
-            console.log('Attempting to save hotel:', hotel.toObject());
-
-            const savedHotel = await hotel.save();
-            console.log('Hotel saved successfully:', savedHotel.toObject());
-
-            res.status(201).json(savedHotel);
+            res.status(201).json(hotel);
         } catch (error) {
-            console.error('Create hotel error details:', {
-                message: error.message,
-                stack: error.stack,
-                name: error.name
-            });
+            console.error('Create hotel error:', error);
             res.status(500).json({ 
-                message: 'Error creating hotel', 
-                error: error.message 
+                message: 'Failed to create hotel',
+                error: error.message,
+                details: error.stack
             });
         }
     },
