@@ -1,6 +1,7 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const User = require('../models/user.model');
 const Transaction = require('../models/transaction.model');
+const mongoose = require('mongoose');
 
 module.exports = async (req, res) => {
     const sig = req.headers['stripe-signature'];
@@ -42,25 +43,55 @@ async function handleSuccessfulPayment(paymentIntent) {
     session.startTransaction();
 
     try {
-        // Update the transaction status
-        await Transaction.findOneAndUpdate(
-            { 'metadata.stripePaymentIntentId': paymentIntent.id },
-            { status: 'completed' },
-            { session }
+        // Aggiorna lo stato della transazione
+        const transaction = await Transaction.findOneAndUpdate(
+            { 
+                'metadata.stripePaymentIntentId': paymentIntent.id,
+                status: 'pending'
+            },
+            { 
+                status: 'completed',
+                completedAt: new Date()
+            },
+            { 
+                session,
+                new: true // Ritorna il documento aggiornato
+            }
         );
 
-        // Add credits to user's wallet
-        await User.findByIdAndUpdate(
+        if (!transaction) {
+            throw new Error('Transaction not found or already processed');
+        }
+
+        // Aggiungi i crediti solo quando il pagamento è confermato
+        const user = await User.findByIdAndUpdate(
             userId,
-            { $inc: { 'wallet.credits': credits } },
-            { session }
+            { 
+                $inc: { 'wallet.credits': credits },
+                $push: { 
+                    'wallet.history': {
+                        type: 'credit_purchase',
+                        amount: credits,
+                        pricePerCredit,
+                        transactionId: transaction._id
+                    }
+                }
+            },
+            { 
+                session,
+                new: true
+            }
         );
+
+        if (!user) {
+            throw new Error('User not found');
+        }
 
         await session.commitTransaction();
-        
-        console.log(`Successfully added ${credits} credits to user ${userId}`);
+        console.log(`Successfully processed payment for user ${userId}: ${credits} credits added`);
     } catch (error) {
         await session.abortTransaction();
+        console.error('Payment processing error:', error);
         throw error;
     } finally {
         session.endSession();
