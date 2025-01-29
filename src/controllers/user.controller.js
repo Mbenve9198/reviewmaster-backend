@@ -6,29 +6,27 @@ const userController = {
         try {
             const userId = req.userId;
             
-            const user = await User.findById(userId);
+            const [user, hotelsCount] = await Promise.all([
+                User.findById(userId),
+                Hotel.countDocuments({ userId })
+            ]);
+
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
             }
-            
-            const hotelsCount = await Hotel.countDocuments({ userId });
-            
-            // Usa i limiti dal virtual del model
-            const { responsesLimit, hotelsLimit } = user.subscriptionLimits;
-            
-            const responsesUsed = responsesLimit - user.subscription.responseCredits;
-            
+
             res.json({
-                subscription: {
-                    plan: user.subscription.plan,
-                    status: user.subscription.status,
-                    responsesUsed,
-                    responseCredits: user.subscription.responseCredits,
-                    responsesLimit,
-                    hotelsLimit,
-                    nextResetDate: user.subscription.nextResetDate
+                wallet: {
+                    credits: user.wallet.credits,
+                    freeScrapingUsed: user.wallet.freeScrapingUsed,
+                    freeScrapingRemaining: 1000 - user.wallet.freeScrapingUsed
                 },
-                hotelsCount
+                hotelsCount,
+                // Non rimuovere ancora completamente subscription per retrocompatibilità
+                subscription: {
+                    status: 'active',
+                    responseCredits: user.wallet.credits
+                }
             });
         } catch (error) {
             console.error('Get user stats error:', error);
