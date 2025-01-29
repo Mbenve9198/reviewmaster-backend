@@ -43,6 +43,17 @@ async function handleSuccessfulPayment(paymentIntent) {
     session.startTransaction();
 
     try {
+        // Verifica se esiste già una transazione completata per questo payment intent
+        const existingTransaction = await Transaction.findOne({
+            'metadata.stripePaymentIntentId': paymentIntent.id,
+            status: 'completed'
+        });
+
+        if (existingTransaction) {
+            console.log('Transaction already processed:', paymentIntent.id);
+            return;
+        }
+
         // Aggiorna lo stato della transazione
         const transaction = await Transaction.findOneAndUpdate(
             { 
@@ -55,7 +66,7 @@ async function handleSuccessfulPayment(paymentIntent) {
             },
             { 
                 session,
-                new: true // Ritorna il documento aggiornato
+                new: true
             }
         );
 
@@ -92,7 +103,14 @@ async function handleSuccessfulPayment(paymentIntent) {
     } catch (error) {
         await session.abortTransaction();
         console.error('Payment processing error:', error);
-        throw error;
+        // Aggiorna lo stato della transazione a failed se c'è un errore
+        await Transaction.findOneAndUpdate(
+            { 'metadata.stripePaymentIntentId': paymentIntent.id },
+            { 
+                status: 'failed',
+                error: error.message
+            }
+        );
     } finally {
         session.endSession();
     }
