@@ -14,7 +14,7 @@ const walletController = {
             const { credits } = req.body;
             const userId = req.userId;
 
-            if (!credits || credits < 34) { // Minimo 10€
+            if (!credits || credits < 34) {
                 return res.status(400).json({ 
                     message: 'Minimum credits amount is 34' 
                 });
@@ -28,36 +28,48 @@ const walletController = {
             const pricePerCredit = calculatePricePerCredit(credits);
             const amount = Math.round(credits * pricePerCredit * 100); // Stripe wants amount in cents
 
-            const paymentIntent = await stripe.paymentIntents.create({
-                amount,
-                currency: 'eur',
-                metadata: {
+            try {
+                const paymentIntent = await stripe.paymentIntents.create({
+                    amount,
+                    currency: 'eur',
+                    metadata: {
+                        userId,
+                        credits,
+                        pricePerCredit
+                    },
+                    automatic_payment_methods: {
+                        enabled: true,
+                    },
+                });
+
+                // Create pending transaction
+                await Transaction.create({
                     userId,
+                    type: 'purchase',
+                    credits,
+                    amount: amount / 100,
+                    status: 'pending',
+                    description: `Purchase of ${credits} credits`,
+                    metadata: {
+                        stripePaymentIntentId: paymentIntent.id,
+                        pricePerCredit
+                    }
+                });
+
+                res.json({
+                    clientSecret: paymentIntent.client_secret,
+                    amount,
                     credits,
                     pricePerCredit
-                }
-            });
-
-            // Create pending transaction
-            await Transaction.create({
-                userId,
-                type: 'purchase',
-                credits,
-                amount: amount / 100,
-                status: 'pending',
-                description: `Purchase of ${credits} credits`,
-                metadata: {
-                    stripePaymentIntentId: paymentIntent.id,
-                    pricePerCredit
-                }
-            });
-
-            res.json({
-                clientSecret: paymentIntent.client_secret,
-                amount,
-                credits,
-                pricePerCredit
-            });
+                });
+            } catch (stripeError) {
+                console.error('Stripe error:', stripeError);
+                return res.status(402).json({
+                    message: 'Payment failed',
+                    error: stripeError.message,
+                    code: stripeError.code
+                });
+            }
         } catch (error) {
             console.error('Create payment intent error:', error);
             res.status(500).json({ 
