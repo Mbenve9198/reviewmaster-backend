@@ -42,10 +42,27 @@ const webhookController = {
                         }
                     );
 
-                    // Aggiorna i crediti dell'utente
+                    // Trova l'utente e aggiorna i crediti mantenendo quelli esistenti
                     const { userId, credits } = paymentIntent.metadata;
+                    const user = await User.findById(userId);
+                    
+                    if (!user) {
+                        throw new Error('User not found');
+                    }
+
+                    const currentCredits = user.wallet?.credits || 0;
+                    const freeCredits = user.wallet?.freeScrapingRemaining || 0;
+                    
                     await User.findByIdAndUpdate(userId, {
-                        $inc: { 'wallet.credits': parseInt(credits) }
+                        'wallet.credits': currentCredits + parseInt(credits),
+                        'wallet.freeScrapingRemaining': freeCredits
+                    });
+
+                    console.log(`Credits updated for user ${userId}:`, {
+                        previousCredits: currentCredits,
+                        purchasedCredits: parseInt(credits),
+                        newTotal: currentCredits + parseInt(credits),
+                        freeCredits
                     });
                     break;
 
