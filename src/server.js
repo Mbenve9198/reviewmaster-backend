@@ -22,8 +22,11 @@ const app = express();
 
 // Logging middleware
 app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-    console.log('Request Body:', req.body);
+    const timestamp = new Date().toISOString();
+    console.log(`${timestamp} - ${req.method} ${req.originalUrl}`);
+    if (req.originalUrl !== '/api/webhook/stripe') {
+        console.log('Request Body:', req.body);
+    }
     next();
 });
 
