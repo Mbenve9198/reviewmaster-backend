@@ -2,6 +2,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 const Review = require('../models/review.model');
 const User = require('../models/user.model');
+const Hotel = require('../models/hotel.model');
 
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
@@ -47,6 +48,14 @@ const analyticsController = {
                 });
             }
 
+            // Ottieni i dettagli dell'hotel
+            const hotel = await Hotel.findById(reviews[0].hotelId);
+            if (!hotel) {
+                return res.status(404).json({ 
+                    message: 'Hotel not found' 
+                });
+            }
+
             const reviewsData = reviews.map(review => ({
                 content: review.content?.text || '',
                 rating: review.content?.rating || 0,
@@ -54,12 +63,46 @@ const analyticsController = {
                 platform: review.metadata?.platform || 'unknown'
             }));
 
+            // Aggiungi i dettagli dell'hotel ai dati da analizzare
+            const analysisData = {
+                reviews: reviewsData,
+                hotel: {
+                    name: hotel.name,
+                    type: hotel.type,
+                    description: hotel.description
+                }
+            };
+
             // Calcola alcune statistiche di base
             const avgRating = (reviewsData.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1);
             const platforms = [...new Set(reviewsData.map(r => r.platform))];
             
-            const systemPrompt = `Sei un esperto analista del settore hospitality con oltre 20 anni di esperienza.
-Analizza ${reviews.length} recensioni da ${platforms.join(', ')} e fornisci insights strategici.
+            // Determina se è una domanda di follow-up
+            let systemPrompt;
+            if (previousMessages) {
+                // Prompt conversazionale per follow-up
+                systemPrompt = `Sei un esperto analista del settore hospitality con oltre 20 anni di esperienza.
+Rispondi alla domanda dell'utente in modo conversazionale e naturale, considerando sempre il contesto della struttura:
+
+CONTESTO STRUTTURA:
+${hotel.name} (${hotel.type})
+${hotel.description}
+
+Mantieni le risposte:
+- Concrete e pratiche
+- Specifiche per questa struttura
+- Realistiche considerando dimensione e risorse
+- Supportate da dati quando possibile
+- In tono professionale ma conversazionale`;
+            } else {
+                // Prompt originale per la prima analisi
+                systemPrompt = `Sei un esperto analista del settore hospitality con oltre 20 anni di esperienza.
+Analizza ${reviews.length} recensioni da ${platforms.join(', ')} per la struttura ${hotel.name} (${hotel.type}).
+
+CONTESTO STRUTTURA:
+${hotel.description}
+
+Considera attentamente la dimensione, il tipo e le caratteristiche della struttura descritte sopra quando proponi soluzioni e migliorie. Adatta budget e tempi di implementazione in base alla tipologia e dimensione della struttura.
 
 FORMATO OUTPUT RICHIESTO:
 ====================
@@ -81,10 +124,11 @@ Frequenza: [X recensioni su ${reviews.length}]
 Impatto: [ALTO/MEDIO/BASSO]
 
 SOLUZIONE PROPOSTA:
-- Azione concreta da implementare
+- Azione concreta da implementare (considerando dimensione e risorse della struttura)
 - Tempo stimato per implementazione
 - Costo stimato (€/€€/€€€)
 - ROI atteso
+- Fattibilità basata sul contesto della struttura
 
 ====================
 💪 PUNTI DI FORZA
@@ -95,17 +139,19 @@ PUNTO DI FORZA: [Titolo]
 Menzionato in: [X recensioni]
 > "[citazione più efficace per marketing]"
 Come valorizzarlo:
-- Suggerimento per marketing
-- Opportunità di sviluppo
+- Suggerimento per marketing adatto alla dimensione della struttura
+- Opportunità di sviluppo realistiche per questa tipologia di struttura
 
 LINEE GUIDA:
 - Usa dati quantitativi dove possibile
 - Cita SEMPRE la fonte (es: "menzionato in 5 recensioni su Booking")
 - NO pattern se menzionati meno di 3 volte
 - Prioritizza per impatto sul business
-- Suggerisci solo azioni concrete e fattibili
+- Suggerisci solo azioni concrete e fattibili per questa specifica struttura
 - Se non ci sono dati sufficienti per un'analisi, specificalo
-- Inserisci sempre una citazione testuale per ogni punto`;
+- Inserisci sempre una citazione testuale per ogni punto
+- Considera sempre il contesto e le dimensioni della struttura nelle raccomandazioni`;
+            }
 
             // Funzione di retry con delay esponenziale
             const retryWithExponentialBackoff = async (fn, maxRetries = 3, initialDelay = 1000) => {
@@ -137,7 +183,7 @@ LINEE GUIDA:
                         messages: [
                             {
                                 role: "user",
-                                content: `${systemPrompt}\n\nRecensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
+                                content: `${systemPrompt}\n\nDati da analizzare:\n${JSON.stringify(analysisData, null, 2)}`
                             }
                         ]
                     });
@@ -161,7 +207,7 @@ LINEE GUIDA:
                             },
                             {
                                 role: "user",
-                                content: `Recensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
+                                content: `Recensioni da analizzare:\n${JSON.stringify(analysisData, null, 2)}`
                             }
                         ],
                         temperature: 0,
