@@ -12,7 +12,7 @@ const analyticsController = {
             const { reviews, previousMessages } = req.body;
             const userId = req.userId;
 
-            // Verifica l'utente e i suoi crediti
+            // Verifica l'utente e calcola il costo dei crediti
             const user = await User.findById(userId);
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
@@ -35,17 +35,6 @@ const analyticsController = {
                     type: 'NO_CREDITS'
                 });
             }
-
-            // Decrementa prima i crediti gratuiti, poi quelli pagati
-            let freeCreditsToDeduct = Math.min(user.wallet?.freeScrapingRemaining || 0, creditCost);
-            let paidCreditsToDeduct = creditCost - freeCreditsToDeduct;
-
-            await User.findByIdAndUpdate(userId, {
-                $inc: { 
-                    'wallet.credits': -paidCreditsToDeduct,
-                    'wallet.freeScrapingRemaining': -freeCreditsToDeduct
-                }
-            });
 
             if (!Array.isArray(reviews) || reviews.length === 0) {
                 return res.status(400).json({ 
@@ -113,22 +102,51 @@ LINEE GUIDA:
 - Se non ci sono dati sufficienti per un'analisi, specificalo
 - Inserisci sempre una citazione testuale per ogni punto`;
 
-            const message = await anthropic.messages.create({
-                model: "claude-3-5-sonnet-20241022",
-                max_tokens: 4000,
-                temperature: 0,
-                system: systemPrompt,
-                messages: [
-                    {
-                        role: "user",
-                        content: `${systemPrompt}\n\nRecensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
+            // Funzione di retry con delay esponenziale
+            const retryWithExponentialBackoff = async (fn, maxRetries = 3, initialDelay = 1000) => {
+                for (let i = 0; i < maxRetries; i++) {
+                    try {
+                        return await fn();
+                    } catch (error) {
+                        if (error?.error?.type === 'overloaded_error' && i < maxRetries - 1) {
+                            const delay = initialDelay * Math.pow(2, i);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        }
+                        throw error;
                     }
-                ]
+                }
+            };
+
+            const message = await retryWithExponentialBackoff(async () => {
+                return await anthropic.messages.create({
+                    model: "claude-3-5-sonnet-20241022",
+                    max_tokens: 4000,
+                    temperature: 0,
+                    system: systemPrompt,
+                    messages: [
+                        {
+                            role: "user",
+                            content: `${systemPrompt}\n\nRecensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
+                        }
+                    ]
+                });
             });
 
             if (!message?.content?.[0]?.text) {
                 throw new Error('Invalid response from AI');
             }
+
+            // Solo dopo aver verificato che l'analisi è stata generata con successo, scala i crediti
+            let freeCreditsToDeduct = Math.min(user.wallet?.freeScrapingRemaining || 0, creditCost);
+            let paidCreditsToDeduct = creditCost - freeCreditsToDeduct;
+
+            await User.findByIdAndUpdate(userId, {
+                $inc: { 
+                    'wallet.credits': -paidCreditsToDeduct,
+                    'wallet.freeScrapingRemaining': -freeCreditsToDeduct
+                }
+            });
 
             res.json({ 
                 analysis: message.content[0].text,
