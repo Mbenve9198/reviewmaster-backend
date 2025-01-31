@@ -124,6 +124,7 @@ LINEE GUIDA:
             };
 
             let analysis;
+            let provider;
             
             // Prima prova con Claude
             try {
@@ -144,6 +145,7 @@ LINEE GUIDA:
 
                 if (message?.content?.[0]?.text) {
                     analysis = message.content[0].text;
+                    provider = 'claude';
                 }
             } catch (claudeError) {
                 console.log('Claude failed, trying OpenAI:', claudeError);
@@ -168,6 +170,7 @@ LINEE GUIDA:
 
                     if (completion?.choices?.[0]?.message?.content) {
                         analysis = completion.choices[0].message.content;
+                        provider = 'gpt4';
                     }
                 } catch (openaiError) {
                     console.error('OpenAI fallback failed:', openaiError);
@@ -196,7 +199,7 @@ LINEE GUIDA:
                 avgRating,
                 platforms,
                 creditsRemaining: totalCreditsAvailable - creditCost,
-                provider: analysis === message?.content?.[0]?.text ? 'claude' : 'gpt4'
+                provider
             });
 
         } catch (error) {
