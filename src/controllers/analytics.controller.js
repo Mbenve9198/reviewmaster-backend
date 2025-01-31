@@ -121,7 +121,7 @@ LINEE GUIDA:
                 messages: [
                     {
                         role: "user",
-                        content: `${prompt}\n\nRecensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
+                        content: `${systemPrompt}\n\nRecensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
                     }
                 ]
             });
