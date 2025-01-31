@@ -157,16 +157,18 @@ Note: Analysis based on verified reviews. Rating impacts calculated using multil
 
             let analysis;
             let provider;
+            let user;
+            let totalCreditsAvailable;
+            let creditCost;
 
             try {
                 // Verifica l'utente e calcola il costo dei crediti
-                const user = await User.findById(userId);
+                user = await User.findById(userId);
                 if (!user) {
                     return res.status(404).json({ message: 'User not found' });
                 }
 
                 // Calcola il costo dei crediti in base al tipo di richiesta
-                let creditCost;
                 if (previousMessages) {
                     creditCost = 1; // Follow-up question
                 } else {
@@ -174,7 +176,7 @@ Note: Analysis based on verified reviews. Rating impacts calculated using multil
                 }
 
                 // Verifica se l'utente ha crediti disponibili
-                const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
+                totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
                 if (totalCreditsAvailable < creditCost) {
                     return res.status(403).json({ 
                         message: 'Insufficient credits available. Please purchase more credits to continue.',
