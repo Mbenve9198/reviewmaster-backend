@@ -1,4 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const Review = require('../models/review.model');
+const User = require('../models/user.model');
+
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
 });
@@ -6,8 +9,43 @@ const anthropic = new Anthropic({
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
-            const { reviews, prompt } = req.body;
+            const { reviews, previousMessages } = req.body;
             const userId = req.userId;
+
+            // Verifica l'utente e i suoi crediti
+            const user = await User.findById(userId);
+            if (!user) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+
+            // Calcola il costo dei crediti in base al tipo di richiesta
+            let creditCost;
+            if (previousMessages) {
+                creditCost = 1; // Follow-up question
+            } else {
+                // Prima analisi
+                creditCost = reviews.length <= 100 ? 10 : 15;
+            }
+
+            // Verifica se l'utente ha crediti disponibili
+            const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
+            if (totalCreditsAvailable < creditCost) {
+                return res.status(403).json({ 
+                    message: 'Insufficient credits available. Please purchase more credits to continue.',
+                    type: 'NO_CREDITS'
+                });
+            }
+
+            // Decrementa prima i crediti gratuiti, poi quelli pagati
+            let freeCreditsToDeduct = Math.min(user.wallet?.freeScrapingRemaining || 0, creditCost);
+            let paidCreditsToDeduct = creditCost - freeCreditsToDeduct;
+
+            await User.findByIdAndUpdate(userId, {
+                $inc: { 
+                    'wallet.credits': -paidCreditsToDeduct,
+                    'wallet.freeScrapingRemaining': -freeCreditsToDeduct
+                }
+            });
 
             if (!Array.isArray(reviews) || reviews.length === 0) {
                 return res.status(400).json({ 
@@ -96,11 +134,12 @@ LINEE GUIDA:
                 analysis: message.content[0].text,
                 reviewsAnalyzed: reviews.length,
                 avgRating,
-                platforms
+                platforms,
+                creditsRemaining: totalCreditsAvailable - creditCost
             });
 
         } catch (error) {
-            console.error('Review analysis error:', error);
+            console.error('Analysis error:', error);
             res.status(500).json({ 
                 message: 'Error analyzing reviews',
                 error: error.message 

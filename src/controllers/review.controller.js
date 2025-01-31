@@ -178,18 +178,33 @@ If the user asks for modifications to your previous response, adjust it accordin
                 await reviewDoc.save();
             }
 
-            // Decrementa i crediti
+            // Decrementa i crediti in base al tipo di richiesta
+            const creditCost = previousMessages ? 1 : 2;  // 2 crediti per prima risposta, 1 per follow-up
+
+            // Verifica se l'utente ha abbastanza crediti
+            const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
+            if (totalCreditsAvailable < creditCost) {
+                return res.status(403).json({ 
+                    message: 'Insufficient credits available. Please purchase more credits to continue.',
+                    type: 'NO_CREDITS'
+                });
+            }
+
+            // Decrementa prima i crediti gratuiti, poi quelli pagati
+            let freeCreditsToDeduct = Math.min(user.wallet?.freeScrapingRemaining || 0, creditCost);
+            let paidCreditsToDeduct = creditCost - freeCreditsToDeduct;
+
             await User.findByIdAndUpdate(userId, {
                 $inc: { 
-                    'wallet.credits': -1,
-                    'wallet.freeScrapingRemaining': user.wallet?.freeScrapingRemaining > 0 ? -1 : 0
+                    'wallet.credits': -paidCreditsToDeduct,
+                    'wallet.freeScrapingRemaining': -freeCreditsToDeduct
                 }
             });
 
             res.json({ 
                 response: aiResponse,
                 detectedLanguage,
-                creditsRemaining: (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0) - 1
+                creditsRemaining: totalCreditsAvailable - creditCost
             });
 
         } catch (error) {
