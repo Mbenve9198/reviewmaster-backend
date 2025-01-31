@@ -119,9 +119,21 @@ KEY STRENGTHS                                                 IMPACT ON SCORE
    [Number] positive mentions
    "[Best quote]"
    
+   MARKETING OPPORTUNITIES:
+   • [Specific marketing idea 1]
+     Cost: €-€€€ | Expected ROI: [X]%
+   • [Specific marketing idea 2]
+     Cost: €-€€€ | Expected ROI: [X]%
+   
 ② [STRENGTH 2]                                               +[X] points
    [Number] positive mentions
    "[Best quote]"
+   
+   MARKETING OPPORTUNITIES:
+   • [Specific marketing idea 1]
+     Cost: €-€€€ | Expected ROI: [X]%
+   • [Specific marketing idea 2]
+     Cost: €-€€€ | Expected ROI: [X]%
 
 AREAS FOR IMPROVEMENT                    PRIORITY    COST    ROI    COMPLEXITY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -145,8 +157,11 @@ AREAS FOR IMPROVEMENT                    PRIORITY    COST    ROI    COMPLEXITY
 GROWTH OPPORTUNITIES
 ━━━━━━━━━━━━━━━━━━
 • [Opportunity 1]
+  Cost: €-€€€ | Expected ROI: [X]% | Timeline: [Period]
 • [Opportunity 2]
+  Cost: €-€€€ | Expected ROI: [X]% | Timeline: [Period]
 • [Opportunity 3]
+  Cost: €-€€€ | Expected ROI: [X]% | Timeline: [Period]
 
 3-MONTH TRENDS
 ━━━━━━━━━━━━━━
