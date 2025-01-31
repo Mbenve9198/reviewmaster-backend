@@ -12,6 +12,16 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
 
+const formatOutput = (text) => {
+    return text
+        .replace(/\n/g, '\n\n')  // Doppio newline per paragrafi
+        .replace(/━━━+/g, '\n$&\n')  // Newline prima e dopo le linee
+        .replace(/([①②③])([A-Z])/g, '$1 $2')  // Spazio dopo i numeri cerchiati
+        .replace(/\|\s+/g, ' | ')  // Formattazione consistente per le pipe
+        .replace(/(\d+)\s*points/g, '$1 points')  // Spazio consistente prima di "points"
+        .trim();
+};
+
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
@@ -55,33 +65,44 @@ const analyticsController = {
 
             if (previousMessages) {
                 // Prompt per domande di follow-up
-                systemPrompt = `You are an expert hospitality industry analyst having a focused conversation about specific aspects of a hotel's reviews.
+                systemPrompt = `You are an expert hospitality industry analyst having a focused conversation about hotel reviews.
 
-HOTEL CONTEXT:
-${hotel.name} - ${hotel.type}
-${hotel.description}
+CONTEXT:
+- Hotel: ${hotel.name} (${hotel.type})
+- Reviews analyzed: ${reviews.length}
+- Average rating: ${avgRating}/10
+- Time period: Latest ${reviews.length} reviews
 
-Key Stats:
-- Average Rating: ${avgRating}/5
-- Total Reviews: ${reviews.length}
-- Platforms: ${platforms.join(', ')}
+CONVERSATION STYLE:
+- Be concise and direct
+- Focus only on answering the specific question asked
+- Use a natural, conversational tone
+- Support answers with data and quotes when relevant
+- DO NOT repeat the full analysis
+- DO NOT use section headers or structured formatting
 
-YOUR ROLE:
-- Answer the specific question asked without repeating the full analysis
-- Use data and quotes from reviews to support your points
-- Keep responses conversational and focused
-- Avoid using structured sections or headers
-- If citing statistics, integrate them naturally into the conversation
+Example of good response:
+"Based on the reviews, the noise issue affects 15% of guests, mainly in rooms facing the street. This has a -0.8 point impact on overall ratings. One guest mentioned that 'even on the top floor, street noise was clearly audible.' I'd prioritize this issue because..."
 
-Remember: You are in a conversation. The user has already seen the full analysis and is asking for specific details or clarification.`;
+Example of bad response (too formal/structured):
+"NOISE ANALYSIS
+━━━━━━━━━━━━━━━━━━
+① Impact: HIGH
+② Frequency: 15%
+..."`;
 
-                userMessage = previousMessages;
+                // Per i follow-up, invia SOLO la domanda e il contesto minimo necessario
+                userMessage = `Question: ${previousMessages}
 
+Previous analysis context (for reference):
+- Main strengths: [extract key points]
+- Main issues: [extract key points]
+- Recent trends: [mention relevant trends]`;
             } else {
                 // Prompt per l'analisi iniziale
                 systemPrompt = `You are an expert hospitality industry analyst creating a comprehensive review analysis report.
 
-Your analysis should follow this exact format:
+Your analysis should follow this exact format, including all newlines and spacing:
 
 ✦ ${hotel.name.toUpperCase()} | PERFORMANCE ANALYSIS
 Based on ${reviews.length} reviews (${platforms.join(', ')})
@@ -99,7 +120,8 @@ KEY STRENGTHS                                                 IMPACT ON SCORE
    "[Best quote]"
    
 ② [STRENGTH 2]                                               +[X] points
-   [Continue format]
+   [Number] positive mentions
+   "[Best quote]"
 
 AREAS FOR IMPROVEMENT                    PRIORITY    COST    ROI    COMPLEXITY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,11 +139,14 @@ AREAS FOR IMPROVEMENT                    PRIORITY    COST    ROI    COMPLEXITY
   │ 📈 [Expected ROI]                    │
   └──────────────────────────────────────┘
 
-[Continue format for other issues]
+② [ISSUE 2]                             ⚠️ [LEVEL]  €€       [%]    [Level]
+  • [Details following same format]
 
 GROWTH OPPORTUNITIES
 ━━━━━━━━━━━━━━━━━━
-[List 2-3 concrete opportunities with bullet points]
+• [Opportunity 1]
+• [Opportunity 2]
+• [Opportunity 3]
 
 3-MONTH TRENDS
 ━━━━━━━━━━━━━━
@@ -200,7 +225,7 @@ Note: Analysis based on verified reviews. Rating impacts calculated using multil
                 });
 
                 if (message?.content?.[0]?.text) {
-                    analysis = message.content[0].text;
+                    analysis = formatOutput(message.content[0].text);
                     provider = 'claude';
                 }
             } catch (claudeError) {
@@ -224,7 +249,7 @@ Note: Analysis based on verified reviews. Rating impacts calculated using multil
                     });
 
                     if (completion?.choices?.[0]?.message?.content) {
-                        analysis = completion.choices[0].message.content;
+                        analysis = formatOutput(completion.choices[0].message.content);
                         provider = 'gpt4';
                     }
                 } catch (openaiError) {
