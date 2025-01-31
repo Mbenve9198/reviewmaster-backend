@@ -18,18 +18,22 @@ const analyticsController = {
             const { reviews, previousMessages } = req.body;
             const userId = req.userId;
 
+            // Verifica l'utente e calcola il costo dei crediti
             const user = await User.findById(userId);
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
             }
 
+            // Calcola il costo dei crediti in base al tipo di richiesta
             let creditCost;
             if (previousMessages) {
-                creditCost = 1;
+                creditCost = 1; // Follow-up question
             } else {
+                // Prima analisi
                 creditCost = reviews.length <= 100 ? 10 : 15;
             }
 
+            // Verifica se l'utente ha crediti disponibili
             const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
             if (totalCreditsAvailable < creditCost) {
                 return res.status(403).json({ 
@@ -44,6 +48,7 @@ const analyticsController = {
                 });
             }
 
+            // Ottieni i dettagli dell'hotel
             const hotel = await Hotel.findById(reviews[0].hotelId);
             if (!hotel) {
                 return res.status(404).json({ 
@@ -67,112 +72,87 @@ const analyticsController = {
                 }
             };
 
+            // Calcola alcune statistiche di base
             const avgRating = (reviewsData.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1);
             const platforms = [...new Set(reviewsData.map(r => r.platform))];
             
+            // Determina il prompt in base al tipo di richiesta
             let systemPrompt;
             if (previousMessages) {
-                systemPrompt = `You are an expert hospitality industry analyst with over 20 years of experience. Respond to the user's question in a conversational and natural way, always considering the hotel's context:
+                systemPrompt = `Sei un esperto analista del settore hospitality che sta avendo una conversazione con un albergatore.
+                
+CONTESTO HOTEL:
+Nome: ${hotel.name}
+Tipo: ${hotel.type}
+Descrizione: ${hotel.description}
 
-HOTEL CONTEXT:
-${hotel.name} (${hotel.type})
+STILE DI RISPOSTA:
+- Rispondi in modo conversazionale e naturale
+- Focalizzati specificamente sulla domanda posta
+- Non ripetere l'intera analisi strutturata
+- Evita di usare sezioni formattate o titoli
+- Usa i dati a supporto delle tue argomentazioni ma in modo naturale
+- Mantieni un tono professionale ma amichevole
+- Se citi recensioni, integrare le citazioni nel discorso
+- Se menzioni statistiche, fallo in modo conversazionale
+
+ESEMPIO DI RISPOSTA NATURALE:
+"Guardando i dati delle recensioni, il problema del rumore è stato menzionato da 15 ospiti, principalmente per due motivi: l'isolamento tra le camere e i rumori dalla strada. Un ospite ha scritto che 'anche se la camera era all'ultimo piano, i rumori dalla strada erano molto evidenti'. Considerando che l'hotel ha 25 camere, suggerirei..."
+
+CONTESTUALIZZAZIONE:
+- Considera sempre la dimensione e il tipo di hotel nelle tue risposte
+- Adatta i suggerimenti alle reali possibilità della struttura
+- Mantieni le raccomandazioni pratiche e realizzabili
+
+Rispondi alla domanda dell'utente tenendo presente questo contesto e queste linee guida.`;
+            } else {
+                systemPrompt = `Sei un esperto analista del settore hospitality con oltre 20 anni di esperienza. Analizza ${reviews.length} recensioni da ${platforms.join(', ')} per la struttura ${hotel.name} (${hotel.type}).
+
+CONTESTO STRUTTURA:
 ${hotel.description}
 
-Keep your responses:
-- Concrete and practical
-- Specific to this hotel
-- Realistic considering size and resources
-- Data-supported when possible
-- Professional yet conversational in tone
+Considera attentamente la dimensione, il tipo e le caratteristiche della struttura descritte sopra quando proponi soluzioni e migliorie. Adatta budget e tempi di implementazione in base alla tipologia e dimensione della struttura.
 
-Previous analysis context is provided to help you refer to specific insights and data points when answering follow-up questions.`;
-            } else {
-                systemPrompt = `You are an expert hospitality industry analyst with over 20 years of experience. Your task is to provide a comprehensive analysis of a hotel based on review data and the hotel's information. Your analysis should be thorough, data-driven, and result in actionable insights for the hotel management.
-
-First, carefully review the following review data for this hotel:
-
-<review_data>
-${JSON.stringify(reviewsData, null, 2)}
-</review_data>
-
-Now, analyze the hotel information:
-
-<hotel_info>
-Name: ${hotel.name}
-Type: ${hotel.type}
-Description: ${hotel.description}
-</hotel_info>
-
-Before producing your final report, wrap your analysis inside <detailed_analysis> tags. Consider the following:
-1. Overall patterns in the review data
-2. Key problems mentioned frequently
-3. Notable strengths of the hotel
-4. Potential solutions and improvements, taking into account the hotel's size, type, and resources
-5. Opportunities for marketing and development
-
-In your analysis:
-- Categorize reviews into positive, negative, and neutral, counting each category.
-- List out specific problems mentioned, numbering each one and keeping a count.
-- List out specific strengths mentioned, numbering each one and keeping a count.
-- Explicitly consider how the hotel's context (size, type, location) affects each point.
-- Quote relevant parts of reviews to support your points.
-
-<detailed_analysis>
-[Your detailed analysis goes here. Show your reasoning for each point you'll include in the final report.]
-</detailed_analysis>
-
-After your analysis, provide a comprehensive report in the following format:
-
+FORMATO OUTPUT RICHIESTO:
 ====================
 📊 PANORAMICA
 ====================
-<review_stats>
 - Rating medio: ${avgRating}/5
 - Recensioni analizzate: ${reviews.length}
-- Periodo: [oldest date] - [newest date]
+- Periodo: [data più vecchia] - [data più recente]
 - Piattaforme: ${platforms.join(', ')}
-</review_stats>
 
 ====================
 ⚠️ PROBLEMI CHIAVE
 ====================
-[For each problem mentioned in at least 3 reviews]
+[Per ogni problema con almeno 3 menzioni]
 
-PROBLEMA: [Title]
-Frequenza: [X reviews out of ${reviews.length}]
-> "[Most representative quote]"
+PROBLEMA: [Titolo]
+Frequenza: [X recensioni su ${reviews.length}]
+> "[citazione più rappresentativa]"
 Impatto: [ALTO/MEDIO/BASSO]
 
 SOLUZIONE PROPOSTA:
-- Concrete action to implement (considering the hotel's size and resources)
-- Estimated implementation time
-- Estimated cost (€/€€/€€€)
-- Expected ROI
-- Feasibility based on the hotel's context
+- Azione concreta da implementare (considerando dimensione e risorse della struttura)
+- Tempo stimato per implementazione
+- Costo stimato (€/€€/€€€)
+- ROI atteso
+- Fattibilità basata sul contesto della struttura
 
 ====================
 💪 PUNTI DI FORZA
 ====================
-[For each frequently mentioned strength]
+[Per ogni punto di forza citato frequentemente]
 
-PUNTO DI FORZA: [Title]
-Menzionato in: [X reviews]
-> "[Most effective quote for marketing]"
+PUNTO DI FORZA: [Titolo]
+Menzionato in: [X recensioni]
+> "[citazione più efficace per marketing]"
 Come valorizzarlo:
-- Marketing suggestion suitable for the hotel's size
-- Realistic development opportunities for this type of hotel
-
-Remember:
-- Use quantitative data where possible
-- ALWAYS cite the source (e.g., "mentioned in 5 reviews on Booking")
-- Do not include patterns mentioned fewer than 3 times
-- Prioritize based on business impact
-- Suggest only concrete and feasible actions for this specific hotel
-- If there's insufficient data for analysis, specify this
-- Always include a verbatim quote for each point
-- Consider the hotel's context and size in all recommendations`;
+- Suggerimento per marketing adatto alla dimensione della struttura
+- Opportunità di sviluppo realistiche per questa tipologia di struttura`;
             }
 
+            // Funzione di retry con delay esponenziale
             const retryWithExponentialBackoff = async (fn, maxRetries = 3, initialDelay = 1000) => {
                 for (let i = 0; i < maxRetries; i++) {
                     try {
@@ -191,6 +171,7 @@ Remember:
             let analysis;
             let provider;
             
+            // Prima prova con Claude
             try {
                 const message = await retryWithExponentialBackoff(async () => {
                     return await anthropic.messages.create({
@@ -202,8 +183,8 @@ Remember:
                             {
                                 role: "user",
                                 content: previousMessages ? 
-                                    `Context from previous analysis:\n${JSON.stringify(analysisData, null, 2)}\n\nUser question: ${previousMessages}` :
-                                    systemPrompt
+                                    `Contesto dell'analisi precedente:\n${JSON.stringify(analysisData, null, 2)}\n\nDomanda dell'utente: ${previousMessages}` :
+                                    `${systemPrompt}\n\nDati da analizzare:\n${JSON.stringify(analysisData, null, 2)}`
                             }
                         ]
                     });
@@ -216,6 +197,7 @@ Remember:
             } catch (claudeError) {
                 console.log('Claude failed, trying OpenAI:', claudeError);
                 
+                // Fallback a OpenAI
                 try {
                     const completion = await openai.chat.completions.create({
                         model: "gpt-4o",
@@ -227,8 +209,8 @@ Remember:
                             {
                                 role: "user",
                                 content: previousMessages ? 
-                                    `Context from previous analysis:\n${JSON.stringify(analysisData, null, 2)}\n\nUser question: ${previousMessages}` :
-                                    `Review data to analyze:\n${JSON.stringify(analysisData, null, 2)}`
+                                    `Contesto dell'analisi precedente:\n${JSON.stringify(analysisData, null, 2)}\n\nDomanda dell'utente: ${previousMessages}` :
+                                    `Recensioni da analizzare:\n${JSON.stringify(analysisData, null, 2)}`
                             }
                         ],
                         temperature: 0,
@@ -249,6 +231,7 @@ Remember:
                 throw new Error('Failed to generate analysis from both AI services');
             }
 
+            // Solo dopo aver verificato che l'analisi è stata generata con successo, scala i crediti
             let freeCreditsToDeduct = Math.min(user.wallet?.freeScrapingRemaining || 0, creditCost);
             let paidCreditsToDeduct = creditCost - freeCreditsToDeduct;
 
