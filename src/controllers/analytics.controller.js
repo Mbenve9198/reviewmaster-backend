@@ -1,9 +1,14 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
 const Review = require('../models/review.model');
 const User = require('../models/user.model');
 
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
+});
+
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
 });
 
 const analyticsController = {
@@ -118,23 +123,60 @@ LINEE GUIDA:
                 }
             };
 
-            const message = await retryWithExponentialBackoff(async () => {
-                return await anthropic.messages.create({
-                    model: "claude-3-5-sonnet-20241022",
-                    max_tokens: 4000,
-                    temperature: 0,
-                    system: systemPrompt,
-                    messages: [
-                        {
-                            role: "user",
-                            content: `${systemPrompt}\n\nRecensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
-                        }
-                    ]
+            let analysis;
+            
+            // Prima prova con Claude
+            try {
+                const message = await retryWithExponentialBackoff(async () => {
+                    return await anthropic.messages.create({
+                        model: "claude-3-5-sonnet-20241022",
+                        max_tokens: 4000,
+                        temperature: 0,
+                        system: systemPrompt,
+                        messages: [
+                            {
+                                role: "user",
+                                content: `${systemPrompt}\n\nRecensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
+                            }
+                        ]
+                    });
                 });
-            });
 
-            if (!message?.content?.[0]?.text) {
-                throw new Error('Invalid response from AI');
+                if (message?.content?.[0]?.text) {
+                    analysis = message.content[0].text;
+                }
+            } catch (claudeError) {
+                console.log('Claude failed, trying OpenAI:', claudeError);
+                
+                // Fallback a OpenAI
+                try {
+                    const completion = await openai.chat.completions.create({
+                        model: "gpt-4o",
+                        messages: [
+                            {
+                                role: "system",
+                                content: systemPrompt
+                            },
+                            {
+                                role: "user",
+                                content: `Recensioni da analizzare:\n${JSON.stringify(reviewsData, null, 2)}`
+                            }
+                        ],
+                        temperature: 0,
+                        max_tokens: 4000
+                    });
+
+                    if (completion?.choices?.[0]?.message?.content) {
+                        analysis = completion.choices[0].message.content;
+                    }
+                } catch (openaiError) {
+                    console.error('OpenAI fallback failed:', openaiError);
+                    throw new Error('Both AI services failed to generate analysis');
+                }
+            }
+
+            if (!analysis) {
+                throw new Error('Failed to generate analysis from both AI services');
             }
 
             // Solo dopo aver verificato che l'analisi è stata generata con successo, scala i crediti
@@ -149,11 +191,12 @@ LINEE GUIDA:
             });
 
             res.json({ 
-                analysis: message.content[0].text,
+                analysis,
                 reviewsAnalyzed: reviews.length,
                 avgRating,
                 platforms,
-                creditsRemaining: totalCreditsAvailable - creditCost
+                creditsRemaining: totalCreditsAvailable - creditCost,
+                provider: analysis === message?.content?.[0]?.text ? 'claude' : 'gpt4'
             });
 
         } catch (error) {
