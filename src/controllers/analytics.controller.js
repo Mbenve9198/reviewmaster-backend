@@ -212,13 +212,14 @@ const analyticsController = {
                             system: `You are an AI assistant helping hotel managers analyze their reviews.
                                     Generate 4-5 follow-up questions that the manager might want to ask YOU about the analysis.
                                     The questions should:
+                                    - Be in English
                                     - Be actionable and solution-oriented
                                     - Reference specific data from the analysis
                                     - Be formulated as direct questions to YOU
                                     - Focus on getting specific recommendations and insights
                                     
                                     Example of GOOD question:
-                                    "Quali soluzioni concrete potrei implementare per risolvere il problema del rumore menzionato in 35 recensioni?"
+                                    "What specific solutions could I implement to address the noise issues mentioned in 35 reviews?"
                                     
                                     Example of BAD question:
                                     "What soundproofing solutions have been tested to address the noise issues mentioned by 35 guests?"
