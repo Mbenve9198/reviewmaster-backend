@@ -230,7 +230,7 @@ const analyticsController = {
                                     role: "user",
                                     content: `Based on this analysis and these reviews, generate relevant follow-up questions that a manager would want to ask YOU:
                                                     Analysis: ${analysis}
-                                                    Reviews summary: ${JSON.stringify(reviewsData.slice(0, 3))}`
+                                                    Reviews: ${JSON.stringify(reviewsData)}`
                                 }
                             ]
                         });
