@@ -177,6 +177,7 @@ const analyticsController = {
 
             let analysis;
             let provider;
+            let suggestions = [];
 
             try {
                 const message = await retryWithExponentialBackoff(async () => {
@@ -197,6 +198,32 @@ const analyticsController = {
                 if (message?.content?.[0]?.text) {
                     analysis = message.content[0].text;
                     provider = 'claude';
+
+                    if (!previousMessages) {
+                        const suggestionsMessage = await anthropic.messages.create({
+                            model: "claude-3-5-sonnet-20241022",
+                            max_tokens: 1000,
+                            temperature: 0.7,
+                            system: "You are an expert hospitality industry analyst. Generate 4-5 specific follow-up questions based on the analysis provided. Return only a JSON array of strings.",
+                            messages: [
+                                {
+                                    role: "user",
+                                    content: `Based on this analysis and these reviews, what are the most relevant follow-up questions we should ask? Focus on specific aspects mentioned in the analysis.
+                                    Analysis: ${analysis}
+                                    Reviews summary: ${JSON.stringify(reviewsData.slice(0, 3))}`
+                                }
+                            ]
+                        });
+
+                        if (suggestionsMessage?.content?.[0]?.text) {
+                            try {
+                                suggestions = JSON.parse(suggestionsMessage.content[0].text);
+                            } catch (e) {
+                                console.error('Error parsing suggestions:', e);
+                                suggestions = [];
+                            }
+                        }
+                    }
                 }
             } catch (claudeError) {
                 console.log('Claude failed, trying OpenAI:', claudeError);
@@ -248,7 +275,8 @@ const analyticsController = {
                 avgRating,
                 platforms,
                 creditsRemaining: totalCreditsAvailable - creditCost,
-                provider
+                provider,
+                suggestions
             });
 
         } catch (error) {
