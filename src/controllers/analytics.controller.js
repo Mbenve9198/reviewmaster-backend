@@ -94,6 +94,7 @@ Guidelines:
 3. Calculate realistic costs and ROI estimates
 4. Prioritize based on mention frequency and impact
 5. Focus on actionable insights
+6. Count and include the actual number of times each strength and issue is mentioned in the reviews
 
 Analyze this review data: ${JSON.stringify(reviews, null, 2)}`;
 };
@@ -208,13 +209,27 @@ const analyticsController = {
                             model: "claude-3-5-sonnet-20241022",
                             max_tokens: 1000,
                             temperature: 0.7,
-                            system: "You are an expert hospitality industry analyst. Generate 4-5 specific follow-up questions based on the analysis provided. Return only a JSON array of strings.",
+                            system: `You are an AI assistant helping hotel managers analyze their reviews.
+                                    Generate 4-5 follow-up questions that the manager might want to ask YOU about the analysis.
+                                    The questions should:
+                                    - Be actionable and solution-oriented
+                                    - Reference specific data from the analysis
+                                    - Be formulated as direct questions to YOU
+                                    - Focus on getting specific recommendations and insights
+                                    
+                                    Example of GOOD question:
+                                    "Quali soluzioni concrete potrei implementare per risolvere il problema del rumore menzionato in 35 recensioni?"
+                                    
+                                    Example of BAD question:
+                                    "What soundproofing solutions have been tested to address the noise issues mentioned by 35 guests?"
+                                    
+                                    Return only a JSON array of strings.`,
                             messages: [
                                 {
                                     role: "user",
-                                    content: `Based on this analysis and these reviews, what are the most relevant follow-up questions we should ask? Focus on specific aspects mentioned in the analysis.
-                                    Analysis: ${analysis}
-                                    Reviews summary: ${JSON.stringify(reviewsData.slice(0, 3))}`
+                                    content: `Based on this analysis and these reviews, generate relevant follow-up questions that a manager would want to ask YOU:
+                                                    Analysis: ${analysis}
+                                                    Reviews summary: ${JSON.stringify(reviewsData.slice(0, 3))}`
                                 }
                             ]
                         });
