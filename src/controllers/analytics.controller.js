@@ -98,7 +98,7 @@ Guidelines:
 Analyze this review data: ${JSON.stringify(reviews, null, 2)}`;
 };
 
-const generateFollowUpPrompt = (hotel, reviews, previousMessages) => {
+const generateFollowUpPrompt = (hotel, reviews, previousMessages, previousAnalysis) => {
     return `You are having a conversation about ${hotel.name}'s reviews. Respond naturally and conversationally, focusing only on the specific question asked.
 
 Guidelines:
@@ -108,8 +108,8 @@ Guidelines:
 - Include relevant quotes
 - Focus only on the asked topic
 
-Previous context:
-${JSON.stringify(reviews.slice(0, 3), null, 2)}
+Previous analysis context:
+${previousAnalysis}
 
 Question: ${previousMessages}`;
 };
@@ -117,7 +117,7 @@ Question: ${previousMessages}`;
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
-            const { reviews, previousMessages } = req.body;
+            const { reviews, previousMessages, messages } = req.body;
             const userId = req.userId;
 
             const user = await User.findById(userId);
@@ -156,9 +156,13 @@ const analyticsController = {
             const avgRating = (reviewsData.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1);
             const platforms = [...new Set(reviewsData.map(r => r.platform))];
 
-            const systemPrompt = previousMessages
-                ? generateFollowUpPrompt(hotel, reviewsData, previousMessages)
-                : generateInitialPrompt(hotel, reviewsData, platforms, avgRating);
+            let systemPrompt;
+            if (previousMessages) {
+                const lastAnalysis = messages[messages.length - 2].content;
+                systemPrompt = generateFollowUpPrompt(hotel, reviewsData, previousMessages, lastAnalysis);
+            } else {
+                systemPrompt = generateInitialPrompt(hotel, reviewsData, platforms, avgRating);
+            }
 
             const retryWithExponentialBackoff = async (fn, maxRetries = 3, initialDelay = 1000) => {
                 for (let i = 0; i < maxRetries; i++) {
