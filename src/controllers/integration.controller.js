@@ -212,23 +212,30 @@ const integrationController = {
 
     deleteIntegration: async (req, res) => {
         try {
-            const integrationId = req.params.id;
+            const { id } = req.params;
+            const userId = req.userId;
 
-            const integration = await Integration.findOneAndDelete({
-                _id: integrationId,
-                userId: req.userId
-            });
-
+            // Trova l'integrazione
+            const integration = await Integration.findOne({ _id: id, userId });
             if (!integration) {
                 return res.status(404).json({ message: 'Integration not found' });
             }
 
-            res.json({ message: 'Integration deleted successfully' });
+            // Elimina tutte le reviews associate all'integrazione
+            await Review.deleteMany({ 
+                hotelId: integration.hotelId,
+                platform: integration.platform 
+            });
+
+            // Elimina l'integrazione
+            await Integration.deleteOne({ _id: id, userId });
+
+            res.json({ message: 'Integration and associated reviews deleted successfully' });
         } catch (error) {
             console.error('Delete integration error:', error);
             res.status(500).json({ 
-                message: 'Failed to delete integration',
-                error: error.message 
+                message: 'Error deleting integration',
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     },
