@@ -36,7 +36,9 @@ const userSchema = new mongoose.Schema({
     },
     verificationToken: String,
     verificationTokenExpires: Date,
-    stripeCustomerId: String
+    stripeCustomerId: String,
+    resetPasswordToken: String,
+    resetPasswordExpires: Date
 });
 
 userSchema.methods.hasFreeScrapingCredits = function() {
