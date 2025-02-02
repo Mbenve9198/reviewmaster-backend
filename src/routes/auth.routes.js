@@ -32,4 +32,8 @@ router.post('/resend-verification', authMiddleware, async (req, res) => {
     }
 });
 
+// Aggiungi queste due routes per il reset password
+router.post('/reset-password-request', authController.requestPasswordReset);
+router.post('/reset-password', authController.resetPassword);
+
 module.exports = router;

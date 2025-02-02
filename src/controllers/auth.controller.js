@@ -129,8 +129,18 @@ const authController = {
     // Richiesta reset password
     requestPasswordReset: async (req, res) => {
         try {
+            console.log('Reset password request received:', req.body);
             const { email } = req.body;
+            
+            if (!email) {
+                console.log('No email provided in request');
+                return res.status(400).json({ 
+                    message: 'Email is required' 
+                });
+            }
+
             const user = await User.findOne({ email });
+            console.log('User found:', user ? 'yes' : 'no');
             
             if (!user) {
                 return res.status(200).json({ 
@@ -149,20 +159,30 @@ const authController = {
             // Crea il link di reset
             const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
             
+            console.log('Attempting to send reset email to:', email);
             // Invia email usando Resend
-            await resend.emails.send({
-                from: 'Replai <noreply@replai.app>',
-                to: user.email,
-                subject: 'Reset your Replai password',
-                html: resetPasswordEmailTemplate(resetLink)
-            });
+            try {
+                await resend.emails.send({
+                    from: 'Replai <noreply@replai.app>',
+                    to: user.email,
+                    subject: 'Reset your Replai password',
+                    html: resetPasswordEmailTemplate(resetLink)
+                });
+                console.log('Reset email sent successfully');
+            } catch (emailError) {
+                console.error('Error sending reset email:', emailError);
+                throw emailError;
+            }
 
             res.json({ 
                 message: 'If an account exists with this email, you will receive a password reset link.' 
             });
         } catch (error) {
             console.error('Password reset request error:', error);
-            res.status(500).json({ message: 'Error processing password reset request' });
+            res.status(500).json({ 
+                message: 'Error processing password reset request',
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            });
         }
     },
 
