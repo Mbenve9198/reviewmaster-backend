@@ -212,13 +212,20 @@ const integrationController = {
 
     deleteIntegration: async (req, res) => {
         try {
-            const { id } = req.params;
+            const { integrationId } = req.params;
             const userId = req.userId;
 
-            // Trova l'integrazione
-            const integration = await Integration.findOne({ _id: id, userId });
+            // Prima troviamo l'integrazione e verifichiamo che appartenga all'hotel dell'utente
+            const integration = await Integration.findById(integrationId)
+                .populate('hotelId');
+
             if (!integration) {
                 return res.status(404).json({ message: 'Integration not found' });
+            }
+
+            // Verifichiamo che l'utente sia proprietario dell'hotel
+            if (integration.hotelId.userId.toString() !== userId) {
+                return res.status(403).json({ message: 'Unauthorized' });
             }
 
             // Elimina tutte le reviews associate all'integrazione
@@ -228,7 +235,7 @@ const integrationController = {
             });
 
             // Elimina l'integrazione
-            await Integration.deleteOne({ _id: id, userId });
+            await Integration.findByIdAndDelete(integrationId);
 
             res.json({ message: 'Integration and associated reviews deleted successfully' });
         } catch (error) {
