@@ -16,17 +16,6 @@ const verificationEmailTemplate = (verificationLink) => `
 </head>
 <body>
     <div style="margin: 0 auto; padding: 20px 0 48px; width: 560px;">
-        <!-- Logo -->
-        <div style="text-align: center; margin-bottom: 24px;">
-            <img 
-                src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Animation%20-%201735491929327-dY44cU5M8uSl9hi9DoaDdlyMKjdhIo.gif" 
-                width="120" 
-                height="120" 
-                alt="Replai Logo" 
-                style="margin: 0 auto;"
-            />
-        </div>
-
         <!-- Heading -->
         <h1 style="color: #1e90ff; font-size: 24px; font-weight: 600; line-height: 40px; margin: 0 0 20px; text-align: center;">
             Welcome to Replai!

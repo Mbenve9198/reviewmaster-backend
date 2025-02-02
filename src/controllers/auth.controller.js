@@ -156,9 +156,12 @@ const authController = {
             user.resetPasswordExpires = resetTokenExpiry;
             await user.save();
 
-            // Crea il link di reset
-            const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+            // Rimuoviamo eventuali slash finali dal FRONTEND_URL
+            const frontendUrl = (process.env.FRONTEND_URL || 'https://replai.app').replace(/\/+$/, '');
+            const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
             
+            console.log('Generated reset link:', resetLink);
+
             console.log('Attempting to send reset email to:', email);
             // Invia email usando Resend
             try {
