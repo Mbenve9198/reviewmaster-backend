@@ -205,7 +205,7 @@ const authController = {
             const user = await User.findOne({
                 resetPasswordToken: token,
                 resetPasswordExpires: { $gt: Date.now() }
-            });
+            }).select('+resetPasswordToken +resetPasswordExpires');
 
             if (!user) {
                 // Log per capire perché non troviamo l'utente
