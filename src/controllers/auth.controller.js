@@ -200,6 +200,7 @@ const authController = {
                 return res.status(400).json({ message: 'Token and new password are required' });
             }
 
+            // Aggiungiamo più logging per il debug
             console.log('Looking for user with token:', token);
             const user = await User.findOne({
                 resetPasswordToken: token,
@@ -207,25 +208,30 @@ const authController = {
             });
 
             if (!user) {
-                console.log('No user found with token or token expired');
-                return res.status(400).json({ message: 'Invalid or expired reset token' });
+                // Log per capire perché non troviamo l'utente
+                const expiredUser = await User.findOne({ resetPasswordToken: token });
+                if (expiredUser) {
+                    console.log('Token found but expired. Expiry:', expiredUser.resetPasswordExpires, 'Current:', Date.now());
+                    return res.status(400).json({ message: 'Reset token has expired. Please request a new one.' });
+                } else {
+                    console.log('No user found with this token');
+                    return res.status(400).json({ message: 'Invalid reset token. Please request a new password reset.' });
+                }
             }
 
-            console.log('User found, updating password');
-            // Hash della nuova password
+            console.log('User found, updating password for user:', user.email);
             const hashedPassword = await bcrypt.hash(newPassword, 10);
             
-            // Aggiorna password e rimuovi token
             user.password = hashedPassword;
             user.resetPasswordToken = undefined;
             user.resetPasswordExpires = undefined;
             await user.save();
             console.log('Password updated successfully');
 
-            res.json({ message: 'Password reset successful' });
+            res.json({ message: 'Password reset successful. Please login with your new password.' });
         } catch (error) {
             console.error('Password reset error:', error);
-            res.status(500).json({ message: 'Error resetting password' });
+            res.status(500).json({ message: 'Error resetting password. Please try again.' });
         }
     }
 };
