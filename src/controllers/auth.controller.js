@@ -192,17 +192,26 @@ const authController = {
     // Reset password
     resetPassword: async (req, res) => {
         try {
+            console.log('Reset password request received:', req.body);
             const { token, newPassword } = req.body;
             
+            if (!token || !newPassword) {
+                console.log('Missing required fields:', { token: !!token, newPassword: !!newPassword });
+                return res.status(400).json({ message: 'Token and new password are required' });
+            }
+
+            console.log('Looking for user with token:', token);
             const user = await User.findOne({
                 resetPasswordToken: token,
                 resetPasswordExpires: { $gt: Date.now() }
             });
 
             if (!user) {
+                console.log('No user found with token or token expired');
                 return res.status(400).json({ message: 'Invalid or expired reset token' });
             }
 
+            console.log('User found, updating password');
             // Hash della nuova password
             const hashedPassword = await bcrypt.hash(newPassword, 10);
             
@@ -211,6 +220,7 @@ const authController = {
             user.resetPasswordToken = undefined;
             user.resetPasswordExpires = undefined;
             await user.save();
+            console.log('Password updated successfully');
 
             res.json({ message: 'Password reset successful' });
         } catch (error) {
