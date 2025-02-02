@@ -231,6 +231,89 @@ const integrationController = {
                 error: error.message 
             });
         }
+    },
+
+    syncIntegration: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const integration = await Integration.findById(id);
+            
+            if (!integration) {
+                return res.status(404).json({ message: 'Integration not found' });
+            }
+
+            // Recupera le recensioni dalla piattaforma
+            let reviews;
+            switch (integration.platform) {
+                case 'google':
+                    reviews = await scrapeGoogleReviews(integration.url);
+                    break;
+                case 'booking':
+                    reviews = await scrapeBookingReviews(integration.url);
+                    break;
+                case 'tripadvisor':
+                    reviews = await scrapeTripAdvisorReviews(integration.url);
+                    break;
+                default:
+                    throw new Error('Unsupported platform');
+            }
+
+            // Filtra le recensioni in base a lastSync
+            const lastSync = integration.syncConfig.lastSync;
+            let reviewsToImport;
+
+            if (!lastSync) {
+                // Prima sincronizzazione: prendi solo il numero massimo specificato
+                reviewsToImport = reviews.slice(0, parseInt(integration.syncConfig.maxReviews));
+            } else {
+                // Sincronizzazioni successive: prendi solo le recensioni più recenti
+                reviewsToImport = reviews.filter(review => 
+                    new Date(review.date) > new Date(lastSync)
+                );
+            }
+
+            if (reviewsToImport.length === 0) {
+                return res.json({ 
+                    message: 'No new reviews to import',
+                    newReviews: 0 
+                });
+            }
+
+            // Salva le nuove recensioni
+            await Review.insertMany(reviewsToImport.map(review => ({
+                hotelId: integration.hotelId,
+                integrationId: integration._id,
+                platform: integration.platform,
+                content: {
+                    text: review.text,
+                    rating: review.rating,
+                    date: review.date,
+                    author: review.author
+                }
+            })));
+
+            // Aggiorna le statistiche dell'integrazione
+            await Integration.findByIdAndUpdate(id, {
+                $set: {
+                    'syncConfig.lastSync': new Date(),
+                    'stats.totalReviews': reviews.length,
+                    'stats.syncedReviews': (integration.stats.syncedReviews || 0) + reviewsToImport.length,
+                    'stats.lastSyncedReviewDate': new Date()
+                }
+            });
+
+            res.json({ 
+                message: 'Sync completed successfully',
+                newReviews: reviewsToImport.length 
+            });
+
+        } catch (error) {
+            console.error('Sync integration error:', error);
+            res.status(500).json({ 
+                message: 'Failed to sync integration',
+                error: error.message 
+            });
+        }
     }
 };
 
