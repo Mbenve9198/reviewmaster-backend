@@ -3,6 +3,12 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const Hotel = require('../models/hotel.model');
 const verificationController = require('./verification.controller');
+const crypto = require('crypto');
+const sendEmail = require('../utils/email');
+const { Resend } = require('resend');
+const resetPasswordEmailTemplate = require('../templates/reset-password-email');
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const authController = {
     // Registrazione nuovo utente
@@ -118,6 +124,76 @@ const authController = {
         } catch (error) {
             console.error('Get profile error:', error);
             res.status(500).json({ message: 'Error fetching profile' });
+        }
+    },
+
+    // Richiesta reset password
+    requestPasswordReset: async (req, res) => {
+        try {
+            const { email } = req.body;
+            const user = await User.findOne({ email });
+            
+            if (!user) {
+                return res.status(200).json({ 
+                    message: 'If an account exists with this email, you will receive a password reset link.' 
+                });
+            }
+
+            // Genera token di reset
+            const resetToken = crypto.randomBytes(32).toString('hex');
+            const resetTokenExpiry = Date.now() + 3600000; // 1 ora
+
+            user.resetPasswordToken = resetToken;
+            user.resetPasswordExpires = resetTokenExpiry;
+            await user.save();
+
+            // Crea il link di reset
+            const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+            
+            // Invia email usando Resend
+            await resend.emails.send({
+                from: 'Replai <noreply@replai.app>',
+                to: user.email,
+                subject: 'Reset your Replai password',
+                html: resetPasswordEmailTemplate(resetLink)
+            });
+
+            res.json({ 
+                message: 'If an account exists with this email, you will receive a password reset link.' 
+            });
+        } catch (error) {
+            console.error('Password reset request error:', error);
+            res.status(500).json({ message: 'Error processing password reset request' });
+        }
+    },
+
+    // Reset password
+    resetPassword: async (req, res) => {
+        try {
+            const { token, newPassword } = req.body;
+            
+            const user = await User.findOne({
+                resetPasswordToken: token,
+                resetPasswordExpires: { $gt: Date.now() }
+            });
+
+            if (!user) {
+                return res.status(400).json({ message: 'Invalid or expired reset token' });
+            }
+
+            // Hash della nuova password
+            const hashedPassword = await bcrypt.hash(newPassword, 10);
+            
+            // Aggiorna password e rimuovi token
+            user.password = hashedPassword;
+            user.resetPasswordToken = undefined;
+            user.resetPasswordExpires = undefined;
+            await user.save();
+
+            res.json({ message: 'Password reset successful' });
+        } catch (error) {
+            console.error('Password reset error:', error);
+            res.status(500).json({ message: 'Error resetting password' });
         }
     }
 };
