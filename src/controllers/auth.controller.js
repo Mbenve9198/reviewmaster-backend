@@ -4,7 +4,6 @@ const bcrypt = require('bcryptjs');
 const Hotel = require('../models/hotel.model');
 const verificationController = require('./verification.controller');
 const crypto = require('crypto');
-const sendEmail = require('../utils/email');
 const { Resend } = require('resend');
 const resetPasswordEmailTemplate = require('../templates/reset-password-email');
 
