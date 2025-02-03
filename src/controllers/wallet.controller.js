@@ -14,6 +14,8 @@ const walletController = {
             const { credits } = req.body;
             const userId = req.userId;
 
+            console.log('Creating payment intent with credits:', credits);
+
             if (!credits || credits < 34) {
                 return res.status(400).json({ 
                     message: 'Minimum credits amount is 34' 
@@ -27,11 +29,18 @@ const walletController = {
 
             const pricePerCredit = calculatePricePerCredit(credits);
             const totalPrice = credits * pricePerCredit; // Prezzo in euro
-            const amount = Math.round(totalPrice); // Già in euro, non moltiplicare per 100
+            const amount = Math.round(totalPrice * 100); // Conversione in centesimi per Stripe
+
+            console.log('Payment intent details:', {
+                credits,
+                pricePerCredit,
+                totalPrice,
+                amount
+            });
 
             try {
                 const paymentIntent = await stripe.paymentIntents.create({
-                    amount,
+                    amount, // Questo sarà in centesimi (1500 per 15€)
                     currency: 'eur',
                     metadata: {
                         userId,
@@ -48,7 +57,7 @@ const walletController = {
                     userId,
                     type: 'purchase',
                     credits,
-                    amount: amount / 100,
+                    amount: amount / 100, // Salviamo in euro nel database
                     status: 'pending',
                     description: `Purchase of ${credits} credits`,
                     metadata: {

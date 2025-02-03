@@ -37,9 +37,20 @@ module.exports = async (req, res) => {
 };
 
 async function handleSuccessfulPayment(paymentIntent) {
+    console.log('Processing successful payment:', { // Log 4
+        paymentIntentId: paymentIntent.id,
+        metadata: paymentIntent.metadata
+    });
+
     const userId = paymentIntent.metadata.userId;
     const credits = parseInt(paymentIntent.metadata.credits, 10);
     const pricePerCredit = parseFloat(paymentIntent.metadata.pricePerCredit);
+
+    console.log('Parsed payment values:', { // Log 5
+        userId,
+        credits,
+        pricePerCredit
+    });
 
     const session = await mongoose.startSession();
     session.startTransaction();
@@ -53,7 +64,9 @@ async function handleSuccessfulPayment(paymentIntent) {
 
         if (existingTransaction) {
             console.log('Transaction already processed:', paymentIntent.id);
-            return;
+            await session.abortTransaction();
+            session.endSession();
+            return; // Importante: esce dalla funzione se la transazione è già stata processata
         }
 
         // Aggiorna lo stato della transazione
