@@ -3,9 +3,9 @@ const User = require('../models/user.model');
 const Transaction = require('../models/transaction.model');
 
 const calculatePricePerCredit = (credits) => {
-    if (credits < 200) return 0.30;
-    if (credits < 1000) return 0.24;
-    return 0.20;
+    if (credits >= 10000) return 0.10;
+    if (credits >= 500) return 0.15;
+    return 0.30;
 };
 
 const walletController = {
