@@ -201,8 +201,20 @@ const analyticsController = {
                 });
 
                 if (message?.content?.[0]?.text) {
+                    // Puliamo il testo da eventuali blocchi di codice markdown
                     analysis = message.content[0].text;
+                    if (analysis.includes('```')) {
+                        analysis = analysis.replace(/```json\n?|\n?```/g, '').trim();
+                    }
                     provider = 'claude';
+
+                    // Verifichiamo che sia un JSON valido
+                    try {
+                        JSON.parse(analysis); // Se non è un JSON valido, lancerà un errore
+                    } catch (e) {
+                        console.error('Invalid JSON response from AI:', e);
+                        throw new Error('AI returned invalid JSON format');
+                    }
 
                     if (!previousMessages) {
                         const suggestionsMessage = await anthropic.messages.create({
