@@ -26,7 +26,8 @@ const walletController = {
             }
 
             const pricePerCredit = calculatePricePerCredit(credits);
-            const amount = Math.round(credits * pricePerCredit * 100); // Stripe wants amount in cents
+            const totalPrice = credits * pricePerCredit; // Prezzo in euro
+            const amount = Math.round(totalPrice * 100); // Conversione in centesimi per Stripe
 
             try {
                 const paymentIntent = await stripe.paymentIntents.create({
