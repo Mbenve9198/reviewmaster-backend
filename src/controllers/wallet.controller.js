@@ -28,19 +28,19 @@ const walletController = {
             }
 
             const pricePerCredit = calculatePricePerCredit(credits);
-            const totalPrice = credits * pricePerCredit; // Prezzo in euro
-            const amount = Math.round(totalPrice * 100); // Conversione in centesimi per Stripe
+            const totalPrice = credits * pricePerCredit; // Calcola il prezzo in euro
+            const amount = Math.round(totalPrice * 100); // Converti in centesimi per Stripe
 
             console.log('Payment intent details:', {
                 credits,
                 pricePerCredit,
                 totalPrice,
-                amount
+                amountInCents: amount
             });
 
             try {
                 const paymentIntent = await stripe.paymentIntents.create({
-                    amount, // Questo sarà in centesimi (1500 per 15€)
+                    amount, // es: 1500 centesimi = 15€
                     currency: 'eur',
                     metadata: {
                         userId,
@@ -57,7 +57,7 @@ const walletController = {
                     userId,
                     type: 'purchase',
                     credits,
-                    amount: amount / 100, // Salviamo in euro nel database
+                    amount: totalPrice, // Salviamo il prezzo in euro
                     status: 'pending',
                     description: `Purchase of ${credits} credits`,
                     metadata: {
