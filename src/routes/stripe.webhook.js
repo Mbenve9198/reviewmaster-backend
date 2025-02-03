@@ -37,7 +37,9 @@ module.exports = async (req, res) => {
 };
 
 async function handleSuccessfulPayment(paymentIntent) {
-    const { userId, credits, pricePerCredit } = paymentIntent.metadata;
+    const userId = paymentIntent.metadata.userId;
+    const credits = parseInt(paymentIntent.metadata.credits, 10);
+    const pricePerCredit = parseFloat(paymentIntent.metadata.pricePerCredit);
 
     const session = await mongoose.startSession();
     session.startTransaction();
