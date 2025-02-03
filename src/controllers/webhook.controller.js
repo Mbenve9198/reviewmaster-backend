@@ -33,37 +33,8 @@ const webhookController = {
                     const paymentIntent = event.data.object;
                     console.log('Payment succeeded:', paymentIntent.id);
                     
-                    // Aggiorna la transazione
-                    await Transaction.findOneAndUpdate(
-                        { 'metadata.stripePaymentIntentId': paymentIntent.id },
-                        { 
-                            status: 'completed',
-                            completedAt: new Date()
-                        }
-                    );
-
-                    // Trova l'utente e aggiorna i crediti mantenendo quelli esistenti
-                    const { userId, credits } = paymentIntent.metadata;
-                    const user = await User.findById(userId);
-                    
-                    if (!user) {
-                        throw new Error('User not found');
-                    }
-
-                    const currentCredits = user.wallet?.credits || 0;
-                    const freeCredits = user.wallet?.freeScrapingRemaining || 0;
-                    
-                    await User.findByIdAndUpdate(userId, {
-                        'wallet.credits': currentCredits + parseInt(credits),
-                        'wallet.freeScrapingRemaining': freeCredits
-                    });
-
-                    console.log(`Credits updated for user ${userId}:`, {
-                        previousCredits: currentCredits,
-                        purchasedCredits: parseInt(credits),
-                        newTotal: currentCredits + parseInt(credits),
-                        freeCredits
-                    });
+                    // Deleghiamo la gestione del pagamento a handleSuccessfulPayment
+                    await handleSuccessfulPayment(paymentIntent);
                     break;
 
                 case 'payment_intent.payment_failed':
