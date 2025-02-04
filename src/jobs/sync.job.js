@@ -87,7 +87,7 @@ async function processIntegration(integration) {
     }
 }
 
-async function processAndSaveReviews(reviews, integration) {
+async function processAndSaveReviews(reviews, integration, user) {
     const existingReviews = await Review.find({
         hotelId: integration.hotelId,
         platform: integration.platform
@@ -100,25 +100,13 @@ async function processAndSaveReviews(reviews, integration) {
     const lastReviewDate = lastReview ? lastReview.content.date : null;
 
     const reviewsToImport = reviews.filter(review => {
-        // Se non c'è lastReviewDate, importa tutte le recensioni
         if (!lastReviewDate) return true;
-        
-        // Altrimenti importa solo le recensioni più recenti dell'ultima importata
         const reviewDate = new Date(review.date);
         return reviewDate > new Date(lastReviewDate);
     });
 
     if (reviewsToImport.length === 0) {
         return 0;
-    }
-
-    // Verifica e scala i crediti
-    const hotel = await Hotel.findById(integration.hotelId).populate('userId');
-    const user = await User.findById(hotel.userId);
-    
-    const creditCost = reviewsToImport.length * 0.1;
-    if (user.credits < creditCost) {
-        throw new Error('Insufficient credits for importing reviews');
     }
 
     // Procedi con il salvataggio delle recensioni
@@ -135,12 +123,7 @@ async function processAndSaveReviews(reviews, integration) {
         }
     })));
 
-    // Scala i crediti dopo il salvataggio riuscito
-    await User.findByIdAndUpdate(user._id, {
-        $inc: { credits: -creditCost }
-    });
-
-    // Usa il metodo del modello per aggiornare le statistiche
+    // Usa il metodo del modello per aggiornare le statistiche e scalare i crediti
     await integration.updateSyncStats(reviewsToImport);
 
     return reviewsToImport.length;

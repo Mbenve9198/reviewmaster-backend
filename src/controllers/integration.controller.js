@@ -380,44 +380,17 @@ const integrationController = {
             });
 
             // Usa processAndSaveReviews invece di gestire tutto qui
-            const newReviewsCount = await processAndSaveReviews(reviewsToImport, integration);
-
-            // Invia email di notifica
-            try {
-                if (user && user.email) {
-                    const appUrl = process.env.FRONTEND_URL || 'https://replai.app';
-                    
-                    await resend.emails.send({
-                        from: 'Replai <noreply@replai.app>',
-                        to: user.email,
-                        subject: `${newReviewsCount} new reviews for ${integration.hotelId.name}`,
-                        html: newReviewsEmailTemplate(
-                            integration.hotelId.name,
-                            newReviewsCount,
-                            integration.platform,
-                            appUrl
-                        )
-                    });
-                    
-                    console.log(`Manual sync notification sent to ${user.email}`);
-                }
-            } catch (emailError) {
-                console.error('Error sending sync notification:', emailError);
-                // Continuiamo anche se l'invio dell'email fallisce
-            }
+            const newReviewsCount = await processAndSaveReviews(reviewsToImport, integration, user);
 
             res.json({ 
                 message: 'Sync completed successfully',
-                newReviews: newReviewsCount,
-                creditsUsed: 0,
-                creditsRemaining: user.credits
+                newReviews: newReviewsCount
             });
 
         } catch (error) {
-            console.error('Sync error:', error);
+            console.error('Incremental sync error:', error);
             res.status(500).json({ 
-                message: 'Error during sync',
-                error: error.message 
+                message: error.message || 'Error during sync'
             });
         }
     }
@@ -470,7 +443,7 @@ async function syncReviews(integration) {
     }
 }
 
-async function processAndSaveReviews(reviews, integration) {
+async function processAndSaveReviews(reviews, integration, user) {
     const newReviews = [];
     for (const reviewData of reviews) {
         let mappedData = {};
