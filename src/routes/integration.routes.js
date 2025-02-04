@@ -46,8 +46,8 @@ router.get('/:integrationId/sync/status', async (req, res) => {
     }
 });
 
-// Route per avviare una sincronizzazione manuale
-router.post('/:integrationId/sync', integrationController.syncNow);
+// Route per avviare una sincronizzazione manuale incrementale
+router.post('/:integrationId/sync', integrationController.incrementalSync);
 
 router.get('/hotel/:hotelId/stats', async (req, res) => {
    try {

@@ -68,7 +68,7 @@ const integrationController = {
 
             // Esegui la sincronizzazione iniziale
             try {
-                await syncReviews(integration);
+                await integrationController.initialSync(integration);
             } catch (syncError) {
                 console.error('Initial sync error:', syncError);
                 // Continuiamo anche se la sync iniziale fallisce
@@ -250,7 +250,58 @@ const integrationController = {
         }
     },
 
-    syncIntegration: async (req, res) => {
+    async initialSync(integration) {
+        try {
+            console.log('Starting initial sync for integration:', integration._id);
+            
+            const config = {
+                maxReviews: parseInt(integration.syncConfig.maxReviews) || 100
+            };
+
+            console.log('Initial sync config:', config);
+            
+            const reviews = await apifyService.runScraper(
+                integration.platform,
+                integration.url,
+                config
+            );
+
+            console.log(`Retrieved ${reviews.length} reviews from scraper`);
+
+            // Salva tutte le recensioni senza filtro per data
+            await Review.insertMany(reviews.map(review => ({
+                hotelId: integration.hotelId,
+                integrationId: integration._id,
+                platform: integration.platform,
+                content: {
+                    text: review.text,
+                    rating: review.rating,
+                    date: review.date,
+                    author: review.author
+                }
+            })));
+
+            // Aggiorna le statistiche dell'integrazione
+            await Integration.findByIdAndUpdate(integration._id, {
+                $set: {
+                    'syncConfig.lastSync': new Date(),
+                    'stats.totalReviews': reviews.length,
+                    'stats.syncedReviews': reviews.length,
+                    'stats.lastSyncedReviewDate': new Date()
+                }
+            });
+
+            return {
+                newReviews: reviews.length,
+                totalReviews: reviews.length
+            };
+        } catch (error) {
+            console.error('Initial sync error:', error);
+            throw error;
+        }
+    },
+
+    incrementalSync: async (req, res) => {
         try {
             const { id } = req.params;
             const integration = await Integration.findById(id);
