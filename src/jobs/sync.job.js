@@ -103,16 +103,29 @@ async function processAndSaveReviews(reviews, integration) {
     }
 
     // Salva le nuove recensioni con gli stessi default di incrementalSync
-    await Review.insertMany(reviewsToImport.map(review => ({
-        hotelId: integration.hotelId,
-        integrationId: integration._id,
-        platform: integration.platform,
-        content: {
-            text: review.text || 'No review text provided',  // Default text
-            rating: review.rating || 1,  // Minimo rating accettato è 1
-            date: review.date || new Date(),
-            author: review.author || 'Anonymous'
+    await Review.insertMany(reviewsToImport.map(review => {
+        // Parsing del rating
+        let rating = 1;
+        if (review.rating) {
+            if (typeof review.rating === 'string' && review.rating.includes('/')) {
+                // Gestisce formati come "5/5"
+                rating = parseInt(review.rating.split('/')[0]);
+            } else {
+                rating = parseInt(review.rating) || 1;
+            }
         }
+
+        return {
+            hotelId: integration.hotelId,
+            integrationId: integration._id,
+            platform: integration.platform,
+            content: {
+                text: review.text || 'No review text provided',
+                rating: rating,
+                date: review.date || new Date(),
+                author: review.author || 'Anonymous'
+            }
+        };
     })));
 
     // Aggiorna le statistiche dell'integrazione
