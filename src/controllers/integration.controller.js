@@ -358,68 +358,18 @@ const integrationController = {
                 config
             );
 
-            // Filtra ulteriormente le recensioni per sicurezza
+            // Filtra le recensioni per data di pubblicazione
             const reviewsToImport = reviews.filter(review => {
-                return !lastReviewDate || new Date(review.date) > new Date(lastReviewDate);
+                // Se non c'è lastReviewDate, importa tutte le recensioni
+                if (!lastReviewDate) return true;
+                
+                // Altrimenti importa solo le recensioni più recenti dell'ultima importata
+                const reviewDate = new Date(review.date);
+                return reviewDate > new Date(lastReviewDate);
             });
 
-            if (reviewsToImport.length === 0) {
-                return res.json({ 
-                    message: 'No new reviews to import',
-                    newReviews: 0 
-                });
-            }
-
-            // Calcola il costo in crediti (0.1 per recensione)
-            const creditCost = reviewsToImport.length * 0.1;
-
-            // Verifica se l'utente ha abbastanza crediti
-            if (user.credits < creditCost) {
-                return res.status(400).json({ 
-                    message: 'Insufficient credits for importing reviews'
-                });
-            }
-
-            // Salva le nuove recensioni
-            await Review.insertMany(reviewsToImport.map(review => {
-                // Parsing del rating
-                let rating = 1;
-                if (review.rating) {
-                    if (typeof review.rating === 'string' && review.rating.includes('/')) {
-                        // Gestisce formati come "5/5"
-                        rating = parseInt(review.rating.split('/')[0]);
-                    } else {
-                        rating = parseInt(review.rating) || 1;
-                    }
-                }
-
-                return {
-                    hotelId: integration.hotelId,
-                    integrationId: integration._id,
-                    platform: integration.platform,
-                    content: {
-                        text: review.text || 'No review text provided',
-                        rating: rating,
-                        date: review.date || new Date(),
-                        author: review.author || 'Anonymous'
-                    }
-                };
-            }));
-
-            // Scala i crediti dopo il salvataggio riuscito
-            await User.findByIdAndUpdate(userId, {
-                $inc: { credits: -creditCost }
-            });
-
-            // Aggiorna le statistiche dell'integrazione
-            await Integration.findByIdAndUpdate(integrationId, {
-                $set: {
-                    'syncConfig.lastSync': new Date(),
-                    'stats.totalReviews': reviewsToImport.length,
-                    'stats.syncedReviews': (integration.stats.syncedReviews || 0) + reviewsToImport.length,
-                    'stats.lastSyncedReviewDate': new Date()
-                }
-            });
+            // Usa processAndSaveReviews invece di gestire tutto qui
+            const newReviewsCount = await processAndSaveReviews(reviewsToImport, integration);
 
             // Invia email di notifica
             try {
@@ -429,10 +379,10 @@ const integrationController = {
                     await resend.emails.send({
                         from: 'Replai <noreply@replai.app>',
                         to: user.email,
-                        subject: `${reviewsToImport.length} new reviews for ${integration.hotelId.name}`,
+                        subject: `${newReviewsCount} new reviews for ${integration.hotelId.name}`,
                         html: newReviewsEmailTemplate(
                             integration.hotelId.name,
-                            reviewsToImport.length,
+                            newReviewsCount,
                             integration.platform,
                             appUrl
                         )
@@ -447,9 +397,9 @@ const integrationController = {
 
             res.json({ 
                 message: 'Sync completed successfully',
-                newReviews: reviewsToImport.length,
-                creditsUsed: creditCost,
-                creditsRemaining: user.credits - creditCost
+                newReviews: newReviewsCount,
+                creditsUsed: 0,
+                creditsRemaining: user.credits
             });
 
         } catch (error) {
@@ -613,7 +563,7 @@ async function processAndSaveReviews(reviews, integration) {
             }
         }
     }
-    return newReviews;
+    return newReviews.length;
 }
 
 async function scheduleSyncForIntegration(integration) {
