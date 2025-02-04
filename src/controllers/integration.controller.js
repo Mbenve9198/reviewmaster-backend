@@ -357,7 +357,7 @@ const integrationController = {
                 integrationId: integration._id,
                 platform: integration.platform,
                 content: {
-                    text: review.text || '',
+                    text: review.text || 'No review text provided',  // Default text
                     rating: review.rating || 1,  // Minimo rating accettato è 1
                     date: review.date || new Date(),
                     author: review.author || 'Anonymous'
