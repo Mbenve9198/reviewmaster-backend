@@ -126,7 +126,7 @@ async function processAndSaveReviews(reviews, integration) {
                 author: review.author || 'Anonymous'
             }
         };
-    })));
+    }));
 
     // Aggiorna le statistiche dell'integrazione
     await Integration.findByIdAndUpdate(integration._id, {
