@@ -382,9 +382,13 @@ const integrationController = {
             // Usa processAndSaveReviews invece di gestire tutto qui
             const newReviewsCount = await processAndSaveReviews(reviewsToImport, integration, user);
 
+            // Ottieni l'integrazione aggiornata
+            const updatedIntegration = await Integration.findById(integrationId);
+
             res.json({ 
                 message: 'Sync completed successfully',
-                newReviews: newReviewsCount
+                newReviews: newReviewsCount,
+                nextScheduledSync: updatedIntegration.syncConfig.nextScheduledSync
             });
 
         } catch (error) {
