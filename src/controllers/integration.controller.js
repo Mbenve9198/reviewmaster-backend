@@ -303,11 +303,20 @@ const integrationController = {
 
     incrementalSync: async (req, res) => {
         try {
-            const { id } = req.params;
-            const integration = await Integration.findById(id);
+            const { integrationId } = req.params;
+            const userId = req.userId;
+            const integration = await Integration.findById(integrationId).populate({
+                path: 'hotelId',
+                select: 'userId name'  // Aggiungiamo 'name' per l'email template
+            });
             
             if (!integration) {
                 return res.status(404).json({ message: 'Integration not found' });
+            }
+
+            // Aggiungiamo anche il controllo di autorizzazione
+            if (integration.hotelId.userId.toString() !== userId) {
+                return res.status(403).json({ message: 'Unauthorized' });
             }
 
             // Trova la data dell'ultima recensione importata
@@ -356,7 +365,7 @@ const integrationController = {
             })));
 
             // Aggiorna le statistiche dell'integrazione
-            await Integration.findByIdAndUpdate(id, {
+            await Integration.findByIdAndUpdate(integrationId, {
                 $set: {
                     'syncConfig.lastSync': new Date(),
                     'stats.totalReviews': reviews.length,
@@ -367,8 +376,7 @@ const integrationController = {
 
             // Invia email di notifica
             try {
-                const hotel = await integration.hotelId.populate('userId');
-                const user = await User.findById(hotel.userId);
+                const user = await User.findById(integration.hotelId.userId);
                 
                 if (user && user.email) {
                     const appUrl = process.env.FRONTEND_URL || 'https://replai.app';
@@ -376,9 +384,9 @@ const integrationController = {
                     await resend.emails.send({
                         from: 'Replai <noreply@replai.app>',
                         to: user.email,
-                        subject: `${reviewsToImport.length} new reviews for ${hotel.name}`,
+                        subject: `${reviewsToImport.length} new reviews for ${integration.hotelId.name}`,
                         html: newReviewsEmailTemplate(
-                            hotel.name,
+                            integration.hotelId.name,
                             reviewsToImport.length,
                             integration.platform,
                             appUrl
