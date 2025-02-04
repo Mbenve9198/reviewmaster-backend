@@ -1,7 +1,12 @@
 const cron = require('node-cron');
 const Integration = require('../models/integration.model');
 const Review = require('../models/review.model');
+const User = require('../models/user.model');
 const apifyService = require('../services/apify.service');
+const { Resend } = require('resend');
+const newReviewsEmailTemplate = require('../templates/new-reviews-email');
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const MAX_CONCURRENT_SYNCS = 5;
 const SYNC_INTERVAL_MS = 1000;
@@ -82,6 +87,8 @@ async function processIntegration(integration) {
 }
 
 async function processAndSaveReviews(reviews, integration) {
+    let newReviewsCount = 0;
+    
     for (const reviewData of reviews) {
         const existingReview = await Review.findOne({
             hotelId: integration.hotelId,
@@ -112,8 +119,39 @@ async function processAndSaveReviews(reviews, integration) {
             });
 
             await review.save();
+            newReviewsCount++;
         }
     }
+
+    // Se ci sono nuove recensioni, invia la notifica email
+    if (newReviewsCount > 0) {
+        try {
+            const hotel = await integration.hotelId.populate('userId');
+            const user = await User.findById(hotel.userId);
+            
+            if (user && user.email) {
+                const appUrl = process.env.FRONTEND_URL || 'https://replai.app';
+                
+                await resend.emails.send({
+                    from: 'Replai <noreply@replai.app>',
+                    to: user.email,
+                    subject: `${newReviewsCount} new reviews for ${hotel.name}`,
+                    html: newReviewsEmailTemplate(
+                        hotel.name,
+                        newReviewsCount,
+                        integration.platform,
+                        appUrl
+                    )
+                });
+                
+                console.log(`New reviews notification sent to ${user.email}`);
+            }
+        } catch (error) {
+            console.error('Error sending new reviews notification:', error);
+        }
+    }
+
+    return newReviewsCount;
 }
 
 async function handleSyncError(integration, error) {
