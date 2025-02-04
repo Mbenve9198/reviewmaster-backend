@@ -268,18 +268,33 @@ const integrationController = {
 
             console.log(`Retrieved ${reviews.length} reviews from scraper`);
 
-            // Salva tutte le recensioni senza filtro per data
-            await Review.insertMany(reviews.map(review => ({
+            const existingReviews = await Review.find({
                 hotelId: integration.hotelId,
-                integrationId: integration._id,
-                platform: integration.platform,
-                content: {
-                    text: review.text,
-                    rating: review.rating,
-                    date: review.date,
-                    author: review.author
-                }
-            })));
+                platform: integration.platform
+            }).select('content.date externalId');
+
+            const reviewsToImport = reviews.filter(review => {
+                return !existingReviews.some(existing => 
+                    existing.externalId === review.externalId || 
+                    (existing.content.date && review.date && 
+                     new Date(existing.content.date).getTime() === new Date(review.date).getTime())
+                );
+            });
+
+            if (reviewsToImport.length > 0) {
+                await Review.insertMany(reviewsToImport.map(review => ({
+                    hotelId: integration.hotelId,
+                    integrationId: integration._id,
+                    platform: integration.platform,
+                    externalId: review.externalId,
+                    content: {
+                        text: review.text || 'No review text provided',
+                        rating: parseRating(review.rating),
+                        date: review.date || new Date(),
+                        author: review.author || 'Anonymous'
+                    }
+                })));
+            }
 
             // Aggiorna le statistiche dell'integrazione
             await Integration.findByIdAndUpdate(integration._id, {

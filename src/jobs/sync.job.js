@@ -87,15 +87,17 @@ async function processIntegration(integration) {
 }
 
 async function processAndSaveReviews(reviews, integration) {
-    // Filtra le recensioni per data se necessario
-    const lastReview = await Review.findOne({
+    const existingReviews = await Review.find({
         hotelId: integration.hotelId,
         platform: integration.platform
-    }).sort({ 'content.date': -1 });
+    }).select('content.date externalId');
 
-    const lastReviewDate = lastReview ? lastReview.content.date : null;
     const reviewsToImport = reviews.filter(review => {
-        return !lastReviewDate || new Date(review.date) > new Date(lastReviewDate);
+        return !existingReviews.some(existing => 
+            existing.externalId === review.externalId || 
+            (existing.content.date && review.date && 
+             new Date(existing.content.date).getTime() === new Date(review.date).getTime())
+        );
     });
 
     if (reviewsToImport.length === 0) {
