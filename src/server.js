@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 require('dotenv').config();
 
-const { setupCreditsResetJob } = require('./jobs/credits-reset.job');
+const { setupSyncJobs } = require('./jobs/sync.job');
 const authMiddleware = require('./middleware/auth.middleware');
 const checkEmailVerification = require('./middleware/verification.middleware');
 const authRoutes = require('./routes/auth.routes');
@@ -96,9 +96,8 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => {
         console.log('Connected to MongoDB');
         
-        // Inizializza il cron job dopo la connessione al database
-        setupCreditsResetJob();
-        console.log('Credits reset job initialized');
+        setupSyncJobs();
+        console.log('Review sync jobs initialized');
         
         const PORT = process.env.PORT || 3000;
         app.listen(PORT, () => {
