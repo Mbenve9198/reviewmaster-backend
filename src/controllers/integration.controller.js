@@ -320,6 +320,10 @@ const integrationController = {
         try {
             const { integrationId } = req.params;
             const userId = req.userId;
+
+            // Verifica crediti utente
+            const user = await User.findById(userId);
+            
             const integration = await Integration.findById(integrationId).populate({
                 path: 'hotelId',
                 select: 'userId name'  // Aggiungiamo 'name' per l'email template
@@ -366,6 +370,16 @@ const integrationController = {
                 });
             }
 
+            // Calcola il costo in crediti (0.1 per recensione)
+            const creditCost = reviewsToImport.length * 0.1;
+
+            // Verifica se l'utente ha abbastanza crediti
+            if (user.credits < creditCost) {
+                return res.status(400).json({ 
+                    message: 'Insufficient credits for importing reviews'
+                });
+            }
+
             // Salva le nuove recensioni
             await Review.insertMany(reviewsToImport.map(review => {
                 // Parsing del rating
@@ -392,11 +406,16 @@ const integrationController = {
                 };
             }));
 
+            // Scala i crediti dopo il salvataggio riuscito
+            await User.findByIdAndUpdate(userId, {
+                $inc: { credits: -creditCost }
+            });
+
             // Aggiorna le statistiche dell'integrazione
             await Integration.findByIdAndUpdate(integrationId, {
                 $set: {
                     'syncConfig.lastSync': new Date(),
-                    'stats.totalReviews': reviews.length,
+                    'stats.totalReviews': reviewsToImport.length,
                     'stats.syncedReviews': (integration.stats.syncedReviews || 0) + reviewsToImport.length,
                     'stats.lastSyncedReviewDate': new Date()
                 }
@@ -404,8 +423,6 @@ const integrationController = {
 
             // Invia email di notifica
             try {
-                const user = await User.findById(integration.hotelId.userId);
-                
                 if (user && user.email) {
                     const appUrl = process.env.FRONTEND_URL || 'https://replai.app';
                     
@@ -430,7 +447,9 @@ const integrationController = {
 
             res.json({ 
                 message: 'Sync completed successfully',
-                newReviews: reviewsToImport.length 
+                newReviews: reviewsToImport.length,
+                creditsUsed: creditCost,
+                creditsRemaining: user.credits - creditCost
             });
 
         } catch (error) {

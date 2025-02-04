@@ -5,6 +5,7 @@ const User = require('../models/user.model');
 const apifyService = require('../services/apify.service');
 const { Resend } = require('resend');
 const newReviewsEmailTemplate = require('../templates/new-reviews-email');
+const Hotel = require('../models/hotel.model');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -104,7 +105,16 @@ async function processAndSaveReviews(reviews, integration) {
         return 0;
     }
 
-    // Salva le nuove recensioni con gli stessi default di incrementalSync
+    // Verifica e scala i crediti
+    const hotel = await Hotel.findById(integration.hotelId).populate('userId');
+    const user = await User.findById(hotel.userId);
+    
+    const creditCost = reviewsToImport.length * 0.1;
+    if (user.credits < creditCost) {
+        throw new Error('Insufficient credits for importing reviews');
+    }
+
+    // Procedi con il salvataggio delle recensioni (codice esistente)
     await Review.insertMany(reviewsToImport.map(review => {
         // Parsing del rating
         let rating = 1;
@@ -121,6 +131,7 @@ async function processAndSaveReviews(reviews, integration) {
             hotelId: integration.hotelId,
             integrationId: integration._id,
             platform: integration.platform,
+            externalId: review.externalId,
             content: {
                 text: review.text || 'No review text provided',
                 rating: rating,
@@ -129,6 +140,11 @@ async function processAndSaveReviews(reviews, integration) {
             }
         };
     }));
+
+    // Scala i crediti dopo il salvataggio riuscito
+    await User.findByIdAndUpdate(user._id, {
+        $inc: { credits: -creditCost }
+    });
 
     // Aggiorna le statistiche dell'integrazione
     await Integration.findByIdAndUpdate(integration._id, {
