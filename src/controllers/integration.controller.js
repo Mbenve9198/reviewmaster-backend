@@ -3,6 +3,9 @@ const Review = require('../models/review.model');
 const Hotel = require('../models/hotel.model');
 const apifyService = require('../services/apify.service');
 const User = require('../models/user.model');
+const { Resend } = require('resend');
+const newReviewsEmailTemplate = require('../templates/new-reviews-email');
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const integrationController = {
     setupIntegration: async (req, res) => {
@@ -256,35 +259,30 @@ const integrationController = {
                 return res.status(404).json({ message: 'Integration not found' });
             }
 
-            // Recupera le recensioni dalla piattaforma
-            let reviews;
-            switch (integration.platform) {
-                case 'google':
-                    reviews = await scrapeGoogleReviews(integration.url);
-                    break;
-                case 'booking':
-                    reviews = await scrapeBookingReviews(integration.url);
-                    break;
-                case 'tripadvisor':
-                    reviews = await scrapeTripAdvisorReviews(integration.url);
-                    break;
-                default:
-                    throw new Error('Unsupported platform');
-            }
+            // Trova la data dell'ultima recensione importata
+            const lastReview = await Review.findOne({
+                hotelId: integration.hotelId,
+                platform: integration.platform
+            }).sort({ 'content.date': -1 });
 
-            // Filtra le recensioni in base a lastSync
-            const lastSync = integration.syncConfig.lastSync;
-            let reviewsToImport;
+            const lastReviewDate = lastReview ? lastReview.content.date : null;
+            
+            // Configura il scraper solo con maxReviews e startDate
+            const config = {
+                maxReviews: 100,
+                startDate: lastReviewDate
+            };
 
-            if (!lastSync) {
-                // Prima sincronizzazione: prendi solo il numero massimo specificato
-                reviewsToImport = reviews.slice(0, parseInt(integration.syncConfig.maxReviews));
-            } else {
-                // Sincronizzazioni successive: prendi solo le recensioni più recenti
-                reviewsToImport = reviews.filter(review => 
-                    new Date(review.date) > new Date(lastSync)
-                );
-            }
+            const reviews = await apifyService.runScraper(
+                integration.platform,
+                integration.url,
+                config
+            );
+
+            // Filtra ulteriormente le recensioni per sicurezza
+            const reviewsToImport = reviews.filter(review => {
+                return !lastReviewDate || new Date(review.date) > new Date(lastReviewDate);
+            });
 
             if (reviewsToImport.length === 0) {
                 return res.json({ 
@@ -316,15 +314,42 @@ const integrationController = {
                 }
             });
 
+            // Invia email di notifica
+            try {
+                const hotel = await integration.hotelId.populate('userId');
+                const user = await User.findById(hotel.userId);
+                
+                if (user && user.email) {
+                    const appUrl = process.env.FRONTEND_URL || 'https://replai.app';
+                    
+                    await resend.emails.send({
+                        from: 'Replai <noreply@replai.app>',
+                        to: user.email,
+                        subject: `${reviewsToImport.length} new reviews for ${hotel.name}`,
+                        html: newReviewsEmailTemplate(
+                            hotel.name,
+                            reviewsToImport.length,
+                            integration.platform,
+                            appUrl
+                        )
+                    });
+                    
+                    console.log(`Manual sync notification sent to ${user.email}`);
+                }
+            } catch (emailError) {
+                console.error('Error sending sync notification:', emailError);
+                // Continuiamo anche se l'invio dell'email fallisce
+            }
+
             res.json({ 
                 message: 'Sync completed successfully',
                 newReviews: reviewsToImport.length 
             });
 
         } catch (error) {
-            console.error('Sync integration error:', error);
+            console.error('Sync error:', error);
             res.status(500).json({ 
-                message: 'Failed to sync integration',
+                message: 'Error during sync',
                 error: error.message 
             });
         }
