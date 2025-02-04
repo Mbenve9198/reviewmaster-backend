@@ -87,44 +87,46 @@ async function processIntegration(integration) {
 }
 
 async function processAndSaveReviews(reviews, integration) {
-    let newReviewsCount = 0;
-    
-    for (const reviewData of reviews) {
-        const existingReview = await Review.findOne({
-            hotelId: integration.hotelId,
-            platform: integration.platform,
-            externalReviewId: reviewData.id
-        });
+    // Filtra le recensioni per data se necessario
+    const lastReview = await Review.findOne({
+        hotelId: integration.hotelId,
+        platform: integration.platform
+    }).sort({ 'content.date': -1 });
 
-        if (!existingReview) {
-            const review = new Review({
-                hotelId: integration.hotelId,
-                integrationId: integration._id,
-                platform: integration.platform,
-                externalReviewId: reviewData.id,
-                content: {
-                    text: reviewData.text,
-                    rating: reviewData.rating,
-                    reviewerName: reviewData.reviewerName,
-                    reviewerImage: reviewData.reviewerImage,
-                    language: reviewData.language,
-                    images: reviewData.images,
-                    likes: reviewData.likes,
-                    originalUrl: reviewData.url
-                },
-                metadata: {
-                    originalCreatedAt: reviewData.dateAdded,
-                    syncedAt: new Date()
-                }
-            });
+    const lastReviewDate = lastReview ? lastReview.content.date : null;
+    const reviewsToImport = reviews.filter(review => {
+        return !lastReviewDate || new Date(review.date) > new Date(lastReviewDate);
+    });
 
-            await review.save();
-            newReviewsCount++;
-        }
+    if (reviewsToImport.length === 0) {
+        return 0;
     }
 
+    // Salva le nuove recensioni con gli stessi default di incrementalSync
+    await Review.insertMany(reviewsToImport.map(review => ({
+        hotelId: integration.hotelId,
+        integrationId: integration._id,
+        platform: integration.platform,
+        content: {
+            text: review.text || '',
+            rating: review.rating || 1,  // Stesso default di incrementalSync
+            date: review.date || new Date(),
+            author: review.author || 'Anonymous'
+        }
+    })));
+
+    // Aggiorna le statistiche dell'integrazione
+    await Integration.findByIdAndUpdate(integration._id, {
+        $set: {
+            'syncConfig.lastSync': new Date(),
+            'stats.totalReviews': reviews.length,
+            'stats.syncedReviews': (integration.stats.syncedReviews || 0) + reviewsToImport.length,
+            'stats.lastSyncedReviewDate': new Date()
+        }
+    });
+
     // Se ci sono nuove recensioni, invia la notifica email
-    if (newReviewsCount > 0) {
+    if (reviewsToImport.length > 0) {
         try {
             const hotel = await integration.hotelId.populate('userId');
             const user = await User.findById(hotel.userId);
@@ -135,10 +137,10 @@ async function processAndSaveReviews(reviews, integration) {
                 await resend.emails.send({
                     from: 'Replai <noreply@replai.app>',
                     to: user.email,
-                    subject: `${newReviewsCount} new reviews for ${hotel.name}`,
+                    subject: `${reviewsToImport.length} new reviews for ${hotel.name}`,
                     html: newReviewsEmailTemplate(
                         hotel.name,
-                        newReviewsCount,
+                        reviewsToImport.length,
                         integration.platform,
                         appUrl
                     )
@@ -151,7 +153,7 @@ async function processAndSaveReviews(reviews, integration) {
         }
     }
 
-    return newReviewsCount;
+    return reviewsToImport.length;
 }
 
 async function handleSyncError(integration, error) {

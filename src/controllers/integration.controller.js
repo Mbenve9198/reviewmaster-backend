@@ -357,10 +357,10 @@ const integrationController = {
                 integrationId: integration._id,
                 platform: integration.platform,
                 content: {
-                    text: review.text || '',  // Aggiungiamo un default vuoto
-                    rating: review.rating || 0,  // Aggiungiamo un default a 0
-                    date: review.date || new Date(),  // Aggiungiamo un default alla data corrente
-                    author: review.author || 'Anonymous'  // Aggiungiamo un default 'Anonymous'
+                    text: review.text || '',
+                    rating: review.rating || 1,  // Minimo rating accettato è 1
+                    date: review.date || new Date(),
+                    author: review.author || 'Anonymous'
                 }
             })));
 
