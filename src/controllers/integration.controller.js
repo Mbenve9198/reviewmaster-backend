@@ -201,12 +201,17 @@ const integrationController = {
 
     updateIntegration: async (req, res) => {
         try {
-            const integrationId = req.params.id;
-            const updates = req.body;
+            const { integrationId } = req.params;
+            const update = req.body;
 
-            const integration = await Integration.findOneAndUpdate(
-                { _id: integrationId, userId: req.userId },
-                updates,
+            // Se stiamo passando a sync manuale, resetta nextScheduledSync
+            if (update.syncConfig && update.syncConfig.type === 'manual') {
+                update.syncConfig.nextScheduledSync = null;
+            }
+
+            const integration = await Integration.findByIdAndUpdate(
+                integrationId,
+                { $set: update },
                 { new: true }
             );
 
