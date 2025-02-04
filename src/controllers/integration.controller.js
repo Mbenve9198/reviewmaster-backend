@@ -388,7 +388,8 @@ const integrationController = {
             res.json({ 
                 message: 'Sync completed successfully',
                 newReviews: newReviewsCount,
-                nextScheduledSync: updatedIntegration.syncConfig.nextScheduledSync
+                nextScheduledSync: updatedIntegration.syncConfig.nextScheduledSync,
+                totalSyncedReviews: updatedIntegration.stats.syncedReviews
             });
 
         } catch (error) {
