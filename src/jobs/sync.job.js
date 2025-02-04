@@ -121,75 +121,27 @@ async function processAndSaveReviews(reviews, integration) {
         throw new Error('Insufficient credits for importing reviews');
     }
 
-    // Procedi con il salvataggio delle recensioni (codice esistente)
-    await Review.insertMany(reviewsToImport.map(review => {
-        // Parsing del rating
-        let rating = 1;
-        if (review.rating) {
-            if (typeof review.rating === 'string' && review.rating.includes('/')) {
-                // Gestisce formati come "5/5"
-                rating = parseInt(review.rating.split('/')[0]);
-            } else {
-                rating = parseInt(review.rating) || 1;
-            }
+    // Procedi con il salvataggio delle recensioni
+    await Review.insertMany(reviewsToImport.map(review => ({
+        hotelId: integration.hotelId,
+        integrationId: integration._id,
+        platform: integration.platform,
+        externalId: review.externalId,
+        content: {
+            text: review.text || 'No review text provided',
+            rating: rating,
+            date: review.date || new Date(),
+            author: review.author || 'Anonymous'
         }
-
-        return {
-            hotelId: integration.hotelId,
-            integrationId: integration._id,
-            platform: integration.platform,
-            externalId: review.externalId,
-            content: {
-                text: review.text || 'No review text provided',
-                rating: rating,
-                date: review.date || new Date(),
-                author: review.author || 'Anonymous'
-            }
-        };
-    }));
+    })));
 
     // Scala i crediti dopo il salvataggio riuscito
     await User.findByIdAndUpdate(user._id, {
         $inc: { credits: -creditCost }
     });
 
-    // Aggiorna le statistiche dell'integrazione
-    await Integration.findByIdAndUpdate(integration._id, {
-        $set: {
-            'syncConfig.lastSync': new Date(),
-            'stats.totalReviews': reviews.length,
-            'stats.syncedReviews': (integration.stats.syncedReviews || 0) + reviewsToImport.length,
-            'stats.lastSyncedReviewDate': new Date()
-        }
-    });
-
-    // Se ci sono nuove recensioni, invia la notifica email
-    if (reviewsToImport.length > 0) {
-        try {
-            const hotel = await integration.hotelId.populate('userId');
-            const user = await User.findById(hotel.userId);
-            
-            if (user && user.email) {
-                const appUrl = process.env.FRONTEND_URL || 'https://replai.app';
-                
-                await resend.emails.send({
-                    from: 'Replai <noreply@replai.app>',
-                    to: user.email,
-                    subject: `${reviewsToImport.length} new reviews for ${hotel.name}`,
-                    html: newReviewsEmailTemplate(
-                        hotel.name,
-                        reviewsToImport.length,
-                        integration.platform,
-                        appUrl
-                    )
-                });
-                
-                console.log(`New reviews notification sent to ${user.email}`);
-            }
-        } catch (error) {
-            console.error('Error sending new reviews notification:', error);
-        }
-    }
+    // Usa il metodo del modello per aggiornare le statistiche
+    await integration.updateSyncStats(reviewsToImport);
 
     return reviewsToImport.length;
 }

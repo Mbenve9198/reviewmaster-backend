@@ -64,6 +64,17 @@ const integrationController = {
                 }
             });
 
+            // Calcola nextScheduledSync se è automatico
+            if (integration.syncConfig.type === 'automatic') {
+                const nextSync = new Date();
+                switch(integration.syncConfig.frequency) {
+                    case 'daily': nextSync.setDate(nextSync.getDate() + 1); break;
+                    case 'weekly': nextSync.setDate(nextSync.getDate() + 7); break;
+                    case 'monthly': nextSync.setMonth(nextSync.getMonth() + 1); break;
+                }
+                integration.syncConfig.nextScheduledSync = nextSync;
+            }
+
             await integration.save();
 
             // Esegui la sincronizzazione iniziale
