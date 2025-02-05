@@ -47,12 +47,14 @@ const reviewController = {
             let detectedLanguage = null;
             if (!previousMessages) {
                 try {
+                    const reviewText = typeof review === 'object' ? review.text : review;
+
                     const languageDetectionMessage = await anthropic.messages.create({
                         model: "claude-3-5-sonnet-20241022",
                         max_tokens: 50,
                         temperature: 0,
                         system: "You are a language detection expert. Respond only with the ISO language code.",
-                        messages: [{ role: "user", content: review }]
+                        messages: [{ role: "user", content: reviewText }]
                     });
                     
                     if (languageDetectionMessage?.content?.[0]?.text) {
@@ -163,7 +165,7 @@ If the user asks for modifications to your previous response, adjust it accordin
                     hotelId,
                     platform: 'manual',
                     content: {
-                        text: review,
+                        text: review.text,
                         language: detectedLanguage,
                         rating: 5,
                         reviewerName: 'Guest'
