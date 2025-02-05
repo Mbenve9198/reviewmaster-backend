@@ -43,6 +43,9 @@ const reviewController = {
                 apiKey: process.env.CLAUDE_API_KEY,
             });
 
+            // Ottieni il nome del recensore: controlla se è presente review.name oppure review.reviewerName
+            const reviewerName = typeof review === 'object' ? (review.name || review.reviewerName || 'Guest') : 'Guest';
+
             // Rileva la lingua solo alla prima richiesta
             let detectedLanguage = null;
             if (!previousMessages) {
@@ -68,7 +71,7 @@ const reviewController = {
                 }
             }
 
-            // Costruisci il prompt in base alle impostazioni
+            // Costruisci le istruzioni in base alle impostazioni della risposta
             const style = responseSettings?.style || 'professional';
             const length = responseSettings?.length || 'medium';
 
@@ -131,12 +134,12 @@ If the user asks for modifications to your previous response, adjust it accordin
                 
                 messages.unshift({
                     role: "user",
-                    content: `Please generate a response to this hotel review from ${review.reviewerName || 'Guest'}: ${typeof review === 'object' ? review.text : review}`
+                    content: `Please generate a response to this hotel review from ${reviewerName}: ${typeof review === 'object' ? review.text : review}`
                 });
             } else {
                 messages = [{ 
                     role: "user", 
-                    content: `Please generate a response to this hotel review from ${review.reviewerName || 'Guest'}: ${typeof review === 'object' ? review.text : review}`
+                    content: `Please generate a response to this hotel review from ${reviewerName}: ${typeof review === 'object' ? review.text : review}`
                 }];
             }
 
@@ -168,7 +171,7 @@ If the user asks for modifications to your previous response, adjust it accordin
                         text: review.text,
                         language: detectedLanguage,
                         rating: 5,
-                        reviewerName: 'Guest'
+                        reviewerName: reviewerName
                     },
                     response: {
                         text: aiResponse,
