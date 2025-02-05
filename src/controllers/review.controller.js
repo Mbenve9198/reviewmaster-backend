@@ -101,42 +101,42 @@ Use the following hotel information in your response when relevant:
 - Hotel Type: ${hotel.type}
 - Hotel Description: ${hotel.description}
 
+IMPORTANT: You must respond in ${detectedLanguage}. The response should follow the linguistic and cultural norms appropriate for a ${detectedLanguage}-speaking audience.
+
 If the review has limited or no text content, create a polite response based on:
 - The rating (if available)
 - The reviewer's name (if available)
 - General appreciation for feedback
 - An invitation to return
 
-If you find a name in the review, address that person. Otherwise, use a generic greeting like 'Dear Guest' or equivalent in the review language.
+If you find a name in the review, address that person. Otherwise, use a generic greeting like 'Dear Guest' or equivalent in ${detectedLanguage}.
 
 Always end the response with:
 ${hotel.managerSignature}
 ${hotel.name}
 
-Respond in the same language as the review. Format the response appropriately with proper spacing and paragraphs.
+Format the response appropriately with proper spacing and paragraphs according to ${detectedLanguage} conventions.
 
 If the user asks for modifications to your previous response, adjust it according to their request while maintaining the same language and format.`;
 
             // Costruisci i messaggi con validazione
             let messages = [];
             if (Array.isArray(previousMessages) && previousMessages.length > 0) {
-                // Assicuriamoci che ogni messaggio abbia una struttura valida
                 messages = previousMessages
-                    .filter(msg => msg && msg.sender) // Verifichiamo solo che ci sia il sender
+                    .filter(msg => msg && msg.sender)
                     .map(msg => ({
                         role: msg.sender === "ai" ? "assistant" : "user",
-                        content: msg.content || '' // Se content non esiste, usiamo stringa vuota
+                        content: msg.content || ''
                     }));
                 
-                // Add the original review as first message for context
                 messages.unshift({
                     role: "user",
-                    content: `Please generate a response to this hotel review: ${review}`
+                    content: `Please generate a response to this hotel review: ${typeof review === 'object' ? review.text : review}`
                 });
             } else {
                 messages = [{ 
                     role: "user", 
-                    content: `Please generate a response to this hotel review: ${review}`
+                    content: `Please generate a response to this hotel review: ${typeof review === 'object' ? review.text : review}`
                 }];
             }
 
