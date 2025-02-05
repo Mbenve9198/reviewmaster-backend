@@ -94,10 +94,16 @@ const reviewController = {
                     lengthInstruction += "moderate in length, around 4-5 sentences.";
             }
 
-            // Crea il prompt principale
-            const systemPrompt = `You are an experienced hotel manager responding to guest reviews. 
+            // Crea il prompt principale con esempi per stili differenti
+            const systemPrompt = `You are an experienced hotel manager responding to guest reviews.
 ${styleInstruction}
 ${lengthInstruction}
+
+When responding, please follow these guidelines:
+- For a "professional" style, use a formal and respectful tone. Address the reviewer using "Gentile [Name]" if a name is provided, and use formal language throughout the response.
+  For example: "Gentile ${reviewerName}, la ringraziamo per aver condiviso il suo feedback. Siamo lieti che abbia apprezzato il nostro servizio e speriamo di poterLa accogliere nuovamente nel nostro hotel."
+- For a "friendly" style, use an informal, warm, and conversational tone. Address the reviewer by their first name if available, or use a casual greeting such as "Ciao [Name]". 
+  For example: "Ciao ${reviewerName}, grazie per averci lasciato il tuo commento! Siamo contenti che il tuo soggiorno sia stato piacevole e non vediamo l'ora di riaverti presto qui!"
 
 Use the following hotel information in your response when relevant:
 - Hotel Name: ${hotel.name}
@@ -111,8 +117,6 @@ If the review has limited or no text content, create a polite response based on:
 - The reviewer's name (if available)
 - General appreciation for feedback
 - An invitation to return
-
-If you find a name in the review, address that person. Otherwise, use a generic greeting like 'Dear Guest' or equivalent in ${detectedLanguage}.
 
 Always end the response with:
 ${hotel.managerSignature}
