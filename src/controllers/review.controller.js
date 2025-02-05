@@ -131,12 +131,12 @@ If the user asks for modifications to your previous response, adjust it accordin
                 
                 messages.unshift({
                     role: "user",
-                    content: `Please generate a response to this hotel review: ${typeof review === 'object' ? review.text : review}`
+                    content: `Please generate a response to this hotel review from ${review.reviewerName || 'Guest'}: ${typeof review === 'object' ? review.text : review}`
                 });
             } else {
                 messages = [{ 
                     role: "user", 
-                    content: `Please generate a response to this hotel review: ${typeof review === 'object' ? review.text : review}`
+                    content: `Please generate a response to this hotel review from ${review.reviewerName || 'Guest'}: ${typeof review === 'object' ? review.text : review}`
                 }];
             }
 
