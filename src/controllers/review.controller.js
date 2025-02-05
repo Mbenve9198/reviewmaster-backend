@@ -118,10 +118,13 @@ If the user asks for modifications to your previous response, adjust it accordin
             // Costruisci i messaggi con validazione
             let messages = [];
             if (Array.isArray(previousMessages) && previousMessages.length > 0) {
-                messages = previousMessages.map(msg => ({
-                    role: msg.sender === "ai" ? "assistant" : "user",
-                    content: msg.content
-                }));
+                // Assicuriamoci che ogni messaggio abbia una struttura valida
+                messages = previousMessages
+                    .filter(msg => msg && msg.sender) // Verifichiamo solo che ci sia il sender
+                    .map(msg => ({
+                        role: msg.sender === "ai" ? "assistant" : "user",
+                        content: msg.content || '' // Se content non esiste, usiamo stringa vuota
+                    }));
                 
                 // Add the original review as first message for context
                 messages.unshift({
