@@ -334,18 +334,22 @@ const integrationController = {
 
     incrementalSync: async (req, res) => {
         try {
+            console.log('Starting incremental sync for integration:', req.params.integrationId);
             const { integrationId } = req.params;
             const userId = req.userId;
 
             // Verifica crediti utente
             const user = await User.findById(userId);
+            console.log('User found:', user?._id);
             
             const integration = await Integration.findById(integrationId).populate({
                 path: 'hotelId',
                 select: 'userId name'  // Aggiungiamo 'name' per l'email template
             });
+            console.log('Integration found:', integration?._id);
             
             if (!integration) {
+                console.log('Integration not found');
                 return res.status(404).json({ message: 'Integration not found' });
             }
 
@@ -362,17 +366,22 @@ const integrationController = {
 
             const lastReviewDate = lastReview ? lastReview.content.date : null;
             
-            // Configura il scraper solo con maxReviews e startDate
-            const config = {
-                maxReviews: 100,
-                startDate: lastReviewDate
-            };
+            // Log prima della chiamata ad apifyService
+            console.log('Starting scraper with config:', {
+                platform: integration.platform,
+                url: integration.url
+            });
 
             const reviews = await apifyService.runScraper(
                 integration.platform,
                 integration.url,
-                config
+                {
+                    maxReviews: 100,
+                    startDate: lastReviewDate
+                }
             );
+
+            console.log(`Retrieved ${reviews?.length || 0} reviews from scraper`);
 
             // Filtra le recensioni per data di pubblicazione
             const reviewsToImport = reviews.filter(review => {
@@ -398,7 +407,7 @@ const integrationController = {
             });
 
         } catch (error) {
-            console.error('Incremental sync error:', error);
+            console.error('Detailed sync error:', error);
             res.status(500).json({ 
                 message: error.message || 'Error during sync'
             });
