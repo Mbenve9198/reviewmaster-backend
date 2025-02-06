@@ -509,7 +509,7 @@ async function processAndSaveReviews(reviews, integration, user) {
                     reviewerImage: reviewData.userImage || reviewData.user?.avatar,
                     language: reviewData.language || 'en',
                     images: (reviewData.photos || []).map(photo => ({
-                        url: photo.url || photo,
+                        url: photo.image || photo.url || photo,
                         caption: photo.caption || ''
                     })),
                     likes: reviewData.helpfulVotes || 0,

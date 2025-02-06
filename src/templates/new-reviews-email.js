@@ -1,9 +1,9 @@
-const newReviewsEmailTemplate = (hotelName, newReviewsCount, platform, appUrl) => `
+const newReviewsEmailTemplate = (hotelName, newReviewsCount, platform, appUrl, isFirstSync = false) => `
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>New Reviews for ${hotelName}</title>
+    <title>${isFirstSync ? 'Integration Setup Complete' : `New Reviews for ${hotelName}`}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -18,13 +18,16 @@ const newReviewsEmailTemplate = (hotelName, newReviewsCount, platform, appUrl) =
     <div style="margin: 0 auto; padding: 20px 0 48px; width: 560px;">
         <!-- Heading -->
         <h1 style="color: #1e90ff; font-size: 24px; font-weight: 600; line-height: 40px; margin: 0 0 20px; text-align: center;">
-            New Reviews Alert
+            ${isFirstSync ? 'Integration Setup Complete' : 'New Reviews Alert'}
         </h1>
 
         <!-- Main Text -->
         <p style="color: #333; font-size: 16px; line-height: 26px; margin: 0 0 20px; text-align: center;">
-            We've just imported <strong>${newReviewsCount} new reviews</strong> for ${hotelName} from ${platform}.
-            Stay on top of your online reputation by responding promptly to these new reviews.
+            ${isFirstSync 
+                ? `Your ${platform} integration has been set up successfully! We've imported your first ${newReviewsCount} reviews.`
+                : `We've just imported ${newReviewsCount} new reviews for ${hotelName} from ${platform}.`
+            }
+            ${!isFirstSync ? 'Stay on top of your online reputation by responding promptly to these new reviews.' : ''}
         </p>
 
         <!-- Button Container -->
@@ -46,7 +49,7 @@ const newReviewsEmailTemplate = (hotelName, newReviewsCount, platform, appUrl) =
                     text-underline-color: #1e90ff;
                 "
             >
-                Respond to Reviews
+                ${isFirstSync ? 'View Imported Reviews' : 'Respond to Reviews'}
             </a>
         </div>
 

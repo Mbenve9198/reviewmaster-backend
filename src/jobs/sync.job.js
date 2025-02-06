@@ -46,10 +46,13 @@ async function setupSyncJobs() {
 async function processSyncQueue(frequency) {
     try {
         const integrations = await Integration.find({
-            'status': 'active',
+            'status': { $in: ['active', 'pending'] },
             'syncConfig.type': 'automatic',
             'syncConfig.frequency': frequency,
-            'syncConfig.nextScheduledSync': { $lte: new Date() }
+            $or: [
+                { 'syncConfig.nextScheduledSync': { $lte: new Date() } },
+                { 'status': 'pending' }
+            ]
         }).populate('hotelId');
 
         for (const integration of integrations) {
@@ -77,8 +80,7 @@ async function processIntegration(integration) {
             config
         );
 
-        await processAndSaveReviews(reviews, integration);
-        await updateIntegrationStats(integration, reviews);
+        return await processAndSaveReviews(reviews, integration);
     } catch (error) {
         console.error(`Sync failed for integration ${integration._id}:`, error);
         await handleSyncError(integration, error);
@@ -87,46 +89,110 @@ async function processIntegration(integration) {
     }
 }
 
-async function processAndSaveReviews(reviews, integration, user) {
-    const existingReviews = await Review.find({
-        hotelId: integration.hotelId,
-        platform: integration.platform
-    }).select('content.date externalId');
+async function processAndSaveReviews(reviews, integration) {
+    try {
+        const existingReviews = await Review.find({
+            hotelId: integration.hotelId,
+            platform: integration.platform
+        }).select('content.date externalId');
 
-    const lastReview = await Review.findOne({
-        hotelId: integration.hotelId,
-        platform: integration.platform
-    }).sort({ 'content.date': -1 });
-    const lastReviewDate = lastReview ? lastReview.content.date : null;
+        const lastReview = await Review.findOne({
+            hotelId: integration.hotelId,
+            platform: integration.platform
+        }).sort({ 'content.date': -1 });
+        const lastReviewDate = lastReview ? lastReview.content.date : null;
 
-    const reviewsToImport = reviews.filter(review => {
-        if (!lastReviewDate) return true;
-        const reviewDate = new Date(review.date);
-        return reviewDate > new Date(lastReviewDate);
-    });
+        const reviewsToImport = reviews.filter(review => {
+            if (!lastReviewDate) return true;
+            const reviewDate = new Date(review.date);
+            return reviewDate > new Date(lastReviewDate);
+        });
 
-    if (reviewsToImport.length === 0) {
-        return 0;
-    }
+        if (reviewsToImport.length === 0) {
+            const nextSync = new Date();
+            switch(integration.syncConfig.frequency) {
+                case 'daily': nextSync.setDate(nextSync.getDate() + 1); break;
+                case 'weekly': nextSync.setDate(nextSync.getDate() + 7); break;
+                case 'monthly': nextSync.setMonth(nextSync.getMonth() + 1); break;
+            }
 
-    // Procedi con il salvataggio delle recensioni
-    await Review.insertMany(reviewsToImport.map(review => ({
-        hotelId: integration.hotelId,
-        integrationId: integration._id,
-        platform: integration.platform,
-        externalId: review.externalId,
-        content: {
-            text: review.text || 'No review text provided',
-            rating: rating,
-            date: review.date || new Date(),
-            author: review.author || 'Anonymous'
+            await Integration.findByIdAndUpdate(integration._id, {
+                $set: {
+                    status: 'active',
+                    'syncConfig.lastSync': new Date(),
+                    'syncConfig.nextScheduledSync': nextSync
+                }
+            });
+            return 0;
         }
-    })));
 
-    // Usa il metodo del modello per aggiornare le statistiche e scalare i crediti
-    await integration.updateSyncStats(reviewsToImport);
+        await Review.insertMany(reviewsToImport.map(review => ({
+            hotelId: integration.hotelId,
+            integrationId: integration._id,
+            platform: integration.platform,
+            externalId: review.externalId,
+            content: {
+                text: review.text || 'No review text provided',
+                rating: review.rating || 5,
+                date: review.date || new Date(),
+                author: review.author || 'Anonymous'
+            }
+        })));
 
-    return reviewsToImport.length;
+        const nextSync = new Date();
+        switch(integration.syncConfig.frequency) {
+            case 'daily': nextSync.setDate(nextSync.getDate() + 1); break;
+            case 'weekly': nextSync.setDate(nextSync.getDate() + 7); break;
+            case 'monthly': nextSync.setMonth(nextSync.getMonth() + 1); break;
+        }
+
+        const wasStatusPending = integration.status === 'pending';
+        
+        const updatedIntegration = await Integration.findByIdAndUpdate(integration._id, {
+            $set: {
+                status: 'active',
+                'syncConfig.lastSync': new Date(),
+                'syncConfig.nextScheduledSync': nextSync,
+                'stats.totalReviews': reviews.length
+            },
+            $inc: {
+                'stats.syncedReviews': reviewsToImport.length
+            }
+        }, { new: true });
+
+        if (wasStatusPending) {
+            console.log(`Integration ${integration._id} activated after first sync`);
+        }
+
+        if (reviewsToImport.length > 0 || wasStatusPending) {
+            try {
+                const hotel = await Hotel.findById(integration.hotelId);
+                const user = await User.findById(hotel.userId);
+                
+                await resend.emails.send({
+                    from: 'Replai <notifications@replai.io>',
+                    to: user.email,
+                    subject: wasStatusPending 
+                        ? `Integration Setup Complete - ${hotel.name}`
+                        : `New Reviews Alert - ${hotel.name}`,
+                    html: newReviewsEmailTemplate(
+                        hotel.name,
+                        reviewsToImport.length,
+                        integration.platform,
+                        process.env.APP_URL,
+                        wasStatusPending
+                    )
+                });
+            } catch (emailError) {
+                console.error('Failed to send email notification:', emailError);
+            }
+        }
+
+        return reviewsToImport.length;
+    } catch (error) {
+        console.error('Error in processAndSaveReviews:', error);
+        throw error;
+    }
 }
 
 async function handleSyncError(integration, error) {
@@ -144,26 +210,6 @@ async function handleSyncError(integration, error) {
     }
 
     await Integration.findByIdAndUpdate(integration._id, { $set: errorUpdate });
-}
-
-async function updateIntegrationStats(integration, reviews) {
-    const nextSync = new Date();
-    switch(integration.syncConfig.frequency) {
-        case 'daily': nextSync.setDate(nextSync.getDate() + 1); break;
-        case 'weekly': nextSync.setDate(nextSync.getDate() + 7); break;
-        case 'monthly': nextSync.setMonth(nextSync.getMonth() + 1); break;
-    }
-
-    await Integration.findByIdAndUpdate(integration._id, {
-        $set: {
-            status: 'active',
-            'stats.totalReviews': reviews.length,
-            'stats.syncedReviews': reviews.length,
-            'stats.lastSyncedReviewDate': new Date(),
-            'syncConfig.lastSync': new Date(),
-            'syncConfig.nextScheduledSync': nextSync
-        }
-    });
 }
 
 module.exports = { setupSyncJobs }; 
