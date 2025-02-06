@@ -362,22 +362,15 @@ const integrationController = {
             const lastReview = await Review.findOne({
                 hotelId: integration.hotelId,
                 platform: integration.platform
-            }).sort({ 'content.date': -1 });
-
-            const lastReviewDate = lastReview ? lastReview.content.date : null;
-            
-            // Log prima della chiamata ad apifyService
-            console.log('Starting scraper with config:', {
-                platform: integration.platform,
-                url: integration.url
-            });
+            }).sort({ 'metadata.originalCreatedAt': -1 });
+            console.log('Last review date:', lastReview?.metadata?.originalCreatedAt);
 
             const reviews = await apifyService.runScraper(
                 integration.platform,
                 integration.url,
                 {
                     maxReviews: 100,
-                    startDate: lastReviewDate
+                    startDate: lastReview ? lastReview.metadata.originalCreatedAt : null
                 }
             );
 
@@ -385,12 +378,10 @@ const integrationController = {
 
             // Filtra le recensioni per data di pubblicazione
             const reviewsToImport = reviews.filter(review => {
-                // Se non c'è lastReviewDate, importa tutte le recensioni
-                if (!lastReviewDate) return true;
-                
-                // Altrimenti importa solo le recensioni più recenti dell'ultima importata
+                if (!lastReview) return true;
                 const reviewDate = new Date(review.date);
-                return reviewDate > new Date(lastReviewDate);
+                const lastDate = new Date(lastReview.metadata.originalCreatedAt);
+                return reviewDate > lastDate;
             });
 
             // Usa processAndSaveReviews invece di gestire tutto qui
@@ -473,14 +464,14 @@ async function processAndSaveReviews(reviews, integration, user) {
         const lastReview = await Review.findOne({
             hotelId: integration.hotelId,
             platform: integration.platform
-        }).sort({ 'content.date': -1 });
-        console.log('Last review date:', lastReview?.content?.date);
+        }).sort({ 'metadata.originalCreatedAt': -1 });
+        console.log('Last review date:', lastReview?.metadata?.originalCreatedAt);
 
         const reviewsToImport = reviews.filter(review => {
-            const lastReviewDate = lastReview?.content?.date;
-            if (!lastReviewDate) return true;
+            if (!lastReview) return true;
             const reviewDate = new Date(review.date);
-            return reviewDate > new Date(lastReviewDate);
+            const lastDate = new Date(lastReview.metadata.originalCreatedAt);
+            return reviewDate > lastDate;
         });
         console.log(`Filtered ${reviewsToImport.length} reviews to import`);
 
