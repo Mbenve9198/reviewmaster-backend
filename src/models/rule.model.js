@@ -18,7 +18,7 @@ const ruleSchema = new mongoose.Schema({
     },
     operator: {
       type: String,
-      enum: ['contains', 'equals', 'greater_than', 'less_than'],
+      enum: ['contains', 'not_contains', 'equals', 'greater_than', 'less_than'],
       required: true
     },
     value: {
@@ -34,13 +34,8 @@ const ruleSchema = new mongoose.Schema({
     settings: {
       style: {
         type: String,
-        enum: ['professional', 'friendly'],
+        enum: ['professional', 'friendly', 'personal', 'sarcastic', 'challenging'],
         default: 'professional'
-      },
-      length: {
-        type: String,
-        enum: ['short', 'medium', 'long'],
-        default: 'medium'
       }
     }
   },

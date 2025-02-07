@@ -195,22 +195,52 @@ const ruleController = {
         }
     },
 
-    // Altri metodi del controller per CRUD delle regole
     createRule: async (req, res) => {
         try {
-            const { hotelId, name, condition, response } = req.body;
+            const { 
+                hotelId, 
+                name, 
+                field, 
+                operator, 
+                value, 
+                keywords,  // Per content.text
+                responseText, 
+                responseStyle 
+            } = req.body;
             const userId = req.userId;
 
+            // Verifica autorizzazione hotel
             const hotel = await Hotel.findOne({ _id: hotelId, userId });
             if (!hotel) {
                 return res.status(404).json({ message: 'Hotel not found' });
             }
 
+            // Determina il valore finale in base al tipo di campo
+            let formattedValue;
+            if (field === 'content.text') {
+                formattedValue = keywords; // Già un array dal frontend
+            } else if (field === 'content.rating') {
+                formattedValue = parseInt(value);
+            } else {
+                formattedValue = value; // Per language
+            }
+
+            // Crea la regola con la struttura corretta
             const rule = new Rule({
                 hotelId,
                 name,
-                condition,
-                response
+                condition: {
+                    field,
+                    operator,
+                    value: formattedValue
+                },
+                response: {
+                    text: responseText,
+                    settings: {
+                        style: responseStyle
+                    }
+                },
+                isActive: true
             });
 
             await rule.save();
@@ -218,7 +248,10 @@ const ruleController = {
 
         } catch (error) {
             console.error('Create rule error:', error);
-            res.status(500).json({ message: 'Error creating rule' });
+            res.status(500).json({ 
+                message: 'Error creating rule',
+                error: error.message 
+            });
         }
     },
 
