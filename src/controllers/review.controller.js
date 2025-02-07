@@ -2,6 +2,7 @@ const Review = require('../models/review.model');
 const User = require('../models/user.model');
 const Hotel = require('../models/hotel.model');
 const Anthropic = require('@anthropic-ai/sdk');
+const Rule = require('../models/rule.model');
 
 const reviewController = {
     generateResponse: async (req, res) => {
@@ -94,10 +95,27 @@ const reviewController = {
                     lengthInstruction += "moderate in length, around 4-5 sentences.";
             }
 
+            // Dopo la verifica dell'hotel e prima della generazione del prompt
+            const activeRules = await Rule.find({ 
+                hotelId: hotel._id, 
+                isActive: true 
+            }).sort({ priority: -1 });
+
+            // Genera il testo delle regole per il prompt
+            const rulesInstructions = activeRules.length > 0 
+                ? `\nApply these active response rules in order of priority:
+${activeRules.map((rule, index) => `
+${index + 1}. When review ${rule.condition.field} ${rule.condition.operator} ${Array.isArray(rule.condition.value) ? rule.condition.value.join(', ') : rule.condition.value}:
+   Response guideline: ${rule.response.text}
+   Style: ${rule.response.settings.style}`).join('\n')}`
+                : '';
+
             // Crea il prompt principale con esempi per stili differenti
             const systemPrompt = `You are an experienced hotel manager responding to guest reviews.
 ${styleInstruction}
 ${lengthInstruction}
+
+${rulesInstructions}
 
 When responding, please follow these guidelines:
 - For a "professional" style, use a formal and respectful tone. Address the reviewer using "Gentile [Name]" if a name is provided, and use formal language throughout the response.
