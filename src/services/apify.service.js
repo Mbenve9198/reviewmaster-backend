@@ -33,6 +33,8 @@ class ApifyService {
     }
 
     _getDefaultConfig(platform, config) {
+        const startDate = config.startDate ? new Date(config.startDate).toISOString().split('T')[0] : null;
+
         switch (platform) {
             case 'google':
                 return {
@@ -42,7 +44,7 @@ class ApifyService {
                     maxImages: 0,
                     maxCrawledPlaces: 1,
                     reviewsSort: 'newest',
-                    ...(config.startDate && { reviewsStartDate: config.startDate.split('T')[0] }),
+                    ...(startDate && { reviewsStartDate: startDate }),
                     startUrls: [{ url: config.url }]
                 };
             case 'tripadvisor':
@@ -54,7 +56,7 @@ class ApifyService {
                     includeHotels: true,
                     reviewsLanguages: ['ALL_REVIEW_LANGUAGES'],
                     reviewRatings: ['ALL_REVIEW_RATINGS'],
-                    ...(config.startDate && { lastReviewDate: config.startDate.split('T')[0] }),
+                    ...(startDate && { lastReviewDate: startDate }),
                     startUrls: [{ url: config.url }]
                 };
             case 'booking':
@@ -62,7 +64,7 @@ class ApifyService {
                     maxReviewsPerHotel: config.maxReviews === 'all' ? null : parseInt(config.maxReviews),
                     reviewScores: ['ALL'],
                     sortReviewsBy: 'f_recent_desc',
-                    ...(config.startDate && { cutoffDate: config.startDate.split('T')[0] }),
+                    ...(startDate && { cutoffDate: startDate }),
                     startUrls: [{ 
                         url: config.url,
                         method: 'GET'
