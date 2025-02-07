@@ -8,7 +8,7 @@ const reviewController = {
         try {
             console.log('Request body:', req.body);
             
-            const { hotelId, review, responseSettings, previousMessages } = req.body;
+            const { hotelId, review, responseSettings, previousMessages, generateSuggestions } = req.body;
             const userId = req.userId;
 
             // Validazione input
@@ -165,6 +165,44 @@ If the user asks for modifications to your previous response, adjust it accordin
                 console.log('Generated response successfully');
             }
 
+            // Se richiesti, genera suggerimenti basati sulla recensione
+            let suggestions = [];
+            if (generateSuggestions && !previousMessages) {
+                try {
+                    const suggestionsPrompt = `Based on this review: "${review.text}"
+
+Generate 3 relevant suggestions for improving the response. Each suggestion should be a short question or request (max 6 words).
+
+Consider:
+- Specific points mentioned in the review
+- The rating (${review.rating})
+- Areas for improvement
+- Positive aspects to emphasize
+
+Format your response as a simple array of 3 strings, nothing else. For example:
+["Address the breakfast complaint", "Highlight room cleanliness more", "Mention upcoming renovations"]`;
+
+                    const suggestionsResponse = await anthropic.messages.create({
+                        model: "claude-3-5-sonnet-20241022",
+                        max_tokens: 150,
+                        temperature: 0.7,
+                        system: "You are a helpful assistant generating suggestions for improving hotel review responses.",
+                        messages: [{ role: "user", content: suggestionsPrompt }]
+                    });
+
+                    if (suggestionsResponse?.content?.[0]?.text) {
+                        try {
+                            suggestions = JSON.parse(suggestionsResponse.content[0].text);
+                        } catch (e) {
+                            console.error('Error parsing suggestions:', e);
+                            suggestions = [];
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error generating suggestions:', error);
+                }
+            }
+
             // Salva la recensione solo alla prima richiesta
             if (!previousMessages) {
                 // Salva la recensione nel database
@@ -216,7 +254,8 @@ If the user asks for modifications to your previous response, adjust it accordin
             res.json({ 
                 response: aiResponse,
                 detectedLanguage,
-                creditsRemaining: totalCreditsAvailable - creditCost
+                creditsRemaining: totalCreditsAvailable - creditCost,
+                suggestions
             });
 
         } catch (error) {
