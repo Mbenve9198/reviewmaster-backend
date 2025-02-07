@@ -134,7 +134,8 @@ const integrationController = {
             res.json({
                 message: 'Sync completed successfully',
                 newReviews: syncResult.newReviews,
-                totalReviews: syncResult.totalReviews
+                integration: syncResult.integration,
+                success: true
             });
         } catch (error) {
             console.error('Sync now detailed error:', {
@@ -143,7 +144,8 @@ const integrationController = {
             });
             res.status(500).json({ 
                 message: 'Error starting sync',
-                error: error.message
+                error: error.message,
+                success: false
             });
         }
     },
@@ -338,16 +340,13 @@ const integrationController = {
             const { integrationId } = req.params;
             const userId = req.userId;
 
-            // Verifica crediti utente
+            // Verifica crediti utente e integrazione
             const user = await User.findById(userId);
-            console.log('User found:', user?._id);
-            
             const integration = await Integration.findById(integrationId).populate({
                 path: 'hotelId',
-                select: 'userId name'  // Aggiungiamo 'name' per l'email template
+                select: 'userId name'
             });
-            console.log('Integration found:', integration?._id);
-            
+
             if (!integration) {
                 console.log('Integration not found');
                 return res.status(404).json({ message: 'Integration not found' });
@@ -374,9 +373,6 @@ const integrationController = {
                 }
             );
 
-            console.log(`Retrieved ${reviews?.length || 0} reviews from scraper`);
-
-            // Filtra le recensioni per data di pubblicazione
             const reviewsToImport = reviews.filter(review => {
                 if (!lastReview) return true;
                 const reviewDate = new Date(review.date);
@@ -384,23 +380,42 @@ const integrationController = {
                 return reviewDate > lastDate;
             });
 
-            // Usa processAndSaveReviews invece di gestire tutto qui
             const newReviewsCount = await processAndSaveReviews(reviewsToImport, integration, user);
 
-            // Ottieni l'integrazione aggiornata
-            const updatedIntegration = await Integration.findById(integrationId);
+            const nextSync = new Date();
+            switch(integration.syncConfig.frequency) {
+                case 'daily': nextSync.setDate(nextSync.getDate() + 1); break;
+                case 'weekly': nextSync.setDate(nextSync.getDate() + 7); break;
+                case 'monthly': nextSync.setMonth(nextSync.getMonth() + 1); break;
+            }
+
+            const updatedIntegration = await Integration.findByIdAndUpdate(
+                integrationId,
+                {
+                    $set: {
+                        status: 'active',
+                        'syncConfig.lastSync': new Date(),
+                        'syncConfig.nextScheduledSync': nextSync,
+                        'stats.totalReviews': (integration.stats.totalReviews || 0) + newReviewsCount,
+                        'stats.syncedReviews': (integration.stats.syncedReviews || 0) + newReviewsCount,
+                        'stats.lastSyncedReviewDate': new Date()
+                    }
+                },
+                { new: true }
+            );
 
             res.json({ 
                 message: 'Sync completed successfully',
                 newReviews: newReviewsCount,
-                nextScheduledSync: updatedIntegration.syncConfig.nextScheduledSync,
-                totalSyncedReviews: updatedIntegration.stats.syncedReviews
+                integration: updatedIntegration,
+                success: true
             });
 
         } catch (error) {
             console.error('Detailed sync error:', error);
             res.status(500).json({ 
-                message: error.message || 'Error during sync'
+                message: error.message || 'Error during sync',
+                success: false
             });
         }
     }
@@ -408,17 +423,18 @@ const integrationController = {
 
 async function syncReviews(integration) {
     try {
+        const lastReview = await Review.findOne({
+            hotelId: integration.hotelId,
+            platform: integration.platform
+        }).sort({ 'metadata.originalCreatedAt': -1 });
+
         const config = {
-            maxReviews: parseInt(integration.syncConfig.maxReviews) || 100,
-            language: integration.syncConfig.language || 'en'
+            language: integration.syncConfig.language,
+            maxReviews: 100,
+            startDate: lastReview?.metadata?.originalCreatedAt?.toISOString()
         };
 
         console.log('Starting sync with config:', config);
-        console.log('Integration details:', {
-            platform: integration.platform,
-            url: integration.url,
-            hotelId: integration.hotelId
-        });
 
         const reviews = await apifyService.runScraper(
             integration.platform,
@@ -428,26 +444,39 @@ async function syncReviews(integration) {
 
         console.log(`Retrieved ${reviews.length} reviews from scraper`);
 
-        const newReviews = await processAndSaveReviews(reviews, integration);
-        console.log(`Saved ${newReviews.length} new reviews`);
-        
-        await updateIntegrationStats(integration, reviews);
-        console.log('Updated integration stats');
+        const newReviewsCount = await processAndSaveReviews(reviews, integration);
+        console.log(`Saved ${newReviewsCount} new reviews`);
+
+        // Aggiorna l'integrazione usando la stessa logica di incrementalSync
+        const nextSync = new Date();
+        switch(integration.syncConfig.frequency) {
+            case 'daily': nextSync.setDate(nextSync.getDate() + 1); break;
+            case 'weekly': nextSync.setDate(nextSync.getDate() + 7); break;
+            case 'monthly': nextSync.setMonth(nextSync.getMonth() + 1); break;
+        }
+
+        const updatedIntegration = await Integration.findByIdAndUpdate(
+            integration._id,
+            {
+                $set: {
+                    status: 'active',
+                    'syncConfig.lastSync': new Date(),
+                    'syncConfig.nextScheduledSync': nextSync,
+                    'stats.totalReviews': (integration.stats.totalReviews || 0) + newReviewsCount,
+                    'stats.syncedReviews': (integration.stats.syncedReviews || 0) + newReviewsCount,
+                    'stats.lastSyncedReviewDate': new Date()
+                }
+            },
+            { new: true }
+        );
 
         return {
-            newReviews: newReviews.length,
-            totalReviews: reviews.length
+            newReviews: newReviewsCount,
+            integration: updatedIntegration,
+            success: true
         };
     } catch (error) {
-        console.error('Detailed sync error:', {
-            message: error.message,
-            stack: error.stack,
-            integration: {
-                id: integration._id,
-                platform: integration.platform,
-                url: integration.url
-            }
-        });
+        console.error('Detailed sync error:', error);
         await handleSyncError(integration, error);
         throw error;
     }
@@ -482,7 +511,7 @@ async function processAndSaveReviews(reviews, integration, user) {
 
         console.log('Starting to insert reviews...');
         const newReviews = [];
-        for (const reviewData of reviews) {
+        for (const reviewData of reviewsToImport) {
             let mappedData = {};
             
             switch(integration.platform) {
@@ -588,14 +617,7 @@ async function processAndSaveReviews(reviews, integration, user) {
 
         return newReviews.length;
     } catch (error) {
-        console.error('Detailed error in processAndSaveReviews:', {
-            error: error.message,
-            stack: error.stack,
-            integration: {
-                id: integration._id,
-                platform: integration.platform
-            }
-        });
+        console.error('Detailed error in processAndSaveReviews:', error);
         throw error;
     }
 }
@@ -616,16 +638,6 @@ async function scheduleSyncForIntegration(integration) {
 
     integration.syncConfig.nextScheduledSync = nextSync;
     await integration.save();
-}
-
-async function updateIntegrationStats(integration, reviews) {
-    integration.stats = {
-        totalReviews: reviews.length,
-        syncedReviews: integration.stats.syncedReviews + reviews.length,
-        lastSyncedReviewDate: new Date()
-    };
-    
-    return await integration.save();
 }
 
 async function handleSyncError(integration, error) {
