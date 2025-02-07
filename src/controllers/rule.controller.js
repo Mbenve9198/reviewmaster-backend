@@ -197,16 +197,10 @@ const ruleController = {
 
     createRule: async (req, res) => {
         try {
-            const { 
-                hotelId, 
-                name, 
-                field, 
-                operator, 
-                value, 
-                keywords,  // Per content.text
-                responseText, 
-                responseStyle 
-            } = req.body;
+            // Log per debugging
+            console.log('Received request body:', JSON.stringify(req.body, null, 2));
+
+            const { hotelId, name, condition, response, isActive } = req.body;
             const userId = req.userId;
 
             // Verifica autorizzazione hotel
@@ -215,42 +209,32 @@ const ruleController = {
                 return res.status(404).json({ message: 'Hotel not found' });
             }
 
-            // Determina il valore finale in base al tipo di campo
-            let formattedValue;
-            if (field === 'content.text') {
-                formattedValue = keywords; // Già un array dal frontend
-            } else if (field === 'content.rating') {
-                formattedValue = parseInt(value);
-            } else {
-                formattedValue = value; // Per language
-            }
-
-            // Crea la regola con la struttura corretta
+            // Crea la regola con la struttura esatta ricevuta dal frontend
             const rule = new Rule({
                 hotelId,
                 name,
-                condition: {
-                    field,
-                    operator,
-                    value: formattedValue
-                },
-                response: {
-                    text: responseText,
-                    settings: {
-                        style: responseStyle
-                    }
-                },
-                isActive: true
+                condition,
+                response,
+                isActive
             });
 
-            await rule.save();
-            res.status(201).json(rule);
+            console.log('Rule to be saved:', JSON.stringify(rule, null, 2));
+
+            const savedRule = await rule.save();
+            console.log('Saved rule:', JSON.stringify(savedRule, null, 2));
+            
+            res.status(201).json(savedRule);
 
         } catch (error) {
             console.error('Create rule error:', error);
+            // Log più dettagliato dell'errore
+            if (error.errors) {
+                console.error('Validation errors:', JSON.stringify(error.errors, null, 2));
+            }
             res.status(500).json({ 
                 message: 'Error creating rule',
-                error: error.message 
+                error: error.message,
+                details: error.errors
             });
         }
     },
