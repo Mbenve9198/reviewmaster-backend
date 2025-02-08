@@ -9,94 +9,162 @@ const anthropic = new Anthropic({
 });
 
 const generateThemeAnalysisPrompt = (hotel, reviews) => {
-    return `Analizza queste recensioni dell'hotel ${hotel.name} e identifica modelli ricorrenti per creare regole di risposta automatica. 
-    Restituisci un oggetto JSON con questa struttura esatta:
+    return `Analyze these reviews for ${hotel.name} and create a comprehensive set of automatic response rules.
+    Return a JSON object with exactly this structure:
 
 {
-  "meta": {
-    "hotelName": "${hotel.name}",
-    "reviewCount": ${reviews.length},
-    "languages": ["it", "en", "de"]
-  },
-  "recurringThemes": [
-    {
-      "theme": "Colazione",
-      "sentiment": "positive",
-      "frequency": 45,
-      "keywords": ["colazione", "breakfast", "cornetti"],
-      "exampleQuote": "La colazione era ottima e abbondante",
-      "suggestedRule": {
-        "name": "Apprezzamento Colazione",
-        "condition": {
-          "field": "content.text",
-          "operator": "contains",
-          "value": ["colazione", "breakfast"]
-        },
-        "response": {
-          "text": "Grazie per aver apprezzato la nostra colazione! Ci impegniamo ogni giorno per offrire prodotti freschi e di qualità...",
-          "settings": {
-            "style": "friendly",
-            "length": "medium"
-          }
+  "analysis": {
+    "recurringThemes": [
+      {
+        "theme": string,         // e.g. "Breakfast Quality"
+        "frequency": number,     // how many times mentioned
+        "exampleQuote": string,  // example review quote
+        "suggestedRule": {
+          "name": string,        // e.g. "Positive Breakfast Feedback"
+          "condition": {
+            "field": "content.text",
+            "operator": "contains" | "not_contains" | "equals",
+            "value": string[]    // array of keywords
+          },
+          "response": {
+            "text": string,      // response template
+            "settings": {
+              "style": "professional" | "friendly" | "personal" | "sarcastic" | "challenging"
+            }
+          },
+          "isActive": true
         }
       }
-    }
-  ],
-  "commonIssues": [
-    {
-      "issue": "Rumore strada",
-      "frequency": 28,
-      "keywords": ["rumoroso", "traffico", "noisy"],
-      "exampleQuote": "Camera rumorosa a causa del traffico",
-      "suggestedRule": {
-        "name": "Gestione Lamentele Rumore",
-        "condition": {
-          "field": "content.text",
-          "operator": "contains",
-          "value": ["rumore", "rumoroso", "noisy"]
-        },
-        "response": {
-          "text": "Ci scusiamo per il disagio causato dal rumore. Stiamo implementando migliorie per l'insonorizzazione...",
-          "settings": {
-            "style": "professional",
-            "length": "long"
-          }
+    ],
+    "ratingBasedRules": [
+      {
+        "ratingCondition": string,   // e.g. "Very Negative Reviews (1 star)"
+        "frequency": number,         // count of reviews matching this rating
+        "exampleQuote": string,      // example review quote
+        "suggestedRule": {
+          "name": string,            // e.g. "One Star Review Response"
+          "condition": {
+            "field": "content.rating",
+            "operator": "equals" | "greater_than" | "less_than",
+            "value": number          // rating value (1-5)
+          },
+          "response": {
+            "text": string,
+            "settings": {
+              "style": "professional" | "friendly" | "personal" | "sarcastic" | "challenging"
+            }
+          },
+          "isActive": true
         }
       }
-    }
-  ],
-  "ratingBasedRules": [
-    {
-      "rating": 5,
-      "frequency": 120,
-      "suggestedRule": {
-        "name": "Risposta 5 stelle",
-        "condition": {
-          "field": "content.rating",
-          "operator": "equals",
-          "value": 5
-        },
-        "response": {
-          "text": "Siamo davvero felici che il suo soggiorno sia stato eccellente...",
-          "settings": {
-            "style": "friendly",
-            "length": "medium"
-          }
+    ],
+    "complexRules": [
+      {
+        "scenario": string,      // e.g. "Negative Price Comments"
+        "frequency": number,     // how many reviews match this complex condition
+        "exampleQuote": string,  // example review quote
+        "suggestedRule": {
+          "name": string,        // e.g. "Negative Price Feedback Response"
+          "condition": {
+            "field": "content.text",
+            "operator": "contains",
+            "value": string[]    // keywords related to the scenario
+          },
+          "response": {
+            "text": string,
+            "settings": {
+              "style": "professional" | "friendly" | "personal" | "sarcastic" | "challenging"
+            }
+          },
+          "isActive": true
         }
       }
-    }
-  ]
+    ],
+    "languageRules": [
+      {
+        "language": "it" | "en" | "de" | "fr",
+        "frequency": number,
+        "suggestedRule": {
+          "name": string,
+          "condition": {
+            "field": "content.language",
+            "operator": "equals",
+            "value": string     // language code
+          },
+          "response": {
+            "text": string,
+            "settings": {
+              "style": "professional" | "friendly" | "personal" | "sarcastic" | "challenging"
+            }
+          },
+          "isActive": true
+        }
+      }
+    ]
+  }
 }
 
-Linee guida:
-1. Usa dati reali dalle recensioni per tutte le metriche
-2. Includi citazioni testuali dalle recensioni
-3. Proponi regole specifiche e pertinenti
-4. Considera le diverse lingue delle recensioni
-5. Bilancia tra regole basate sul testo e sul rating
-6. Proponi risposte che rispecchino lo stile dell'hotel
+Guidelines for rule generation:
 
-Recensioni da analizzare: ${JSON.stringify(reviews, null, 2)}`;
+1. Text-based Rules (recurringThemes):
+   - Identify common topics (breakfast, cleanliness, staff, etc.)
+   - Create both positive and negative variants
+   - Use "contains" for inclusive rules
+   - Use "not_contains" for excluding specific terms
+   - Include multilingual keywords when relevant
+
+2. Rating-based Rules (ratingBasedRules):
+   - Create specific rules for each rating (1-5 stars)
+   - Use different response styles based on rating:
+     * 1-2 stars: "professional" style for damage control
+     * 3 stars: "personal" style to understand concerns
+     * 4-5 stars: "friendly" style to enhance positivity
+   - Use "equals", "greater_than", "less_than" operators
+   - Consider creating rules for rating ranges (e.g., less than 3)
+
+3. Complex Rules (complexRules):
+   - Combine content analysis with sentiment
+   - Create specific rules for common scenarios:
+     * Price complaints in negative reviews
+     * Service praise in positive reviews
+     * Specific amenity issues
+   - Use appropriate keywords and response styles
+
+4. Language Rules:
+   - Create language-specific responses
+   - Ensure responses are culturally appropriate
+   - Include common phrases in that language
+   - Consider regional variations (e.g., different Italian dialects)
+
+5. Response Text Guidelines:
+   - Always include relevant placeholders:
+     * {reviewer_name} for personalization
+     * {hotel_name} for branding
+     * {rating} when referencing the review score
+   - Vary response length based on context
+   - Include specific references to mentioned items
+   - Add follow-up invitations when appropriate
+
+6. Style Selection Guidelines:
+   - "professional": formal complaints, serious issues
+   - "friendly": positive feedback, regular interactions
+   - "personal": emotional content, special occasions
+   - "sarcastic": light issues, humorous context (use sparingly)
+   - "challenging": when clarification or correction is needed
+
+7. Use actual data from reviews:
+   - Count real frequencies
+   - Extract genuine quotes
+   - Consider seasonal patterns
+   - Account for recent trends
+
+8. Prioritization:
+   - Focus on high-frequency patterns
+   - Prioritize recent reviews
+   - Consider business impact
+   - Balance positive and negative feedback
+
+Reviews to analyze: ${JSON.stringify(reviews, null, 2)}`;
 };
 
 const ruleController = {
