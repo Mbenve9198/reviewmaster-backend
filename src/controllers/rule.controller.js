@@ -11,6 +11,8 @@ const anthropic = new Anthropic({
 const generateThemeAnalysisPrompt = (hotel, reviews) => {
     return `You are an advanced AI assistant specializing in hotel review analysis and automatic response rule generation. Your task is to analyze a set of reviews for ${hotel.name} and create a comprehensive set of automatic response rules.
 
+IMPORTANT: You must respond ONLY with a valid JSON object. Do not include any explanatory text before or after the JSON.
+
 Here are the reviews to analyze:
 ${JSON.stringify(reviews, null, 2)}
 
@@ -85,7 +87,7 @@ Guidelines for rule generation:
    - Consider business impact
    - Balance positive and negative feedback
 
-Return a JSON object with exactly this structure:
+REMEMBER: Return ONLY a JSON object with exactly this structure, with no additional text:
 
 {
   "analysis": {
