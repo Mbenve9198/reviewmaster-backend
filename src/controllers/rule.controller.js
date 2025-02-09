@@ -9,25 +9,100 @@ const anthropic = new Anthropic({
 });
 
 const generateThemeAnalysisPrompt = (hotel, reviews) => {
-    return `Analyze these reviews for ${hotel.name} and create a comprehensive set of automatic response rules.
-    Return a JSON object with exactly this structure:
+    return `You are an advanced AI assistant specializing in hotel review analysis and automatic response rule generation. Your task is to analyze a set of reviews for ${hotel.name} and create a comprehensive set of automatic response rules.
+
+Here are the reviews to analyze:
+${JSON.stringify(reviews, null, 2)}
+
+Before generating the final output, please perform a thorough analysis considering:
+
+1. Overall sentiment and rating distribution
+2. Recurring themes with example quotes
+3. Unique or unexpected feedback requiring special attention
+4. Language distribution and cultural considerations
+5. Trends over time or seasonality
+6. Interaction between different factors (rating, amenities, language)
+7. Ways to make rules more specific and contextual
+
+Guidelines for rule generation:
+
+1. Text-based Rules (recurringThemes):
+   - Identify common topics and subtopics (breakfast, cleanliness, staff, etc.)
+   - Create both positive and negative variants with different sentiment degrees
+   - Use "contains" for inclusive rules
+   - Use "not_contains" for excluding specific terms
+   - Include multilingual keywords when relevant
+   - Consider seasonal variations
+
+2. Rating-based Rules (ratingBasedRules):
+   - Create specific rules for each rating (1-5 stars)
+   - Use different response styles based on rating:
+     * 1-2 stars: "professional" style for damage control
+     * 3 stars: "personal" style to understand concerns
+     * 4-5 stars: "friendly" style to enhance positivity
+   - Use "equals", "greater_than", "less_than" operators
+   - Consider rating ranges and combinations with specific topics
+
+3. Complex Rules (complexRules):
+   - Combine multiple factors (content, sentiment, rating, amenities)
+   - Create rules for common scenarios and unique situations
+   - Use appropriate keywords and response styles
+   - Consider stay timing and circumstances
+
+4. Language Rules:
+   - Create language-specific responses
+   - Ensure cultural appropriateness
+   - Include common hospitality phrases
+   - Consider regional variations
+
+5. Response Text Guidelines:
+   - Always include relevant placeholders:
+     * {reviewer_name} for personalization
+     * {hotel_name} for branding
+     * {rating} when referencing scores
+     * {mentioned_amenity} for specific features
+   - Vary response length based on complexity
+   - Include specific references to mentioned items
+   - Add follow-up invitations when appropriate
+   - Offer solutions for negative feedback
+
+6. Style Selection Guidelines:
+   - "professional": formal complaints, serious issues
+   - "friendly": positive feedback, regular interactions
+   - "personal": emotional content, special occasions
+   - "sarcastic": light issues (use sparingly)
+   - "challenging": when clarification needed
+
+7. Use actual data from reviews:
+   - Count real frequencies
+   - Extract genuine quotes
+   - Consider seasonal patterns
+   - Account for recent trends
+
+8. Prioritization:
+   - Focus on high-frequency patterns
+   - Prioritize recent reviews
+   - Consider business impact
+   - Balance positive and negative feedback
+
+Return a JSON object with exactly this structure:
 
 {
   "analysis": {
     "recurringThemes": [
       {
-        "theme": string,         // e.g. "Breakfast Quality"
-        "frequency": number,     // how many times mentioned
-        "exampleQuote": string,  // example review quote
+        "theme": string,
+        "frequency": number,
+        "exampleQuote": string,
         "suggestedRule": {
-          "name": string,        // e.g. "Positive Breakfast Feedback"
+          "name": string,
           "condition": {
             "field": "content.text",
             "operator": "contains" | "not_contains" | "equals",
-            "value": string[]    // array of keywords
+            "value": string[]
           },
           "response": {
-            "text": string,      // response template
+            "text": string,
             "settings": {
               "style": "professional" | "friendly" | "personal" | "sarcastic" | "challenging"
             }
@@ -38,15 +113,15 @@ const generateThemeAnalysisPrompt = (hotel, reviews) => {
     ],
     "ratingBasedRules": [
       {
-        "ratingCondition": string,   // e.g. "Very Negative Reviews (1 star)"
-        "frequency": number,         // count of reviews matching this rating
-        "exampleQuote": string,      // example review quote
+        "ratingCondition": string,
+        "frequency": number,
+        "exampleQuote": string,
         "suggestedRule": {
-          "name": string,            // e.g. "One Star Review Response"
+          "name": string,
           "condition": {
             "field": "content.rating",
-            "operator": "equals" | "greater_than" | "less_than",
-            "value": number          // rating value (1-5)
+            "operator": "equals" | "greater_than" | "less_than", 
+            "value": number
           },
           "response": {
             "text": string,
@@ -60,15 +135,15 @@ const generateThemeAnalysisPrompt = (hotel, reviews) => {
     ],
     "complexRules": [
       {
-        "scenario": string,      // e.g. "Negative Price Comments"
-        "frequency": number,     // how many reviews match this complex condition
-        "exampleQuote": string,  // example review quote
+        "scenario": string,
+        "frequency": number,
+        "exampleQuote": string,
         "suggestedRule": {
-          "name": string,        // e.g. "Negative Price Feedback Response"
+          "name": string,
           "condition": {
             "field": "content.text",
             "operator": "contains",
-            "value": string[]    // keywords related to the scenario
+            "value": string[]
           },
           "response": {
             "text": string,
@@ -89,7 +164,7 @@ const generateThemeAnalysisPrompt = (hotel, reviews) => {
           "condition": {
             "field": "content.language",
             "operator": "equals",
-            "value": string     // language code
+            "value": string
           },
           "response": {
             "text": string,
@@ -102,69 +177,7 @@ const generateThemeAnalysisPrompt = (hotel, reviews) => {
       }
     ]
   }
-}
-
-Guidelines for rule generation:
-
-1. Text-based Rules (recurringThemes):
-   - Identify common topics (breakfast, cleanliness, staff, etc.)
-   - Create both positive and negative variants
-   - Use "contains" for inclusive rules
-   - Use "not_contains" for excluding specific terms
-   - Include multilingual keywords when relevant
-
-2. Rating-based Rules (ratingBasedRules):
-   - Create specific rules for each rating (1-5 stars)
-   - Use different response styles based on rating:
-     * 1-2 stars: "professional" style for damage control
-     * 3 stars: "personal" style to understand concerns
-     * 4-5 stars: "friendly" style to enhance positivity
-   - Use "equals", "greater_than", "less_than" operators
-   - Consider creating rules for rating ranges (e.g., less than 3)
-
-3. Complex Rules (complexRules):
-   - Combine content analysis with sentiment
-   - Create specific rules for common scenarios:
-     * Price complaints in negative reviews
-     * Service praise in positive reviews
-     * Specific amenity issues
-   - Use appropriate keywords and response styles
-
-4. Language Rules:
-   - Create language-specific responses
-   - Ensure responses are culturally appropriate
-   - Include common phrases in that language
-   - Consider regional variations (e.g., different Italian dialects)
-
-5. Response Text Guidelines:
-   - Always include relevant placeholders:
-     * {reviewer_name} for personalization
-     * {hotel_name} for branding
-     * {rating} when referencing the review score
-   - Vary response length based on context
-   - Include specific references to mentioned items
-   - Add follow-up invitations when appropriate
-
-6. Style Selection Guidelines:
-   - "professional": formal complaints, serious issues
-   - "friendly": positive feedback, regular interactions
-   - "personal": emotional content, special occasions
-   - "sarcastic": light issues, humorous context (use sparingly)
-   - "challenging": when clarification or correction is needed
-
-7. Use actual data from reviews:
-   - Count real frequencies
-   - Extract genuine quotes
-   - Consider seasonal patterns
-   - Account for recent trends
-
-8. Prioritization:
-   - Focus on high-frequency patterns
-   - Prioritize recent reviews
-   - Consider business impact
-   - Balance positive and negative feedback
-
-Reviews to analyze: ${JSON.stringify(reviews, null, 2)}`;
+}`;
 };
 
 const ruleController = {
