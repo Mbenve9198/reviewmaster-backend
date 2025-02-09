@@ -9,85 +9,64 @@ const anthropic = new Anthropic({
 });
 
 const generateThemeAnalysisPrompt = (hotel, reviews) => {
-    return `You are an advanced AI assistant specializing in hotel review analysis and automatic response rule generation. Your task is to analyze a set of reviews for ${hotel.name} and create a comprehensive set of automatic response rules.
+    return `You are an advanced AI assistant specializing in hotel review analysis and response strategy generation. Your task is to analyze reviews for ${hotel.name} and create response guidelines that will help generate contextually appropriate responses.
 
 IMPORTANT: You must respond ONLY with a valid JSON object. Do not include any explanatory text before or after the JSON.
 
 Here are the reviews to analyze:
 ${JSON.stringify(reviews, null, 2)}
 
-Before generating the final output, please perform a thorough analysis considering:
+Before generating the final output, please analyze:
 
-1. Overall sentiment and rating distribution
-2. Recurring themes with example quotes
-3. Unique or unexpected feedback requiring special attention
-4. Language distribution and cultural considerations
-5. Trends over time or seasonality
-6. Interaction between different factors (rating, amenities, language)
-7. Ways to make rules more specific and contextual
+1. Overall sentiment patterns
+2. Recurring themes and topics
+3. Cultural and linguistic nuances
+4. Guest expectations and pain points
+5. Unique selling points mentioned
+6. Common misunderstandings or issues
+7. Positive aspects frequently highlighted
 
-Guidelines for rule generation:
+Guidelines for creating response strategies:
 
 1. Text-based Rules (recurringThemes):
-   - Identify common topics and subtopics (breakfast, cleanliness, staff, etc.)
-   - Create both positive and negative variants with different sentiment degrees
-   - Use "contains" for inclusive rules
-   - Use "not_contains" for excluding specific terms
-   - Include multilingual keywords when relevant
-   - Consider seasonal variations
+   - Identify key topics (breakfast, cleanliness, staff, etc.)
+   - For each topic, create guidelines on:
+     * What aspects to acknowledge
+     * What hotel policies or features to highlight
+     * How to address concerns
+     * What specific information to include
+   - Consider both positive and negative mentions
+   - Include multilingual considerations
 
 2. Rating-based Rules (ratingBasedRules):
-   - Create specific rules for each rating (1-5 stars)
-   - Use different response styles based on rating:
-     * 1-2 stars: "professional" style for damage control
-     * 3 stars: "personal" style to understand concerns
-     * 4-5 stars: "friendly" style to enhance positivity
-   - Use "equals", "greater_than", "less_than" operators
-   - Consider rating ranges and combinations with specific topics
+   - Create specific response strategies for each rating level
+   - Focus on:
+     * What aspects to prioritize in the response
+     * How to acknowledge the rating
+     * What specific hotel features to emphasize
+     * How to handle criticism or praise
+     * What type of future-oriented statements to include
 
 3. Complex Rules (complexRules):
-   - Combine multiple factors (content, sentiment, rating, amenities)
-   - Create rules for common scenarios and unique situations
-   - Use appropriate keywords and response styles
-   - Consider stay timing and circumstances
+   - Create guidelines for complex scenarios like:
+     * Mixed feedback (positive + negative)
+     * Specific combinations of issues
+     * Seasonal or event-related feedback
+     * Special circumstances
+   - Include instructions on:
+     * How to balance different aspects
+     * What elements to prioritize
+     * How to structure the response
 
 4. Language Rules:
-   - Create language-specific responses
-   - Ensure cultural appropriateness
-   - Include common hospitality phrases
-   - Consider regional variations
+   - Create cultural and linguistic guidelines for each language
+   - Include:
+     * Cultural sensitivity points
+     * Formal vs informal approach
+     * Key phrases to include/avoid
+     * Cultural context considerations
 
-5. Response Text Guidelines:
-   - Always include relevant placeholders:
-     * {reviewer_name} for personalization
-     * {hotel_name} for branding
-     * {rating} when referencing scores
-     * {mentioned_amenity} for specific features
-   - Vary response length based on complexity
-   - Include specific references to mentioned items
-   - Add follow-up invitations when appropriate
-   - Offer solutions for negative feedback
-
-6. Style Selection Guidelines:
-   - "professional": formal complaints, serious issues
-   - "friendly": positive feedback, regular interactions
-   - "personal": emotional content, special occasions
-   - "sarcastic": light issues (use sparingly)
-   - "challenging": when clarification needed
-
-7. Use actual data from reviews:
-   - Count real frequencies
-   - Extract genuine quotes
-   - Consider seasonal patterns
-   - Account for recent trends
-
-8. Prioritization:
-   - Focus on high-frequency patterns
-   - Prioritize recent reviews
-   - Consider business impact
-   - Balance positive and negative feedback
-
-REMEMBER: Return ONLY a JSON object with exactly this structure, with no additional text:
+REMEMBER: Return ONLY a JSON object with exactly this structure. The response.text should contain GUIDELINES for responding, not actual response templates:
 
 {
   "analysis": {
@@ -104,7 +83,7 @@ REMEMBER: Return ONLY a JSON object with exactly this structure, with no additio
             "value": string[]
           },
           "response": {
-            "text": string,
+            "text": string, // GUIDELINES on how to respond, not a template
             "settings": {
               "style": "professional" | "friendly" | "personal" | "sarcastic" | "challenging"
             }
@@ -122,11 +101,11 @@ REMEMBER: Return ONLY a JSON object with exactly this structure, with no additio
           "name": string,
           "condition": {
             "field": "content.rating",
-            "operator": "equals" | "greater_than" | "less_than", 
+            "operator": "equals" | "greater_than" | "less_than",
             "value": number
           },
           "response": {
-            "text": string,
+            "text": string, // GUIDELINES on how to handle this rating level
             "settings": {
               "style": "professional" | "friendly" | "personal" | "sarcastic" | "challenging"
             }
@@ -148,7 +127,7 @@ REMEMBER: Return ONLY a JSON object with exactly this structure, with no additio
             "value": string[]
           },
           "response": {
-            "text": string,
+            "text": string, // GUIDELINES for handling complex scenarios
             "settings": {
               "style": "professional" | "friendly" | "personal" | "sarcastic" | "challenging"
             }
@@ -169,7 +148,7 @@ REMEMBER: Return ONLY a JSON object with exactly this structure, with no additio
             "value": string
           },
           "response": {
-            "text": string,
+            "text": string, // Cultural and linguistic guidelines
             "settings": {
               "style": "professional" | "friendly" | "personal" | "sarcastic" | "challenging"
             }
@@ -179,7 +158,13 @@ REMEMBER: Return ONLY a JSON object with exactly this structure, with no additio
       }
     ]
   }
-}`;
+}
+
+Example of a good guideline (not a template):
+"When guests mention breakfast quality issues, address their specific concerns, explain our quality control process, highlight our fresh ingredients policy, mention any recent or planned improvements, and invite them to try our breakfast during their next stay. If they mentioned specific items, acknowledge those specifically."
+
+Example of what NOT to do (template):
+"Dear {reviewer_name}, thank you for your feedback about our breakfast. We source fresh ingredients daily and our chef prepares everything fresh each morning..."`;
 };
 
 const ruleController = {
