@@ -116,10 +116,50 @@ ${previousAnalysis}
 Question: ${previousMessages}`;
 };
 
+const validateRequestBody = (body) => {
+    if (!body) {
+        throw new Error('Request body is required');
+    }
+    
+    const { reviews, previousMessages, messages } = body;
+    
+    if (!Array.isArray(reviews) || reviews.length === 0) {
+        throw new Error('Reviews array is required and must not be empty');
+    }
+    
+    return { reviews, previousMessages, messages };
+};
+
+const getValidDate = (dateStr) => {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    return isNaN(date.getTime()) ? null : date;
+};
+
+const getValidDateRange = (reviews) => {
+    const dates = reviews
+        .map(review => review.metadata?.originalCreatedAt)
+        .filter(date => date != null)
+        .map(date => new Date(date))
+        .filter(date => !isNaN(date.getTime()));
+
+    if (dates.length === 0) {
+        const now = new Date();
+        return { start: now, end: now };
+    }
+
+    return {
+        start: new Date(Math.min(...dates)),
+        end: new Date(Math.max(...dates))
+    };
+};
+
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
-            const { reviews, previousMessages, messages } = req.body;
+            // Validate request body
+            const { reviews, previousMessages, messages } = validateRequestBody(req.body);
+
             const userId = req.userId;
 
             const user = await User.findById(userId);
@@ -134,12 +174,6 @@ const analyticsController = {
                 return res.status(403).json({ 
                     message: 'Insufficient credits available. Please purchase more credits to continue.',
                     type: 'NO_CREDITS'
-                });
-            }
-
-            if (!Array.isArray(reviews) || reviews.length === 0) {
-                return res.status(400).json({ 
-                    message: 'Reviews array is required and must not be empty' 
                 });
             }
 
@@ -211,12 +245,12 @@ const analyticsController = {
 
                     // Verifichiamo che sia un JSON valido
                     try {
-                        const parsedAnalysis = JSON.parse(analysis); // Se non è un JSON valido, lancerà un errore
+                        const parsedAnalysis = JSON.parse(analysis);
                         
                         // Salviamo l'analisi solo se non è un follow-up
                         if (!previousMessages) {
-                            // Genera un titolo di default
                             const defaultTitle = `Analysis - ${parsedAnalysis.meta.hotelName} - ${new Date().toLocaleDateString()}`;
+                            const dateRange = getValidDateRange(reviews);
                             
                             const savedAnalysis = await Analysis.create({
                                 title: defaultTitle,
@@ -226,22 +260,11 @@ const analyticsController = {
                                 reviewsAnalyzed: reviews.length,
                                 provider,
                                 metadata: {
-                                    platforms: [...new Set(reviews.map(r => r.platform))],
-                                    dateRange: {
-                                        start: new Date(Math.min(...reviews.map(r => new Date(r.metadata?.originalCreatedAt)))),
-                                        end: new Date(Math.max(...reviews.map(r => new Date(r.metadata?.originalCreatedAt))))
-                                    },
-                                    creditsUsed: reviews.length <= 100 ? 10 : 15
+                                    platforms,
+                                    dateRange,
+                                    creditsUsed: creditCost
                                 }
                             });
-
-                            // Quando i suggerimenti vengono generati più avanti, aggiorniamo l'analisi
-                            if (suggestions.length > 0) {
-                                await Analysis.findByIdAndUpdate(
-                                    savedAnalysis._id,
-                                    { followUpSuggestions: suggestions }
-                                );
-                            }
 
                             // Aggiungiamo l'ID dell'analisi alla risposta
                             analysis = {
@@ -249,6 +272,14 @@ const analyticsController = {
                                 _id: savedAnalysis._id,
                                 title: defaultTitle
                             };
+
+                            // Se ci sono suggerimenti, li aggiungiamo all'analisi
+                            if (suggestions.length > 0) {
+                                await Analysis.findByIdAndUpdate(
+                                    savedAnalysis._id,
+                                    { followUpSuggestions: suggestions }
+                                );
+                            }
                         }
                     } catch (e) {
                         console.error('Invalid JSON response from AI:', e);
