@@ -389,34 +389,10 @@ const analyticsController = {
     getAnalyses: async (req, res) => {
         try {
             const userId = req.userId;
-
-            // Fetch analyses with hotel information
-            const analyses = await Analysis.aggregate([
-                { $match: { userId } },
-                {
-                    $lookup: {
-                        from: 'hotels',
-                        localField: 'hotelId',
-                        foreignField: '_id',
-                        as: 'hotel'
-                    }
-                },
-                { $unwind: '$hotel' },
-                {
-                    $project: {
-                        _id: 1,
-                        title: 1,
-                        hotelId: 1,
-                        hotelName: '$hotel.name',
-                        createdAt: 1,
-                        reviewsAnalyzed: 1,
-                        metadata: 1,
-                        'analysis.meta': 1,
-                        followUpSuggestions: 1
-                    }
-                },
-                { $sort: { createdAt: -1 } }
-            ]);
+            
+            const analyses = await Analysis.find({ userId })
+                .populate('hotelId', 'name')
+                .sort({ createdAt: -1 });
 
             res.json(analyses);
         } catch (error) {
