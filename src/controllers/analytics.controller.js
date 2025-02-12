@@ -273,65 +273,54 @@ const analyticsController = {
                                 title: defaultTitle
                             };
 
-                            // Se ci sono suggerimenti, li aggiungiamo all'analisi
-                            if (suggestions.length > 0) {
-                                await Analysis.findByIdAndUpdate(
-                                    savedAnalysis._id,
-                                    { followUpSuggestions: suggestions }
-                                );
+                            // Generiamo i suggerimenti qui, all'interno dello stesso scope di savedAnalysis
+                            const suggestionsMessage = await anthropic.messages.create({
+                                model: "claude-3-5-sonnet-20241022",
+                                max_tokens: 1000,
+                                temperature: 0.7,
+                                system: `You are an AI assistant helping hotel managers analyze their reviews.
+                                        Generate 4-5 follow-up questions that the manager might want to ask YOU about the analysis.
+                                        The questions should:
+                                        - Be in English
+                                        - Be actionable and solution-oriented
+                                        - Reference specific data from the analysis
+                                        - Be formulated as direct questions to YOU
+                                        - Focus on getting specific recommendations and insights
+                                        
+                                        Example of GOOD question:
+                                        "What specific solutions could I implement to address the noise issues mentioned in 35 reviews?"
+                                        
+                                        Example of BAD question:
+                                        "What soundproofing solutions have been tested to address the noise issues mentioned by 35 guests?"
+                                        
+                                        Return only a JSON array of strings.`,
+                                messages: [
+                                    {
+                                        role: "user",
+                                        content: `Based on this analysis and these reviews, generate relevant follow-up questions that a manager would want to ask YOU:
+                                                Analysis: ${analysis}
+                                                Reviews: ${JSON.stringify(reviewsData)}`
+                                    }
+                                ]
+                            });
+
+                            if (suggestionsMessage?.content?.[0]?.text) {
+                                try {
+                                    suggestions = JSON.parse(suggestionsMessage.content[0].text);
+                                    // Aggiorniamo l'analisi con i suggerimenti
+                                    await Analysis.findByIdAndUpdate(
+                                        savedAnalysis._id,
+                                        { followUpSuggestions: suggestions }
+                                    );
+                                } catch (e) {
+                                    console.error('Error parsing suggestions:', e);
+                                    suggestions = [];
+                                }
                             }
                         }
                     } catch (e) {
                         console.error('Invalid JSON response from AI:', e);
                         throw new Error('AI returned invalid JSON format');
-                    }
-
-                    if (!previousMessages) {
-                        const suggestionsMessage = await anthropic.messages.create({
-                            model: "claude-3-5-sonnet-20241022",
-                            max_tokens: 1000,
-                            temperature: 0.7,
-                            system: `You are an AI assistant helping hotel managers analyze their reviews.
-                                    Generate 4-5 follow-up questions that the manager might want to ask YOU about the analysis.
-                                    The questions should:
-                                    - Be in English
-                                    - Be actionable and solution-oriented
-                                    - Reference specific data from the analysis
-                                    - Be formulated as direct questions to YOU
-                                    - Focus on getting specific recommendations and insights
-                                    
-                                    Example of GOOD question:
-                                    "What specific solutions could I implement to address the noise issues mentioned in 35 reviews?"
-                                    
-                                    Example of BAD question:
-                                    "What soundproofing solutions have been tested to address the noise issues mentioned by 35 guests?"
-                                    
-                                    Return only a JSON array of strings.`,
-                            messages: [
-                                {
-                                    role: "user",
-                                    content: `Based on this analysis and these reviews, generate relevant follow-up questions that a manager would want to ask YOU:
-                                                    Analysis: ${analysis}
-                                                    Reviews: ${JSON.stringify(reviewsData)}`
-                                }
-                            ]
-                        });
-
-                        if (suggestionsMessage?.content?.[0]?.text) {
-                            try {
-                                suggestions = JSON.parse(suggestionsMessage.content[0].text);
-                                // Aggiorniamo l'analisi salvata con i suggerimenti
-                                if (savedAnalysis) {
-                                    await Analysis.findByIdAndUpdate(
-                                        savedAnalysis._id,
-                                        { followUpSuggestions: suggestions }
-                                    );
-                                }
-                            } catch (e) {
-                                console.error('Error parsing suggestions:', e);
-                                suggestions = [];
-                            }
-                        }
                     }
                 }
             } catch (claudeError) {
