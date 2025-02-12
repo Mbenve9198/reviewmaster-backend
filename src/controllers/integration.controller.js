@@ -429,7 +429,6 @@ async function syncReviews(integration) {
         }).sort({ 'metadata.originalCreatedAt': -1 });
 
         const config = {
-            language: integration.syncConfig.language,
             maxReviews: 100,
             startDate: lastReview?.metadata?.originalCreatedAt?.toISOString()
         };

@@ -3,6 +3,7 @@ const OpenAI = require('openai');
 const Review = require('../models/review.model');
 const User = require('../models/user.model');
 const Hotel = require('../models/hotel.model');
+const Analysis = require('../models/analysis.model');
 
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
@@ -210,7 +211,45 @@ const analyticsController = {
 
                     // Verifichiamo che sia un JSON valido
                     try {
-                        JSON.parse(analysis); // Se non è un JSON valido, lancerà un errore
+                        const parsedAnalysis = JSON.parse(analysis); // Se non è un JSON valido, lancerà un errore
+                        
+                        // Salviamo l'analisi solo se non è un follow-up
+                        if (!previousMessages) {
+                            // Genera un titolo di default
+                            const defaultTitle = `Analysis - ${parsedAnalysis.meta.hotelName} - ${new Date().toLocaleDateString()}`;
+                            
+                            const savedAnalysis = await Analysis.create({
+                                title: defaultTitle,
+                                userId,
+                                hotelId: reviews[0].hotelId,
+                                analysis: parsedAnalysis,
+                                reviewsAnalyzed: reviews.length,
+                                provider,
+                                metadata: {
+                                    platforms: [...new Set(reviews.map(r => r.platform))],
+                                    dateRange: {
+                                        start: new Date(Math.min(...reviews.map(r => new Date(r.metadata?.originalCreatedAt)))),
+                                        end: new Date(Math.max(...reviews.map(r => new Date(r.metadata?.originalCreatedAt))))
+                                    },
+                                    creditsUsed: reviews.length <= 100 ? 10 : 15
+                                }
+                            });
+
+                            // Quando i suggerimenti vengono generati più avanti, aggiorniamo l'analisi
+                            if (suggestions.length > 0) {
+                                await Analysis.findByIdAndUpdate(
+                                    savedAnalysis._id,
+                                    { followUpSuggestions: suggestions }
+                                );
+                            }
+
+                            // Aggiungiamo l'ID dell'analisi alla risposta
+                            analysis = {
+                                ...parsedAnalysis,
+                                _id: savedAnalysis._id,
+                                title: defaultTitle
+                            };
+                        }
                     } catch (e) {
                         console.error('Invalid JSON response from AI:', e);
                         throw new Error('AI returned invalid JSON format');
@@ -250,6 +289,13 @@ const analyticsController = {
                         if (suggestionsMessage?.content?.[0]?.text) {
                             try {
                                 suggestions = JSON.parse(suggestionsMessage.content[0].text);
+                                // Aggiorniamo l'analisi salvata con i suggerimenti
+                                if (savedAnalysis) {
+                                    await Analysis.findByIdAndUpdate(
+                                        savedAnalysis._id,
+                                        { followUpSuggestions: suggestions }
+                                    );
+                                }
                             } catch (e) {
                                 console.error('Error parsing suggestions:', e);
                                 suggestions = [];
@@ -315,6 +361,172 @@ const analyticsController = {
             console.error('Analysis error:', error);
             res.status(500).json({ 
                 message: 'Error analyzing reviews',
+                error: error.message 
+            });
+        }
+    },
+
+    getAnalyses: async (req, res) => {
+        try {
+            const userId = req.userId;
+
+            // Fetch analyses with hotel information
+            const analyses = await Analysis.aggregate([
+                { $match: { userId } },
+                {
+                    $lookup: {
+                        from: 'hotels',
+                        localField: 'hotelId',
+                        foreignField: '_id',
+                        as: 'hotel'
+                    }
+                },
+                { $unwind: '$hotel' },
+                {
+                    $project: {
+                        _id: 1,
+                        title: 1,
+                        hotelId: 1,
+                        hotelName: '$hotel.name',
+                        createdAt: 1,
+                        reviewsAnalyzed: 1,
+                        metadata: 1,
+                        'analysis.meta': 1,
+                        followUpSuggestions: 1
+                    }
+                },
+                { $sort: { createdAt: -1 } }
+            ]);
+
+            res.json(analyses);
+        } catch (error) {
+            console.error('Error fetching analyses:', error);
+            res.status(500).json({ 
+                message: 'Error fetching analyses',
+                error: error.message 
+            });
+        }
+    },
+
+    getAnalysis: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const userId = req.userId;
+
+            const analysis = await Analysis.findOne({ _id: id, userId })
+                .populate('hotelId', 'name');
+
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            res.json(analysis);
+        } catch (error) {
+            console.error('Error fetching analysis:', error);
+            res.status(500).json({ 
+                message: 'Error fetching analysis',
+                error: error.message 
+            });
+        }
+    },
+
+    renameAnalysis: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { title } = req.body;
+            const userId = req.userId;
+
+            if (!title) {
+                return res.status(400).json({ message: 'Title is required' });
+            }
+
+            const analysis = await Analysis.findOneAndUpdate(
+                { _id: id, userId },
+                { title },
+                { new: true }
+            );
+
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            res.json(analysis);
+        } catch (error) {
+            console.error('Error renaming analysis:', error);
+            res.status(500).json({ 
+                message: 'Error renaming analysis',
+                error: error.message 
+            });
+        }
+    },
+
+    deleteAnalysis: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const userId = req.userId;
+
+            const analysis = await Analysis.findOneAndDelete({ _id: id, userId });
+
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            res.json({ message: 'Analysis deleted successfully' });
+        } catch (error) {
+            console.error('Error deleting analysis:', error);
+            res.status(500).json({ 
+                message: 'Error deleting analysis',
+                error: error.message 
+            });
+        }
+    },
+
+    getFollowUpAnalysis: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { prompt, previousMessages, messages } = req.body;
+            const userId = req.userId;
+
+            // Verifica che l'analisi esista e appartenga all'utente
+            const analysis = await Analysis.findOne({ _id: id, userId });
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            // Genera il prompt per il follow-up
+            const systemPrompt = `You are analyzing this review data. Answer the following question:
+                Previous analysis: ${JSON.stringify(analysis.analysis)}
+                Question: ${prompt}
+                
+                Previous conversation context: ${JSON.stringify(messages)}`;
+
+            // Genera la risposta usando Claude
+            const response = await anthropic.messages.create({
+                model: "claude-3-5-sonnet-20241022",
+                max_tokens: 4000,
+                temperature: 0,
+                system: "You are an expert hospitality industry analyst.",
+                messages: [
+                    {
+                        role: "user",
+                        content: systemPrompt
+                    }
+                ]
+            });
+
+            if (!response?.content?.[0]?.text) {
+                throw new Error('Failed to generate follow-up analysis');
+            }
+
+            res.json({ 
+                analysis: response.content[0].text,
+                provider: 'claude'
+            });
+
+        } catch (error) {
+            console.error('Error generating follow-up analysis:', error);
+            res.status(500).json({ 
+                message: 'Error generating follow-up analysis',
                 error: error.message 
             });
         }
