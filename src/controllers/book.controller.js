@@ -2,7 +2,7 @@
 const mongoose = require('mongoose');
 const { GridFSBucket } = require('mongodb');
 const { Book, BookChunk } = require('../models/book.model');
-const { PDFLoader } = require('langchain/document_loaders/fs/pdf');
+const pdf = require('pdf-parse');  // Usiamo pdf-parse invece di PDFLoader
 const { OpenAIEmbeddings } = require('langchain/embeddings/openai');
 
 const bookController = {
@@ -70,6 +70,51 @@ async function processBook(bookId) {
         book.processedStatus = 'failed';
         await book.save();
     }
+}
+
+async function loadAndChunkPDF(downloadStream) {
+    // Converti lo stream in buffer
+    const chunks = [];
+    for await (const chunk of downloadStream) {
+        chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
+    
+    // Usa pdf-parse per estrarre il testo
+    const data = await pdf(buffer);
+    
+    // Dividi il testo in chunks
+    return splitIntoChunks(data.text);
+}
+
+async function splitIntoChunks(text, maxChunkSize = 2000) {
+    // Divide in paragrafi preservando la struttura originale
+    const paragraphs = text.split(/\n\s*\n/);
+    const chunks = [];
+    let currentChunk = '';
+    let currentSize = 0;
+
+    for (const paragraph of paragraphs) {
+        const trimmedParagraph = paragraph.trim();
+        if (!trimmedParagraph) continue;
+
+        if (currentSize + trimmedParagraph.length > maxChunkSize && currentChunk) {
+            chunks.push(currentChunk.trim());
+            currentChunk = '';
+            currentSize = 0;
+        }
+        currentChunk += trimmedParagraph + '\n\n';
+        currentSize += trimmedParagraph.length + 2;
+    }
+
+    if (currentChunk) {
+        chunks.push(currentChunk.trim());
+    }
+
+    return chunks.map(content => ({
+        content,
+        metadata: {}  // Puoi aggiungere metadati se necessario
+    }));
 }
 
 module.exports = bookController;
