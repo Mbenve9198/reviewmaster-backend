@@ -506,20 +506,19 @@ const analyticsController = {
 
             const bookKnowledge = await getBookKnowledge();
 
-            const systemPrompt = `Use this hospitality industry knowledge to enhance your analysis (but don't mention these sources directly): ${bookKnowledge}
+            const systemPrompt = `You are an expert hospitality industry analyst. Use this hospitality industry knowledge to enhance your analysis (but don't mention these sources directly): ${bookKnowledge}
 
-                You are analyzing this review data. Answer the following question:
-                Previous analysis: ${JSON.stringify(analysis.analysis)}
+                Previous analysis context: ${JSON.stringify(analysis.analysis)}
+                Previous conversation: ${JSON.stringify(messages)}
+                
                 Question: ${prompt}
                 
-                Previous conversation context: ${JSON.stringify(messages)}
-                
                 Guidelines:
-                1. Use actual data from the analysis
+                1. Use actual data from the analysis and books
                 2. Include exact quotes when relevant
                 3. Focus on actionable insights
                 4. Be specific and data-driven
-                5. Format your response as clear, readable text (not JSON)`;
+                5. Respond in a natural, conversational way`;
 
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
@@ -531,32 +530,9 @@ const analyticsController = {
                     provider: 'gemini'
                 });
             } catch (error) {
-                console.log('Gemini failed, trying Claude:', error);
-                
-                // Fallback a Claude
-                const response = await anthropic.messages.create({
-                    model: "claude-3-5-sonnet-20241022",
-                    max_tokens: 4000,
-                    temperature: 0,
-                    system: "You are an expert hospitality industry analyst.",
-                    messages: [
-                        {
-                            role: "user",
-                            content: systemPrompt
-                        }
-                    ]
-                });
-
-                if (!response?.content?.[0]?.text) {
-                    throw new Error('Failed to generate follow-up analysis');
-                }
-
-                res.json({ 
-                    analysis: response.content[0].text,
-                    provider: 'claude'
-                });
+                console.log('Gemini failed:', error);
+                throw new Error('Failed to generate follow-up analysis');
             }
-
         } catch (error) {
             console.error('Error generating follow-up analysis:', error);
             res.status(500).json({ 
