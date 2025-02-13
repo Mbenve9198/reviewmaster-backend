@@ -5,7 +5,7 @@ const path = require('path');
 const pdf = require('pdf-parse');
 require('dotenv').config();
 
-// Schema definizioni
+// Schema definizione semplificata
 const bookSchema = new mongoose.Schema({
     title: {
         type: String,
@@ -15,35 +15,19 @@ const bookSchema = new mongoose.Schema({
     fileId: {
         type: mongoose.Schema.Types.ObjectId
     },
+    content: {
+        type: String,
+        required: true,
+        text: true  // Per abilitare la ricerca full-text
+    },
     processedStatus: {
         type: String,
         enum: ['pending', 'processing', 'completed', 'failed'],
         default: 'pending'
-    },
-    totalChunks: Number
-}, { timestamps: true });
-
-const bookChunkSchema = new mongoose.Schema({
-    bookId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Book',
-        required: true
-    },
-    content: {
-        type: String,
-        required: true,
-        text: true // Per abilitare la ricerca full-text
-    },
-    metadata: {
-        pageNumber: Number,
-        chapter: String,
-        bookTitle: String,
-        bookAuthor: String
     }
 }, { timestamps: true });
 
 const Book = mongoose.model('Book', bookSchema);
-const BookChunk = mongoose.model('BookChunk', bookChunkSchema);
 
 const books = [
     {
@@ -63,48 +47,6 @@ const books = [
     }
 ];
 
-async function splitIntoChunks(text, maxChunkSize = 2000) {
-    // Divide in paragrafi preservando la struttura originale
-    const paragraphs = text.split(/\n\s*\n/);
-    const chunks = [];
-    let currentChunk = '';
-    let currentSize = 0;
-
-    for (const paragraph of paragraphs) {
-        const trimmedParagraph = paragraph.trim();
-        if (!trimmedParagraph) continue;
-
-        // Se il paragrafo è più grande del maxChunkSize, dividilo in frasi
-        if (trimmedParagraph.length > maxChunkSize) {
-            const sentences = trimmedParagraph.match(/[^.!?]+[.!?]+/g) || [trimmedParagraph];
-            for (const sentence of sentences) {
-                if (currentSize + sentence.length > maxChunkSize && currentChunk) {
-                    chunks.push(currentChunk.trim());
-                    currentChunk = '';
-                    currentSize = 0;
-                }
-                currentChunk += sentence + ' ';
-                currentSize += sentence.length + 1;
-            }
-        } else {
-            // Se aggiungendo questo paragrafo superiamo maxChunkSize, crea un nuovo chunk
-            if (currentSize + trimmedParagraph.length > maxChunkSize && currentChunk) {
-                chunks.push(currentChunk.trim());
-                currentChunk = '';
-                currentSize = 0;
-            }
-            currentChunk += trimmedParagraph + '\n\n';
-            currentSize += trimmedParagraph.length + 2;
-        }
-    }
-
-    if (currentChunk) {
-        chunks.push(currentChunk.trim());
-    }
-
-    return chunks;
-}
-
 async function processBook(bookInfo) {
     console.log(`Processing ${bookInfo.title}...`);
 
@@ -123,41 +65,23 @@ async function processBook(bookInfo) {
             uploadStream.end(fileContent);
         });
 
-        // 3. Crea il record del libro
+        // 3. Estrai il testo dal PDF
+        const data = await pdf(fileContent);
+        
+        // 4. Crea il record del libro con il testo completo
         const book = await Book.create({
             title: bookInfo.title,
             author: bookInfo.author,
             fileId: uploadStream.id,
-            processedStatus: 'processing'
+            content: data.text,
+            processedStatus: 'completed'
         });
 
-        // 4. Processa il PDF
-        const data = await pdf(fileContent);
-        const chunks = await splitIntoChunks(data.text);
-        
-        // 5. Salva ogni chunk mantenendo il contenuto originale
-        for (let i = 0; i < chunks.length; i++) {
-            await BookChunk.create({
-                bookId: book._id,
-                content: chunks[i],
-                metadata: {
-                    pageNumber: Math.floor(i * data.numpages / chunks.length),
-                    bookTitle: bookInfo.title,
-                    bookAuthor: bookInfo.author
-                }
-            });
-
-            console.log(`Processed chunk ${i + 1}/${chunks.length} of ${bookInfo.title}`);
-        }
-
-        // 6. Aggiorna lo stato del libro
-        book.processedStatus = 'completed';
-        book.totalChunks = chunks.length;
-        await book.save();
-
         console.log(`Completed processing ${bookInfo.title}`);
+        return book;
     } catch (error) {
         console.error(`Error processing ${bookInfo.title}:`, error);
+        throw error;
     }
 }
 

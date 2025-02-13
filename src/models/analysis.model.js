@@ -73,7 +73,7 @@ const analysisSchema = new mongoose.Schema({
   reviewsAnalyzed: Number,
   provider: {
     type: String,
-    enum: ['claude', 'gpt4'],
+    enum: ['claude', 'gpt4', 'gemini'],
     required: true
   },
   metadata: {
