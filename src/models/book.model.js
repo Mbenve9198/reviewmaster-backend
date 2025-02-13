@@ -25,15 +25,14 @@ const bookChunkSchema = new mongoose.Schema({
     },
     content: {
         type: String,
-        required: true
-    },
-    embedding: {
-        type: [Number],
-        required: true
+        required: true,
+        text: true // Per abilitare la ricerca full-text
     },
     metadata: {
         pageNumber: Number,
-        chapter: String
+        chapter: String,
+        bookTitle: String,
+        bookAuthor: String
     }
 }, { timestamps: true });
 

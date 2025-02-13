@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const { GridFSBucket } = require('mongodb');
 const { Book, BookChunk } = require('../models/book.model');
 const pdf = require('pdf-parse');  // Usiamo pdf-parse invece di PDFLoader
-const { OpenAIEmbeddings } = require('langchain/embeddings/openai');
 
 const bookController = {
     uploadBook: async (req, res) => {
@@ -50,15 +49,11 @@ async function processBook(bookId) {
         // Processa il PDF
         const chunks = await loadAndChunkPDF(downloadStream);
         
-        // Crea embeddings e salva i chunks
-        const embeddings = new OpenAIEmbeddings();
-        
+        // Salva i chunks
         for (const chunk of chunks) {
-            const embedding = await embeddings.embedQuery(chunk.content);
             await BookChunk.create({
                 bookId: book._id,
                 content: chunk.content,
-                embedding,
                 metadata: chunk.metadata
             });
         }
