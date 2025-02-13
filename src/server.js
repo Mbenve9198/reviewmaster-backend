@@ -16,6 +16,7 @@ const userRoutes = require('./routes/user.routes');
 const integrationRoutes = require('./routes/integration.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
 const walletRoutes = require('./routes/wallet.routes');
+const bookRoutes = require('./routes/book.routes');
 const checkCredits = require('./middleware/credits.middleware');
 const ruleRoutes = require('./routes/rule.routes');
 
@@ -73,6 +74,7 @@ app.use('/api/users', authMiddleware, checkEmailVerification, userRoutes);
 app.use('/api/integrations', authMiddleware, checkCredits, integrationRoutes);
 app.use('/api/analytics', authMiddleware, checkCredits, analyticsRoutes);
 app.use('/api/wallet', authMiddleware, walletRoutes);
+app.use('/api/books', authMiddleware, bookRoutes);
 app.use('/api/rules', authMiddleware, checkCredits, ruleRoutes);
 
 // Stripe webhook route

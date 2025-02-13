@@ -4,6 +4,8 @@ const Review = require('../models/review.model');
 const User = require('../models/user.model');
 const Hotel = require('../models/hotel.model');
 const Analysis = require('../models/analysis.model');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { Book, BookChunk } = require('../models/book.model');
 
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
@@ -12,6 +14,8 @@ const anthropic = new Anthropic({
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const generateInitialPrompt = (hotel, reviews, platforms, avgRating) => {
     return `You are an expert hospitality industry analyst. Analyze the reviews and return a JSON object with this exact structure:
@@ -154,12 +158,32 @@ const getValidDateRange = (reviews) => {
     };
 };
 
+const getRelevantBookKnowledge = async (reviews) => {
+    // Estraiamo le parole chiave più significative dalle recensioni
+    const reviewText = reviews.map(r => r.content?.text || '').join(' ');
+    const keywords = reviewText
+        .toLowerCase()
+        .split(/\W+/)
+        .filter(word => word.length > 3)  // rimuove parole troppo corte
+        .filter(word => !['this', 'that', 'with', 'from', 'have', 'were'].includes(word)); // rimuove stop words
+
+    // Cerca chunks rilevanti usando text search di MongoDB
+    const relevantChunks = await BookChunk.find(
+        { $text: { $search: keywords.join(' ') } },
+        { score: { $meta: "textScore" } }
+    )
+    .sort({ score: { $meta: "textScore" } })
+    .limit(20);  // prendiamo i 20 chunks più rilevanti
+
+    return relevantChunks.map(chunk => 
+        `From "${chunk.metadata.bookTitle}" by ${chunk.metadata.bookAuthor}:\n${chunk.content}`
+    ).join('\n\n');
+};
+
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
-            // Validate request body
             const { reviews, previousMessages, messages } = validateRequestBody(req.body);
-
             const userId = req.userId;
 
             const user = await User.findById(userId);
@@ -167,7 +191,7 @@ const analyticsController = {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            const creditCost = previousMessages ? 1 : (reviews.length <= 100 ? 10 : 15);
+            const creditCost = previousMessages ? 1 : 10;
             const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
             
             if (totalCreditsAvailable < creditCost) {
@@ -181,6 +205,8 @@ const analyticsController = {
             if (!hotel) {
                 return res.status(404).json({ message: 'Hotel not found' });
             }
+
+            const bookKnowledge = await getRelevantBookKnowledge(reviews);
 
             const reviewsData = reviews.map(review => ({
                 content: review.content?.text || '',
@@ -200,28 +226,95 @@ const analyticsController = {
                 systemPrompt = generateInitialPrompt(hotel, reviewsData, platforms, avgRating);
             }
 
-            const retryWithExponentialBackoff = async (fn, maxRetries = 3, initialDelay = 1000) => {
-                for (let i = 0; i < maxRetries; i++) {
-                    try {
-                        return await fn();
-                    } catch (error) {
-                        if (error?.error?.type === 'overloaded_error' && i < maxRetries - 1) {
-                            const delay = initialDelay * Math.pow(2, i);
-                            await new Promise(resolve => setTimeout(resolve, delay));
-                            continue;
-                        }
-                        throw error;
-                    }
-                }
-            };
+            const enhancedPrompt = `Use this hospitality industry knowledge to enhance your analysis (but don't mention these sources directly): ${bookKnowledge}\n\n${systemPrompt}`;
 
             let analysis;
             let provider;
             let suggestions = [];
 
             try {
-                const message = await retryWithExponentialBackoff(async () => {
-                    return await anthropic.messages.create({
+                const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+                const result = await model.generateContent(enhancedPrompt);
+                const response = await result.response;
+                analysis = response.text();
+                provider = 'gemini';
+
+                if (analysis.includes('```')) {
+                    analysis = analysis.replace(/```json\n?|\n?```/g, '').trim();
+                }
+
+                if (!previousMessages) {
+                    const defaultTitle = `Analysis - ${analysis.meta.hotelName} - ${new Date().toLocaleDateString()}`;
+                    const dateRange = getValidDateRange(reviews);
+                    
+                    const savedAnalysis = await Analysis.create({
+                        title: defaultTitle,
+                        userId,
+                        hotelId: reviews[0].hotelId,
+                        analysis: JSON.parse(analysis),
+                        reviewsAnalyzed: reviews.length,
+                        provider,
+                        metadata: {
+                            platforms,
+                            dateRange,
+                            creditsUsed: creditCost
+                        }
+                    });
+
+                    analysis = {
+                        ...JSON.parse(analysis),
+                        _id: savedAnalysis._id,
+                        title: defaultTitle
+                    };
+
+                    const suggestionsMessage = await anthropic.messages.create({
+                        model: "claude-3-5-sonnet-20241022",
+                        max_tokens: 1000,
+                        temperature: 0.7,
+                        system: `You are an AI assistant helping hotel managers analyze their reviews.
+                                Generate 4-5 follow-up questions that the manager might want to ask YOU about the analysis.
+                                The questions should:
+                                - Be in English
+                                - Be actionable and solution-oriented
+                                - Reference specific data from the analysis
+                                - Be formulated as direct questions to YOU
+                                - Focus on getting specific recommendations and insights
+                                
+                                Example of GOOD question:
+                                "What specific solutions could I implement to address the noise issues mentioned in 35 reviews?"
+                                
+                                Example of BAD question:
+                                "What soundproofing solutions have been tested to address the noise issues mentioned by 35 guests?"
+                                
+                                Return only a JSON array of strings.`,
+                        messages: [
+                            {
+                                role: "user",
+                                content: `Based on this analysis and these reviews, generate relevant follow-up questions that a manager would want to ask YOU:
+                                        Analysis: ${analysis}
+                                        Reviews: ${JSON.stringify(reviewsData)}`
+                            }
+                        ]
+                    });
+
+                    if (suggestionsMessage?.content?.[0]?.text) {
+                        try {
+                            suggestions = JSON.parse(suggestionsMessage.content[0].text);
+                            await Analysis.findByIdAndUpdate(
+                                savedAnalysis._id,
+                                { followUpSuggestions: suggestions }
+                            );
+                        } catch (e) {
+                            console.error('Error parsing suggestions:', e);
+                            suggestions = [];
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log('Gemini failed, trying Claude:', error);
+                
+                try {
+                    const message = await anthropic.messages.create({
                         model: "claude-3-5-sonnet-20241022",
                         max_tokens: 4000,
                         temperature: 0,
@@ -229,123 +322,14 @@ const analyticsController = {
                         messages: [
                             {
                                 role: "user",
-                                content: systemPrompt
+                                content: enhancedPrompt
                             }
                         ]
                     });
-                });
 
-                if (message?.content?.[0]?.text) {
-                    // Puliamo il testo da eventuali blocchi di codice markdown
-                    analysis = message.content[0].text;
-                    if (analysis.includes('```')) {
-                        analysis = analysis.replace(/```json\n?|\n?```/g, '').trim();
-                    }
-                    provider = 'claude';
-
-                    // Verifichiamo che sia un JSON valido
-                    try {
-                        const parsedAnalysis = JSON.parse(analysis);
-                        
-                        // Salviamo l'analisi solo se non è un follow-up
-                        if (!previousMessages) {
-                            const defaultTitle = `Analysis - ${parsedAnalysis.meta.hotelName} - ${new Date().toLocaleDateString()}`;
-                            const dateRange = getValidDateRange(reviews);
-                            
-                            const savedAnalysis = await Analysis.create({
-                                title: defaultTitle,
-                                userId,
-                                hotelId: reviews[0].hotelId,
-                                analysis: parsedAnalysis,
-                                reviewsAnalyzed: reviews.length,
-                                provider,
-                                metadata: {
-                                    platforms,
-                                    dateRange,
-                                    creditsUsed: creditCost
-                                }
-                            });
-
-                            // Aggiungiamo l'ID dell'analisi alla risposta
-                            analysis = {
-                                ...parsedAnalysis,
-                                _id: savedAnalysis._id,
-                                title: defaultTitle
-                            };
-
-                            // Generiamo i suggerimenti qui, all'interno dello stesso scope di savedAnalysis
-                            const suggestionsMessage = await anthropic.messages.create({
-                                model: "claude-3-5-sonnet-20241022",
-                                max_tokens: 1000,
-                                temperature: 0.7,
-                                system: `You are an AI assistant helping hotel managers analyze their reviews.
-                                        Generate 4-5 follow-up questions that the manager might want to ask YOU about the analysis.
-                                        The questions should:
-                                        - Be in English
-                                        - Be actionable and solution-oriented
-                                        - Reference specific data from the analysis
-                                        - Be formulated as direct questions to YOU
-                                        - Focus on getting specific recommendations and insights
-                                        
-                                        Example of GOOD question:
-                                        "What specific solutions could I implement to address the noise issues mentioned in 35 reviews?"
-                                        
-                                        Example of BAD question:
-                                        "What soundproofing solutions have been tested to address the noise issues mentioned by 35 guests?"
-                                        
-                                        Return only a JSON array of strings.`,
-                                messages: [
-                                    {
-                                        role: "user",
-                                        content: `Based on this analysis and these reviews, generate relevant follow-up questions that a manager would want to ask YOU:
-                                                Analysis: ${analysis}
-                                                Reviews: ${JSON.stringify(reviewsData)}`
-                                    }
-                                ]
-                            });
-
-                            if (suggestionsMessage?.content?.[0]?.text) {
-                                try {
-                                    suggestions = JSON.parse(suggestionsMessage.content[0].text);
-                                    // Aggiorniamo l'analisi con i suggerimenti
-                                    await Analysis.findByIdAndUpdate(
-                                        savedAnalysis._id,
-                                        { followUpSuggestions: suggestions }
-                                    );
-                                } catch (e) {
-                                    console.error('Error parsing suggestions:', e);
-                                    suggestions = [];
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        console.error('Invalid JSON response from AI:', e);
-                        throw new Error('AI returned invalid JSON format');
-                    }
-                }
-            } catch (claudeError) {
-                console.log('Claude failed, trying OpenAI:', claudeError);
-                
-                try {
-                    const completion = await openai.chat.completions.create({
-                        model: "gpt-4o",
-                        messages: [
-                            {
-                                role: "system",
-                                content: "You are an expert hospitality industry analyst."
-                            },
-                            {
-                                role: "user",
-                                content: systemPrompt
-                            }
-                        ],
-                        temperature: 0,
-                        max_tokens: 4000
-                    });
-
-                    if (completion?.choices?.[0]?.message?.content) {
-                        analysis = completion.choices[0].message.content;
-                        provider = 'gpt4';
+                    if (message?.content?.[0]?.text) {
+                        analysis = message.content[0].text;
+                        provider = 'claude';
                     }
                 } catch (openaiError) {
                     console.error('OpenAI fallback failed:', openaiError);
@@ -483,41 +467,57 @@ const analyticsController = {
             const { prompt, previousMessages, messages } = req.body;
             const userId = req.userId;
 
-            // Verifica che l'analisi esista e appartenga all'utente
             const analysis = await Analysis.findOne({ _id: id, userId });
             if (!analysis) {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            // Genera il prompt per il follow-up
-            const systemPrompt = `You are analyzing this review data. Answer the following question:
+            // Modifica: usa il testo della domanda per trovare conoscenza rilevante
+            const bookKnowledge = await getRelevantBookKnowledge([{ content: { text: prompt } }]);
+
+            const systemPrompt = `Use this hospitality industry knowledge to enhance your analysis (but don't mention these sources directly): ${bookKnowledge}
+
+                You are analyzing this review data. Answer the following question:
                 Previous analysis: ${JSON.stringify(analysis.analysis)}
                 Question: ${prompt}
                 
                 Previous conversation context: ${JSON.stringify(messages)}`;
 
-            // Genera la risposta usando Claude
-            const response = await anthropic.messages.create({
-                model: "claude-3-5-sonnet-20241022",
-                max_tokens: 4000,
-                temperature: 0,
-                system: "You are an expert hospitality industry analyst.",
-                messages: [
-                    {
-                        role: "user",
-                        content: systemPrompt
-                    }
-                ]
-            });
+            try {
+                const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+                const result = await model.generateContent(systemPrompt);
+                const response = await result.response;
+                
+                res.json({ 
+                    analysis: response.text(),
+                    provider: 'gemini'
+                });
+            } catch (error) {
+                console.log('Gemini failed, trying Claude:', error);
+                
+                // Fallback a Claude
+                const response = await anthropic.messages.create({
+                    model: "claude-3-5-sonnet-20241022",
+                    max_tokens: 4000,
+                    temperature: 0,
+                    system: "You are an expert hospitality industry analyst.",
+                    messages: [
+                        {
+                            role: "user",
+                            content: systemPrompt
+                        }
+                    ]
+                });
 
-            if (!response?.content?.[0]?.text) {
-                throw new Error('Failed to generate follow-up analysis');
+                if (!response?.content?.[0]?.text) {
+                    throw new Error('Failed to generate follow-up analysis');
+                }
+
+                res.json({ 
+                    analysis: response.content[0].text,
+                    provider: 'claude'
+                });
             }
-
-            res.json({ 
-                analysis: response.content[0].text,
-                provider: 'claude'
-            });
 
         } catch (error) {
             console.error('Error generating follow-up analysis:', error);
