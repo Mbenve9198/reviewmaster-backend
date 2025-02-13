@@ -248,7 +248,15 @@ const analyticsController = {
 
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-                const result = await model.generateContent(enhancedPrompt);
+                
+                // Forziamo Gemini a rispondere in JSON aggiungendo un prompt più specifico
+                const enhancedPromptWithFormat = `${enhancedPrompt}
+
+                IMPORTANT: Your response MUST be a valid JSON object with the exact structure shown above.
+                Do not include any explanatory text, markdown formatting, or code blocks.
+                Return ONLY the JSON object.`;
+                
+                const result = await model.generateContent(enhancedPromptWithFormat);
                 const response = await result.response;
                 analysis = response.text();
                 provider = 'gemini';
@@ -261,7 +269,7 @@ const analyticsController = {
                 let parsedAnalysis;
                 try {
                     parsedAnalysis = JSON.parse(analysis);
-                    analysis = parsedAnalysis;  // Sostituiamo la stringa con l'oggetto parsato
+                    analysis = parsedAnalysis;
                 } catch (parseError) {
                     console.error('Failed to parse Gemini response as JSON:', parseError);
                     throw new Error('Invalid JSON response from Gemini');
@@ -504,7 +512,14 @@ const analyticsController = {
                 Previous analysis: ${JSON.stringify(analysis.analysis)}
                 Question: ${prompt}
                 
-                Previous conversation context: ${JSON.stringify(messages)}`;
+                Previous conversation context: ${JSON.stringify(messages)}
+                
+                Guidelines:
+                1. Use actual data from the analysis
+                2. Include exact quotes when relevant
+                3. Focus on actionable insights
+                4. Be specific and data-driven
+                5. Format your response as clear, readable text (not JSON)`;
 
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
