@@ -164,46 +164,34 @@ const getRelevantBookKnowledge = async (reviews) => {
     const keywords = reviewText
         .toLowerCase()
         .split(/\W+/)
-        .filter(word => word.length > 3)  // rimuove parole troppo corte
-        .filter(word => !['this', 'that', 'with', 'from', 'have', 'were'].includes(word)); // rimuove stop words
+        .filter(word => word.length > 3)
+        .filter(word => !['this', 'that', 'with', 'from', 'have', 'were'].includes(word));
 
-    // Cerca chunks rilevanti usando text search di MongoDB
-    const relevantChunks = await BookChunk.find(
+    // Cerca nei libri usando text search di MongoDB
+    const relevantBooks = await Book.find(
         { $text: { $search: keywords.join(' ') } },
         { score: { $meta: "textScore" } }
     )
     .sort({ score: { $meta: "textScore" } })
-    .limit(20);  // prendiamo i 20 chunks più rilevanti
+    .limit(5);  // prendiamo i 5 libri più rilevanti
 
-    return relevantChunks.map(chunk => 
-        `From "${chunk.metadata.bookTitle}" by ${chunk.metadata.bookAuthor}:\n${chunk.content}`
+    return relevantBooks.map(book => 
+        `From "${book.title}" by ${book.author}:\n${book.content}`
     ).join('\n\n');
 };
 
 const getBookKnowledge = async () => {
     // Prendiamo tutto il contenuto dei libri
     const books = await Book.find({ processedStatus: 'completed' });
-    const allContent = [];
     
-    for (const book of books) {
-        const chunks = await BookChunk.find({ bookId: book._id })
-            .sort('metadata.pageNumber')
-            .select('content metadata');
-            
-        if (chunks.length > 0) {
-            allContent.push(`From "${book.title}" by ${book.author}:\n${
-                chunks.map(c => c.content).join('\n\n')
-            }`);
-        }
-    }
-
-    // Se non troviamo niente nel database, avvisa
-    if (allContent.length === 0) {
+    if (books.length === 0) {
         console.warn('No books found in database. Have you run the process-books.js script?');
         return '';
     }
 
-    return allContent.join('\n\n==========\n\n');
+    return books.map(book => 
+        `From "${book.title}" by ${book.author}:\n${book.content}`
+    ).join('\n\n==========\n\n');
 };
 
 const analyticsController = {
@@ -269,15 +257,25 @@ const analyticsController = {
                     analysis = analysis.replace(/```json\n?|\n?```/g, '').trim();
                 }
 
+                // Assicuriamoci che l'analisi sia un oggetto JSON valido
+                let parsedAnalysis;
+                try {
+                    parsedAnalysis = JSON.parse(analysis);
+                    analysis = parsedAnalysis;  // Sostituiamo la stringa con l'oggetto parsato
+                } catch (parseError) {
+                    console.error('Failed to parse Gemini response as JSON:', parseError);
+                    throw new Error('Invalid JSON response from Gemini');
+                }
+
                 if (!previousMessages) {
-                    const defaultTitle = `Analysis - ${analysis.meta.hotelName} - ${new Date().toLocaleDateString()}`;
+                    const defaultTitle = `Analysis - ${analysis.meta?.hotelName || 'Hotel'} - ${new Date().toLocaleDateString()}`;
                     const dateRange = getValidDateRange(reviews);
                     
                     const savedAnalysis = await Analysis.create({
                         title: defaultTitle,
                         userId,
                         hotelId: reviews[0].hotelId,
-                        analysis: JSON.parse(analysis),
+                        analysis: analysis,  // Ora è già un oggetto JSON
                         reviewsAnalyzed: reviews.length,
                         provider,
                         metadata: {
@@ -288,7 +286,7 @@ const analyticsController = {
                     });
 
                     analysis = {
-                        ...JSON.parse(analysis),
+                        ...analysis,
                         _id: savedAnalysis._id,
                         title: defaultTitle
                     };

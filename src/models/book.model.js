@@ -8,7 +8,12 @@ const bookSchema = new mongoose.Schema({
     },
     author: String,
     fileId: {
-        type: mongoose.Schema.Types.ObjectId  // riferimento al file in GridFS
+        type: mongoose.Schema.Types.ObjectId
+    },
+    content: {
+        type: String,
+        required: true,
+        text: true  // Abilita la ricerca full-text sull'intero contenuto
     },
     processedStatus: {
         type: String,
@@ -17,26 +22,9 @@ const bookSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-const bookChunkSchema = new mongoose.Schema({
-    bookId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Book',
-        required: true
-    },
-    content: {
-        type: String,
-        required: true,
-        text: true // Per abilitare la ricerca full-text
-    },
-    metadata: {
-        pageNumber: Number,
-        chapter: String,
-        bookTitle: String,
-        bookAuthor: String
-    }
-}, { timestamps: true });
+// Creiamo un indice di testo sul contenuto per ricerche veloci
+bookSchema.index({ content: 'text' });
 
 module.exports = {
-    Book: mongoose.model('Book', bookSchema),
-    BookChunk: mongoose.model('BookChunk', bookChunkSchema)
+    Book: mongoose.model('Book', bookSchema)
 };
