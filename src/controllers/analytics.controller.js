@@ -181,11 +181,10 @@ const getRelevantBookKnowledge = async (reviews) => {
 };
 
 const getBookKnowledge = async () => {
-    // Prendiamo tutto il contenuto dei libri
     const books = await Book.find({ processedStatus: 'completed' });
     
     if (books.length === 0) {
-        console.warn('No books found in database. Have you run the process-books.js script?');
+        console.warn('No books found in database.');
         return '';
     }
 
@@ -249,29 +248,87 @@ const analyticsController = {
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
                 
-                // Forziamo Gemini a rispondere in JSON aggiungendo un prompt più specifico
+                // Modifichiamo il prompt per essere più espliciti sul formato JSON
                 const enhancedPromptWithFormat = `${enhancedPrompt}
 
-                IMPORTANT: Your response MUST be a valid JSON object with the exact structure shown above.
-                Do not include any explanatory text, markdown formatting, or code blocks.
-                Return ONLY the JSON object.`;
+                CRITICAL: You MUST return ONLY a JSON object with this EXACT structure:
+                {
+                    "meta": {
+                        "hotelName": string,
+                        "reviewCount": number,
+                        "avgRating": number,
+                        "platforms": string
+                    },
+                    "sentiment": {
+                        "excellent": string,
+                        "average": string,
+                        "needsImprovement": string,
+                        "distribution": {
+                            "rating5": string,
+                            "rating4": string,
+                            "rating3": string,
+                            "rating2": string,
+                            "rating1": string
+                        }
+                    },
+                    "strengths": [{
+                        "title": string,
+                        "impact": string,
+                        "mentions": number,
+                        "quote": string,
+                        "details": string,
+                        "marketingTips": [{
+                            "action": string,
+                            "cost": string,
+                            "roi": string
+                        }]
+                    }],
+                    "issues": [{
+                        "title": string,
+                        "priority": string,
+                        "impact": string,
+                        "mentions": number,
+                        "quote": string,
+                        "details": string,
+                        "solution": {
+                            "title": string,
+                            "timeline": string,
+                            "cost": string,
+                            "roi": string,
+                            "steps": [string]
+                        }
+                    }],
+                    "quickWins": [{
+                        "action": string,
+                        "timeline": string,
+                        "cost": string,
+                        "impact": string
+                    }],
+                    "trends": [{
+                        "metric": string,
+                        "change": string,
+                        "period": string
+                    }]
+                }
+
+                DO NOT include any text, comments, or code blocks before or after the JSON.
+                The response MUST start with { and end with }`;
                 
                 const result = await model.generateContent(enhancedPromptWithFormat);
                 const response = await result.response;
-                analysis = response.text();
-                provider = 'gemini';
-
-                if (analysis.includes('```')) {
-                    analysis = analysis.replace(/```json\n?|\n?```/g, '').trim();
-                }
-
-                // Assicuriamoci che l'analisi sia un oggetto JSON valido
-                let parsedAnalysis;
+                let rawText = response.text();
+                
+                // Pulizia della risposta
+                rawText = rawText.replace(/```json\n?|\n?```/g, '').trim();
+                rawText = rawText.replace(/^(?!{).*$/gm, ''); // Rimuove tutte le linee che non iniziano con {
+                rawText = rawText.replace(/\n/g, ' '); // Rimuove i newline
+                
                 try {
-                    parsedAnalysis = JSON.parse(analysis);
-                    analysis = parsedAnalysis;
+                    analysis = JSON.parse(rawText);
+                    provider = 'gemini';
                 } catch (parseError) {
                     console.error('Failed to parse Gemini response as JSON:', parseError);
+                    console.error('Raw response:', rawText);
                     throw new Error('Invalid JSON response from Gemini');
                 }
 
@@ -343,30 +400,8 @@ const analyticsController = {
                     }
                 }
             } catch (error) {
-                console.log('Gemini failed, trying Claude:', error);
-                
-                try {
-                    const message = await anthropic.messages.create({
-                        model: "claude-3-5-sonnet-20241022",
-                        max_tokens: 4000,
-                        temperature: 0,
-                        system: "You are an expert hospitality industry analyst.",
-                        messages: [
-                            {
-                                role: "user",
-                                content: enhancedPrompt
-                            }
-                        ]
-                    });
-
-                    if (message?.content?.[0]?.text) {
-                        analysis = message.content[0].text;
-                        provider = 'claude';
-                    }
-                } catch (openaiError) {
-                    console.error('OpenAI fallback failed:', openaiError);
-                    throw new Error('Both AI services failed to generate analysis');
-                }
+                console.error('Gemini failed:', error);
+                throw new Error('Failed to generate analysis');
             }
 
             if (!analysis) {
