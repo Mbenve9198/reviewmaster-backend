@@ -180,6 +180,32 @@ const getRelevantBookKnowledge = async (reviews) => {
     ).join('\n\n');
 };
 
+const getBookKnowledge = async () => {
+    // Prendiamo tutto il contenuto dei libri
+    const books = await Book.find({ processedStatus: 'completed' });
+    const allContent = [];
+    
+    for (const book of books) {
+        const chunks = await BookChunk.find({ bookId: book._id })
+            .sort('metadata.pageNumber')
+            .select('content metadata');
+            
+        if (chunks.length > 0) {
+            allContent.push(`From "${book.title}" by ${book.author}:\n${
+                chunks.map(c => c.content).join('\n\n')
+            }`);
+        }
+    }
+
+    // Se non troviamo niente nel database, avvisa
+    if (allContent.length === 0) {
+        console.warn('No books found in database. Have you run the process-books.js script?');
+        return '';
+    }
+
+    return allContent.join('\n\n==========\n\n');
+};
+
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
@@ -206,7 +232,7 @@ const analyticsController = {
                 return res.status(404).json({ message: 'Hotel not found' });
             }
 
-            const bookKnowledge = await getRelevantBookKnowledge(reviews);
+            const bookKnowledge = await getBookKnowledge();
 
             const reviewsData = reviews.map(review => ({
                 content: review.content?.text || '',
@@ -472,8 +498,7 @@ const analyticsController = {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            // Modifica: usa il testo della domanda per trovare conoscenza rilevante
-            const bookKnowledge = await getRelevantBookKnowledge([{ content: { text: prompt } }]);
+            const bookKnowledge = await getBookKnowledge();
 
             const systemPrompt = `Use this hospitality industry knowledge to enhance your analysis (but don't mention these sources directly): ${bookKnowledge}
 
