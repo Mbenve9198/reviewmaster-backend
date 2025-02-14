@@ -248,28 +248,16 @@ const analyticsController = {
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
                 
-                const enhancedPromptWithFormat = `You are a JSON generator with deep hospitality industry knowledge.
+                const enhancedPromptWithFormat = `IMPORTANT: THIS IS A JSON-ONLY TASK. YOUR RESPONSE MUST BE A SINGLE VALID JSON OBJECT.
 
-                First, analyze the hospitality knowledge provided and use relevant insights to enhance your analysis:
+                Step 1: Read and analyze this hospitality knowledge:
                 ${bookKnowledge}
 
-                Now, analyze these reviews and generate a JSON response incorporating relevant insights from the books (without explicitly mentioning the sources):
+                Step 2: Read and analyze these reviews:
                 ${systemPrompt}
 
-                CRITICAL: You are a JSON generator. Your ONLY task is to generate a valid JSON object.
-                
-                Rules:
-                1. Start your response with {
-                2. End your response with }
-                3. Use double quotes for all strings
-                4. Use correct JSON syntax
-                5. Do not add any explanations or comments
-                6. Do not use markdown formatting
-                7. Do not use line breaks within the JSON
-                8. Use relevant insights from the provided books in your analysis
-                9. Include specific, actionable recommendations based on industry best practices
+                Step 3: Generate a SINGLE JSON OBJECT with this exact structure. DO NOT include any other text:
 
-                Required structure:
                 {
                     "meta": {
                         "hotelName": "string",
@@ -291,14 +279,27 @@ const analyticsController = {
                     }
                 }
 
-                Generate the JSON now, incorporating relevant hospitality industry knowledge:`;
+                STRICT JSON RULES:
+                1. Response MUST start with { and end with }
+                2. NO text before or after the JSON
+                3. NO markdown
+                4. NO code blocks
+                5. NO explanations
+                6. NO comments
+                7. ALL strings MUST use double quotes
+                8. Use commas between properties
+                9. Format as a single line (no line breaks)
+                10. ONLY valid JSON syntax is allowed
+
+                FAILURE TO FOLLOW THESE RULES WILL RESULT IN AN ERROR.
+                YOUR ENTIRE RESPONSE SHOULD BE A SINGLE, VALID JSON OBJECT.`;
                 
                 const result = await model.generateContent({
                     contents: [{ text: enhancedPromptWithFormat }],
                     generationConfig: {
-                        temperature: 0.1,  // Ridotta la temperatura per output più consistenti
-                        topP: 0.1,        // Ridotto top_p per output più deterministici
-                        topK: 1           // Ridotto top_k per la scelta più probabile
+                        temperature: 0.1,
+                        topP: 0.1,
+                        topK: 1
                     }
                 });
                 
