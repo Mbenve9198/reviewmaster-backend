@@ -721,7 +721,13 @@ const analyticsController = {
             });
 
             const response = await result.response;
-            const plan = JSON.parse(response.text());
+            let text = response.text();
+            
+            // Rimuovi i backticks e l'identificatore "json" se presenti
+            text = text.replace(/```json\n/g, '').replace(/```/g, '');
+            
+            // Ora prova a parsare il JSON pulito
+            const plan = JSON.parse(text.trim());
 
             return res.status(200).json(plan);
         } catch (error) {
@@ -751,7 +757,13 @@ const analyticsController = {
             });
 
             const response = await result.response;
-            const plan = JSON.parse(response.text());
+            let text = response.text();
+            
+            // Rimuovi i backticks e l'identificatore "json" se presenti
+            text = text.replace(/```json\n/g, '').replace(/```/g, '');
+            
+            // Ora prova a parsare il JSON pulito
+            const plan = JSON.parse(text.trim());
 
             return res.status(200).json(plan);
         } catch (error) {
