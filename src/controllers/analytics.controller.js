@@ -248,80 +248,74 @@ const analyticsController = {
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
                 
-                // Modifichiamo il prompt per essere più espliciti sul formato JSON
-                const enhancedPromptWithFormat = `${enhancedPrompt}
+                const enhancedPromptWithFormat = `You are a JSON generator with deep hospitality industry knowledge.
 
-                CRITICAL: You MUST return ONLY a JSON object with this EXACT structure:
+                First, analyze the hospitality knowledge provided and use relevant insights to enhance your analysis:
+                ${bookKnowledge}
+
+                Now, analyze these reviews and generate a JSON response incorporating relevant insights from the books (without explicitly mentioning the sources):
+                ${systemPrompt}
+
+                CRITICAL: You are a JSON generator. Your ONLY task is to generate a valid JSON object.
+                
+                Rules:
+                1. Start your response with {
+                2. End your response with }
+                3. Use double quotes for all strings
+                4. Use correct JSON syntax
+                5. Do not add any explanations or comments
+                6. Do not use markdown formatting
+                7. Do not use line breaks within the JSON
+                8. Use relevant insights from the provided books in your analysis
+                9. Include specific, actionable recommendations based on industry best practices
+
+                Required structure:
                 {
                     "meta": {
-                        "hotelName": string,
-                        "reviewCount": number,
-                        "avgRating": number,
-                        "platforms": string
+                        "hotelName": "string",
+                        "reviewCount": 123,
+                        "avgRating": 4.5,
+                        "platforms": "string"
                     },
                     "sentiment": {
-                        "excellent": string,
-                        "average": string,
-                        "needsImprovement": string,
+                        "excellent": "45%",
+                        "average": "35%",
+                        "needsImprovement": "20%",
                         "distribution": {
-                            "rating5": string,
-                            "rating4": string,
-                            "rating3": string,
-                            "rating2": string,
-                            "rating1": string
+                            "rating5": "30%",
+                            "rating4": "25%",
+                            "rating3": "20%",
+                            "rating2": "15%",
+                            "rating1": "10%"
                         }
-                    },
-                    "strengths": [{
-                        "title": string,
-                        "impact": string,
-                        "mentions": number,
-                        "quote": string,
-                        "details": string,
-                        "marketingTips": [{
-                            "action": string,
-                            "cost": string,
-                            "roi": string
-                        }]
-                    }],
-                    "issues": [{
-                        "title": string,
-                        "priority": string,
-                        "impact": string,
-                        "mentions": number,
-                        "quote": string,
-                        "details": string,
-                        "solution": {
-                            "title": string,
-                            "timeline": string,
-                            "cost": string,
-                            "roi": string,
-                            "steps": [string]
-                        }
-                    }],
-                    "quickWins": [{
-                        "action": string,
-                        "timeline": string,
-                        "cost": string,
-                        "impact": string
-                    }],
-                    "trends": [{
-                        "metric": string,
-                        "change": string,
-                        "period": string
-                    }]
+                    }
                 }
 
-                DO NOT include any text, comments, or code blocks before or after the JSON.
-                The response MUST start with { and end with }`;
+                Generate the JSON now, incorporating relevant hospitality industry knowledge:`;
                 
-                const result = await model.generateContent(enhancedPromptWithFormat);
+                const result = await model.generateContent({
+                    contents: [{ text: enhancedPromptWithFormat }],
+                    generationConfig: {
+                        temperature: 0.1,  // Ridotta la temperatura per output più consistenti
+                        topP: 0.1,        // Ridotto top_p per output più deterministici
+                        topK: 1           // Ridotto top_k per la scelta più probabile
+                    }
+                });
+                
                 const response = await result.response;
                 let rawText = response.text();
                 
-                // Pulizia della risposta
-                rawText = rawText.replace(/```json\n?|\n?```/g, '').trim();
-                rawText = rawText.replace(/^(?!{).*$/gm, ''); // Rimuove tutte le linee che non iniziano con {
-                rawText = rawText.replace(/\n/g, ' '); // Rimuove i newline
+                // Log per debug
+                console.log('Raw Gemini response:', rawText);
+                
+                // Pulizia più aggressiva
+                rawText = rawText.replace(/```json\n?|\n?```/g, '');
+                rawText = rawText.replace(/^[^{]*/, '');  // Rimuove tutto prima della prima {
+                rawText = rawText.replace(/}[^}]*$/, '}'); // Rimuove tutto dopo l'ultima }
+                rawText = rawText.trim();
+                
+                // Log dopo la pulizia
+                console.log('Cleaned response:', rawText);
                 
                 try {
                     analysis = JSON.parse(rawText);
