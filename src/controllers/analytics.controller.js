@@ -104,12 +104,15 @@ Guidelines:
 Analyze this review data: ${JSON.stringify(reviews, null, 2)}`;
 };
 
-const generateFollowUpPrompt = (hotel, reviews, previousMessages, previousAnalysis) => {
-    return `You are having a conversation about ${hotel.name}'s reviews. Respond naturally and conversationally, focusing only on the specific question asked.
+const generateFollowUpPrompt = (hotel, reviews, previousMessages, previousAnalysis, bookKnowledge) => {
+    return `Use this hospitality industry knowledge to enhance your response (but don't mention these sources directly):
+${bookKnowledge}
+
+You are having a conversation about ${hotel.name}'s reviews. Respond naturally and conversationally, focusing only on the specific question asked.
 
 Guidelines:
 - Be concise and direct
-- Use natural language (not JSON)
+- Use natural language
 - Support points with data
 - Include relevant quotes
 - Focus only on the asked topic
@@ -234,7 +237,7 @@ const analyticsController = {
             let systemPrompt;
             if (previousMessages) {
                 const lastAnalysis = messages[messages.length - 2].content;
-                systemPrompt = generateFollowUpPrompt(hotel, reviewsData, previousMessages, lastAnalysis);
+                systemPrompt = generateFollowUpPrompt(hotel, reviewsData, previousMessages, lastAnalysis, bookKnowledge);
             } else {
                 systemPrompt = generateInitialPrompt(hotel, reviewsData, platforms, avgRating);
             }
@@ -244,331 +247,203 @@ const analyticsController = {
             let analysis;
             let provider;
             let suggestions = [];
+            let suggestionsMessage;
 
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
                 
-                const enhancedPromptWithFormat = `IMPORTANT: THIS IS A JSON-ONLY TASK. YOUR RESPONSE MUST BE A SINGLE VALID JSON OBJECT.
-
-                Step 1: Read and analyze this hospitality knowledge:
-                ${bookKnowledge}
-
-                Step 2: Read and analyze these reviews:
-                ${systemPrompt}
-
-                Step 3: Generate a SINGLE JSON OBJECT with this exact structure. DO NOT include any other text:
-
-                {
-                    "meta": {
-                        "hotelName": "string",
-                        "reviewCount": 123,
-                        "avgRating": 4.5,
-                        "platforms": "string"
-                    },
-                    "sentiment": {
-                        "excellent": "45%",
-                        "average": "35%",
-                        "needsImprovement": "20%",
-                        "distribution": {
-                            "rating5": "30%",
-                            "rating4": "25%",
-                            "rating3": "20%",
-                            "rating2": "15%",
-                            "rating1": "10%"
-                        }
-                    }
-                }
-
-                STRICT JSON RULES:
-                1. Response MUST start with { and end with }
-                2. NO text before or after the JSON
-                3. NO markdown
-                4. NO code blocks
-                5. NO explanations
-                6. NO comments
-                7. ALL strings MUST use double quotes
-                8. Use commas between properties
-                9. Format as a single line (no line breaks)
-                10. ONLY valid JSON syntax is allowed
-
-                FAILURE TO FOLLOW THESE RULES WILL RESULT IN AN ERROR.
-                YOUR ENTIRE RESPONSE SHOULD BE A SINGLE, VALID JSON OBJECT.`;
+                // Leggiamo i libri prima di procedere
+                console.log('Fetching book knowledge...');
+                const bookKnowledge = await getBookKnowledge();
+                console.log('Book knowledge fetched, length:', bookKnowledge.length);
                 
-                const result = await model.generateContent({
-                    contents: [{ role: 'user', parts: [{ text: enhancedPromptWithFormat }] }],
-                    generationConfig: {
-                        temperature: 0.1,
-                        topP: 0.1,
-                        topK: 1
-                    }
-                });
-                
-                const response = await result.response;
-                let rawText = response.text();
-                
-                // Log per debug
-                console.log('Raw Gemini response:', rawText);
-                
-                // Pulizia più aggressiva
-                rawText = rawText.replace(/```json\n?|\n?```/g, '');
-                rawText = rawText.replace(/^[^{]*/, '');  // Rimuove tutto prima della prima {
-                rawText = rawText.replace(/}[^}]*$/, '}'); // Rimuove tutto dopo l'ultima }
-                rawText = rawText.trim();
-                
-                // Log dopo la pulizia
-                console.log('Cleaned response:', rawText);
-                
-                try {
-                    analysis = JSON.parse(rawText);
-                    provider = 'gemini';
-                } catch (parseError) {
-                    console.error('Failed to parse Gemini response as JSON:', parseError);
-                    console.error('Raw response:', rawText);
-                    throw new Error('Invalid JSON response from Gemini');
-                }
-
-                if (!previousMessages) {
-                    const defaultTitle = `Analysis - ${analysis.meta?.hotelName || 'Hotel'} - ${new Date().toLocaleDateString()}`;
-                    const dateRange = getValidDateRange(reviews);
+                if (previousMessages) {
+                    // Per i follow-up messages usiamo Gemini
+                    const lastAnalysis = messages[messages.length - 2].content;
+                    const followUpPrompt = generateFollowUpPrompt(hotel, reviewsData, previousMessages, lastAnalysis, bookKnowledge);
                     
-                    const savedAnalysis = await Analysis.create({
-                        title: defaultTitle,
-                        userId,
-                        hotelId: reviews[0].hotelId,
-                        analysis: analysis,  // Ora è già un oggetto JSON
-                        reviewsAnalyzed: reviews.length,
-                        provider,
-                        metadata: {
-                            platforms,
-                            dateRange,
-                            creditsUsed: creditCost
+                    console.log('Sending follow-up prompt to Gemini...');
+                    const result = await model.generateContent({
+                        contents: [{ role: 'user', parts: [{ text: followUpPrompt }] }],
+                        generationConfig: {
+                            temperature: 0.7,
+                            topP: 0.8,
+                            topK: 40
                         }
                     });
+                    
+                    const response = await result.response;
+                    analysis = response.text();
+                    provider = 'gemini';
+                    console.log('Received follow-up response from Gemini');
+                } else {
+                    // Per l'analisi iniziale, usiamo il codice esistente
+                    const enhancedPromptWithFormat = `IMPORTANT: THIS IS A JSON-ONLY TASK. YOUR RESPONSE MUST BE A SINGLE VALID JSON OBJECT.
 
-                    analysis = {
-                        ...analysis,
-                        _id: savedAnalysis._id,
-                        title: defaultTitle
-                    };
+                    Step 1: Read and analyze this hospitality knowledge:
+                    ${bookKnowledge}
 
-                    const suggestionsMessage = await anthropic.messages.create({
-                        model: "claude-3-5-sonnet-20241022",
-                        max_tokens: 1000,
-                        temperature: 0.7,
-                        system: `You are an AI assistant helping hotel managers analyze their reviews.
-                                Generate 4-5 follow-up questions that the manager might want to ask YOU about the analysis.
-                                The questions should:
-                                - Be in English
-                                - Be actionable and solution-oriented
-                                - Reference specific data from the analysis
-                                - Be formulated as direct questions to YOU
-                                - Focus on getting specific recommendations and insights
-                                
-                                Example of GOOD question:
-                                "What specific solutions could I implement to address the noise issues mentioned in 35 reviews?"
-                                
-                                Example of BAD question:
-                                "What soundproofing solutions have been tested to address the noise issues mentioned by 35 guests?"
-                                
-                                Return only a JSON array of strings.`,
-                        messages: [
-                            {
-                                role: "user",
-                                content: `Based on this analysis and these reviews, generate relevant follow-up questions that a manager would want to ask YOU:
-                                        Analysis: ${analysis}
-                                        Reviews: ${JSON.stringify(reviewsData)}`
+                    Step 2: Read and analyze these ${reviews.length} reviews:
+                    ${systemPrompt}
+
+                    Step 3: Generate a SINGLE JSON OBJECT with this exact structure. DO NOT include any other text:
+
+                    {
+                        "meta": {
+                            "hotelName": "string",
+                            "reviewCount": ${reviews.length},
+                            "avgRating": 4.5,
+                            "platforms": "string"
+                        },
+                        "sentiment": {
+                            "excellent": "45%",
+                            "average": "35%",
+                            "needsImprovement": "20%",
+                            "distribution": {
+                                "rating5": "30%",
+                                "rating4": "25%",
+                                "rating3": "20%",
+                                "rating2": "15%",
+                                "rating1": "10%"
                             }
-                        ]
+                        },
+                        "strengths": [{
+                            "title": "string",
+                            "impact": "string",
+                            "mentions": 0,
+                            "quote": "string",
+                            "details": "string",
+                            "marketingTips": [{
+                                "action": "string",
+                                "cost": "string",
+                                "roi": "string"
+                            }]
+                        }],
+                        "issues": [{
+                            "title": "string",
+                            "priority": "string",
+                            "impact": "string",
+                            "mentions": 0,
+                            "quote": "string",
+                            "details": "string",
+                            "solution": {
+                                "title": "string",
+                                "timeline": "string",
+                                "cost": "string",
+                                "roi": "string",
+                                "steps": ["string"]
+                            }
+                        }],
+                        "quickWins": [{
+                            "action": "string",
+                            "timeline": "string",
+                            "cost": "string",
+                            "impact": "string"
+                        }],
+                        "trends": [{
+                            "metric": "string",
+                            "change": "string",
+                            "period": "string"
+                        }]
+                    }
+
+                    STRICT JSON RULES:
+                    1. Response MUST start with { and end with }
+                    2. NO text before or after the JSON
+                    3. NO markdown
+                    4. NO code blocks
+                    5. NO explanations
+                    6. NO comments
+                    7. ALL strings MUST use double quotes
+                    8. Use commas between properties
+                    9. Format as a single line (no line breaks)
+                    10. ONLY valid JSON syntax is allowed
+
+                    FAILURE TO FOLLOW THESE RULES WILL RESULT IN AN ERROR.
+                    YOUR ENTIRE RESPONSE SHOULD BE A SINGLE, VALID JSON OBJECT.`;
+                    
+                    const result = await model.generateContent({
+                        contents: [{ role: 'user', parts: [{ text: enhancedPromptWithFormat }] }],
+                        generationConfig: {
+                            temperature: 0.1,
+                            topP: 0.1,
+                            topK: 1
+                        }
+                    });
+                    
+                    const response = await result.response;
+                    let rawText = response.text();
+                    
+                    // Log per debug
+                    console.log('Raw Gemini response:', rawText);
+                    
+                    // Pulizia più aggressiva
+                    rawText = rawText.replace(/```json\n?|\n?```/g, '');
+                    rawText = rawText.replace(/^[^{]*/, '');  // Rimuove tutto prima della prima {
+                    rawText = rawText.replace(/}[^}]*$/, '}'); // Rimuove tutto dopo l'ultima }
+                    rawText = rawText.trim();
+                    
+                    // Log dopo la pulizia
+                    console.log('Cleaned response:', rawText);
+                    
+                    try {
+                        analysis = JSON.parse(rawText);
+                        provider = 'gemini';
+                    } catch (parseError) {
+                        console.error('Failed to parse Gemini response as JSON:', parseError);
+                        console.error('Raw response:', rawText);
+                        throw new Error('Invalid JSON response from Gemini');
+                    }
+                }
+
+                // Generiamo i suggerimenti usando Gemini invece di Anthropic
+                if (!previousMessages) {
+                    console.log('Generating suggestions with Gemini...');
+                    const suggestionsPrompt = `You are an AI assistant helping hotel managers analyze their reviews.
+                    Generate 4-5 follow-up questions that the manager might want to ask about this analysis.
+                    The questions should:
+                    - Be in English
+                    - Be actionable and solution-oriented
+                    - Reference specific data from the analysis
+                    - Be formulated as direct questions
+                    - Focus on getting specific recommendations and insights
+
+                    Return ONLY a JSON array of strings, no other text.
+                    Example format: ["question 1", "question 2", "question 3"]
+
+                    Analysis to generate questions about:
+                    ${JSON.stringify(analysis)}`;
+
+                    const suggestionsResult = await model.generateContent({
+                        contents: [{ role: 'user', parts: [{ text: suggestionsPrompt }] }],
+                        generationConfig: {
+                            temperature: 0.7
+                        }
                     });
 
-                    if (suggestionsMessage?.content?.[0]?.text) {
-                        try {
-                            suggestions = JSON.parse(suggestionsMessage.content[0].text);
-                            await Analysis.findByIdAndUpdate(
-                                savedAnalysis._id,
-                                { followUpSuggestions: suggestions }
-                            );
-                        } catch (e) {
-                            console.error('Error parsing suggestions:', e);
-                            suggestions = [];
-                        }
+                    const suggestionsResponse = await suggestionsResult.response;
+                    try {
+                        suggestions = JSON.parse(suggestionsResponse.text());
+                        console.log('Successfully generated suggestions:', suggestions);
+                    } catch (e) {
+                        console.error('Failed to parse suggestions response:', e);
+                        suggestions = [];
                     }
                 }
             } catch (error) {
-                console.error('Gemini failed:', error);
-                throw new Error('Failed to generate analysis');
+                console.error('Error in analysis:', error);
+                throw new Error('Error in analysis');
             }
 
-            if (!analysis) {
-                throw new Error('Failed to generate analysis from both AI services');
-            }
-
-            let freeCreditsToDeduct = Math.min(user.wallet?.freeScrapingRemaining || 0, creditCost);
-            let paidCreditsToDeduct = creditCost - freeCreditsToDeduct;
-
-            await User.findByIdAndUpdate(userId, {
-                $inc: { 
-                    'wallet.credits': -paidCreditsToDeduct,
-                    'wallet.freeScrapingRemaining': -freeCreditsToDeduct
-                }
-            });
-
-            res.json({ 
+            return res.status(200).json({
                 analysis,
-                reviewsAnalyzed: reviews.length,
-                avgRating,
-                platforms,
-                creditsRemaining: totalCreditsAvailable - creditCost,
                 provider,
-                suggestions
+                suggestions,
+                suggestionsMessage
             });
-
         } catch (error) {
-            console.error('Analysis error:', error);
-            res.status(500).json({ 
-                message: 'Error analyzing reviews',
-                error: error.message 
-            });
-        }
-    },
-
-    getAnalyses: async (req, res) => {
-        try {
-            const userId = req.userId;
-            
-            const analyses = await Analysis.find({ userId })
-                .populate('hotelId', 'name')
-                .sort({ createdAt: -1 });
-
-            res.json(analyses);
-        } catch (error) {
-            console.error('Error fetching analyses:', error);
-            res.status(500).json({ 
-                message: 'Error fetching analyses',
-                error: error.message 
-            });
-        }
-    },
-
-    getAnalysis: async (req, res) => {
-        try {
-            const { id } = req.params;
-            const userId = req.userId;
-
-            const analysis = await Analysis.findOne({ _id: id, userId })
-                .populate('hotelId', 'name');
-
-            if (!analysis) {
-                return res.status(404).json({ message: 'Analysis not found' });
-            }
-
-            res.json(analysis);
-        } catch (error) {
-            console.error('Error fetching analysis:', error);
-            res.status(500).json({ 
-                message: 'Error fetching analysis',
-                error: error.message 
-            });
-        }
-    },
-
-    renameAnalysis: async (req, res) => {
-        try {
-            const { id } = req.params;
-            const { title } = req.body;
-            const userId = req.userId;
-
-            if (!title) {
-                return res.status(400).json({ message: 'Title is required' });
-            }
-
-            const analysis = await Analysis.findOneAndUpdate(
-                { _id: id, userId },
-                { title },
-                { new: true }
-            );
-
-            if (!analysis) {
-                return res.status(404).json({ message: 'Analysis not found' });
-            }
-
-            res.json(analysis);
-        } catch (error) {
-            console.error('Error renaming analysis:', error);
-            res.status(500).json({ 
-                message: 'Error renaming analysis',
-                error: error.message 
-            });
-        }
-    },
-
-    deleteAnalysis: async (req, res) => {
-        try {
-            const { id } = req.params;
-            const userId = req.userId;
-
-            const analysis = await Analysis.findOneAndDelete({ _id: id, userId });
-
-            if (!analysis) {
-                return res.status(404).json({ message: 'Analysis not found' });
-            }
-
-            res.json({ message: 'Analysis deleted successfully' });
-        } catch (error) {
-            console.error('Error deleting analysis:', error);
-            res.status(500).json({ 
-                message: 'Error deleting analysis',
-                error: error.message 
-            });
-        }
-    },
-
-    getFollowUpAnalysis: async (req, res) => {
-        try {
-            const { id } = req.params;
-            const { prompt, previousMessages, messages } = req.body;
-            const userId = req.userId;
-
-            const analysis = await Analysis.findOne({ _id: id, userId });
-            if (!analysis) {
-                return res.status(404).json({ message: 'Analysis not found' });
-            }
-
-            const bookKnowledge = await getBookKnowledge();
-
-            const systemPrompt = `You are an expert hospitality industry analyst. Use this hospitality industry knowledge to enhance your analysis (but don't mention these sources directly): ${bookKnowledge}
-
-                Previous analysis context: ${JSON.stringify(analysis.analysis)}
-                Previous conversation: ${JSON.stringify(messages)}
-                
-                Question: ${prompt}
-                
-                Guidelines:
-                1. Use actual data from the analysis and books
-                2. Include exact quotes when relevant
-                3. Focus on actionable insights
-                4. Be specific and data-driven
-                5. Respond in a natural, conversational way`;
-
-            try {
-                const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-                const result = await model.generateContent(systemPrompt);
-                const response = await result.response;
-                
-                res.json({ 
-                    analysis: response.text(),
-                    provider: 'gemini'
-                });
-            } catch (error) {
-                console.log('Gemini failed:', error);
-                throw new Error('Failed to generate follow-up analysis');
-            }
-        } catch (error) {
-            console.error('Error generating follow-up analysis:', error);
-            res.status(500).json({ 
-                message: 'Error generating follow-up analysis',
-                error: error.message 
-            });
+            console.error('Error in analyzeReviews:', error);
+            return res.status(500).json({ message: 'Error in analyzeReviews' });
         }
     }
 };
