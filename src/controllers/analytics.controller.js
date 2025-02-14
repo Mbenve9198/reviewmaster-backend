@@ -17,11 +17,10 @@ const openai = new OpenAI({
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const generateInitialPrompt = (hotel, reviews, platforms, avgRating, bookKnowledge) => {
-    return `First, carefully read and internalize this hospitality industry knowledge (but NEVER mention these sources directly):
-${bookKnowledge}
+const generateInitialPrompt = (hotel, reviews, platforms, avgRating) => {
+    return `First, carefully study this hospitality industry knowledge and use it as the foundation for your analysis. Your recommendations must reflect these industry best practices and methodologies:
 
-Now, as an expert hospitality industry analyst enriched with this knowledge, analyze the reviews and return a JSON object with this exact structure:
+You are an expert hospitality industry analyst. Analyze the reviews and return a JSON object with this exact structure:
 
 {
   "meta": {
@@ -99,20 +98,24 @@ Now, as an expert hospitality industry analyst enriched with this knowledge, ana
 Guidelines:
 1. Use actual data from reviews for all metrics
 2. Include exact quotes from reviews
-3. Calculate realistic costs and ROI estimates based on industry knowledge
-4. Prioritize based on mention frequency, impact, and industry best practices
-5. Focus on actionable insights supported by both reviews and industry expertise
+3. Calculate realistic costs and ROI estimates based on industry standards
+4. Prioritize based on mention frequency and impact
+5. Focus on actionable insights that align with industry best practices
 6. Count and include the actual number of times each strength and issue is mentioned in the reviews
-7. Ensure all recommendations align with current hospitality industry standards and practices
+7. Ensure all recommendations follow established hospitality management principles
 
 Analyze this review data: ${JSON.stringify(reviews, null, 2)}`;
 };
 
 const generateFollowUpPrompt = (hotel, reviews, previousMessages, previousAnalysis, bookKnowledge) => {
-    return `Use this hospitality industry knowledge to enhance your response (but don't mention these sources directly):
+    return `First, analyze this hospitality industry expertise (do not reference these sources directly):
 ${bookKnowledge}
 
-You are having a conversation about ${hotel.name}'s reviews. Respond naturally and conversationally, focusing only on the specific question asked.
+You are having a conversation about ${hotel.name}'s reviews. Your response should:
+- Incorporate industry best practices
+- Reference proven methodologies and solutions
+- Provide data-backed recommendations
+- Use specific industry benchmarks where applicable
 
 Guidelines:
 - Be concise and direct
@@ -230,7 +233,6 @@ const analyticsController = {
             console.log('Fetching book knowledge...');
             const bookKnowledge = await getBookKnowledge();
             console.log('Book knowledge fetched, length:', bookKnowledge.length);
-            console.log('Sample of book knowledge:', bookKnowledge.substring(0, 200) + '...');  // Log per vedere l'inizio del contenuto
 
             const reviewsData = reviews.map(review => ({
                 content: review.content?.text || '',
@@ -246,10 +248,8 @@ const analyticsController = {
             if (previousMessages) {
                 const lastAnalysis = messages[messages.length - 2].content;
                 systemPrompt = generateFollowUpPrompt(hotel, reviewsData, previousMessages, lastAnalysis, bookKnowledge);
-                console.log('Generated follow-up prompt with book knowledge');
             } else {
-                systemPrompt = generateInitialPrompt(hotel, reviewsData, platforms, avgRating, bookKnowledge);
-                console.log('Generated initial prompt with book knowledge');
+                systemPrompt = generateInitialPrompt(hotel, reviewsData, platforms, avgRating);
             }
 
             let analysis;
@@ -263,16 +263,7 @@ const analyticsController = {
                 if (previousMessages) {
                     console.log('Sending follow-up prompt to Gemini...');
                     const result = await model.generateContent({
-                        contents: [{ 
-                            role: 'user', 
-                            parts: [{ 
-                                text: `Before answering, carefully read and consider this hospitality industry knowledge (but don't mention these sources):
-                                      ${bookKnowledge}
-                                      
-                                      Now, based on this knowledge and the previous analysis, answer the following:
-                                      ${systemPrompt}` 
-                            }] 
-                        }],
+                        contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
                         generationConfig: {
                             temperature: 0.7,
                             topP: 0.8,
@@ -285,16 +276,90 @@ const analyticsController = {
                     provider = 'gemini';
                     console.log('Received follow-up response from Gemini');
                 } else {
-                    // Per l'analisi iniziale
+                    // Per l'analisi iniziale, usiamo il codice esistente
                     const enhancedPromptWithFormat = `IMPORTANT: THIS IS A JSON-ONLY TASK. YOUR RESPONSE MUST BE A SINGLE VALID JSON OBJECT.
 
-                    Step 1: Read and internalize this hospitality industry knowledge (but NEVER mention these sources):
+                    Step 1: Read and analyze this hospitality knowledge:
                     ${bookKnowledge}
 
                     Step 2: Read and analyze these ${reviews.length} reviews:
                     ${systemPrompt}
 
-                    Step 3: Generate a SINGLE JSON OBJECT that incorporates both the review analysis AND insights from the industry knowledge...`;
+                    Step 3: Generate a SINGLE JSON OBJECT with this exact structure. DO NOT include any other text:
+
+                    {
+                        "meta": {
+                            "hotelName": "string",
+                            "reviewCount": ${reviews.length},
+                            "avgRating": 4.5,
+                            "platforms": "string"
+                        },
+                        "sentiment": {
+                            "excellent": "45%",
+                            "average": "35%",
+                            "needsImprovement": "20%",
+                            "distribution": {
+                                "rating5": "30%",
+                                "rating4": "25%",
+                                "rating3": "20%",
+                                "rating2": "15%",
+                                "rating1": "10%"
+                            }
+                        },
+                        "strengths": [{
+                            "title": "string",
+                            "impact": "string",
+                            "mentions": 0,
+                            "quote": "string",
+                            "details": "string",
+                            "marketingTips": [{
+                                "action": "string",
+                                "cost": "string",
+                                "roi": "string"
+                            }]
+                        }],
+                        "issues": [{
+                            "title": "string",
+                            "priority": "string",
+                            "impact": "string",
+                            "mentions": 0,
+                            "quote": "string",
+                            "details": "string",
+                            "solution": {
+                                "title": "string",
+                                "timeline": "string",
+                                "cost": "string",
+                                "roi": "string",
+                                "steps": ["string"]
+                            }
+                        }],
+                        "quickWins": [{
+                            "action": "string",
+                            "timeline": "string",
+                            "cost": "string",
+                            "impact": "string"
+                        }],
+                        "trends": [{
+                            "metric": "string",
+                            "change": "string",
+                            "period": "string"
+                        }]
+                    }
+
+                    STRICT JSON RULES:
+                    1. Response MUST start with { and end with }
+                    2. NO text before or after the JSON
+                    3. NO markdown
+                    4. NO code blocks
+                    5. NO explanations
+                    6. NO comments
+                    7. ALL strings MUST use double quotes
+                    8. Use commas between properties
+                    9. Format as a single line (no line breaks)
+                    10. ONLY valid JSON syntax is allowed
+
+                    FAILURE TO FOLLOW THESE RULES WILL RESULT IN AN ERROR.
+                    YOUR ENTIRE RESPONSE SHOULD BE A SINGLE, VALID JSON OBJECT.`;
                     
                     const result = await model.generateContent({
                         contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
@@ -355,19 +420,16 @@ const analyticsController = {
                         title: defaultTitle
                     };
 
-                    // Per i suggerimenti
+                    // Generiamo i suggerimenti
                     console.log('Generating suggestions with Gemini...');
-                    const suggestionsPrompt = `First, carefully read this hospitality industry knowledge (but don't mention these sources):
-                    ${bookKnowledge}
-
-                    Now, as an expert enriched with this knowledge, generate 4-5 follow-up questions about this analysis.
+                    const suggestionsPrompt = `You are an AI assistant helping hotel managers analyze their reviews.
+                    Generate 4-5 follow-up questions that the manager might want to ask about this analysis.
                     The questions should:
                     - Be in English
                     - Be actionable and solution-oriented
                     - Reference specific data from the analysis
-                    - Incorporate industry best practices and standards
+                    - Be formulated as direct questions
                     - Focus on getting specific recommendations and insights
-                    - Bridge the gap between the current situation and industry best practices
 
                     Return ONLY a JSON array of strings, no other text.
                     Example format: ["question 1", "question 2", "question 3"]
