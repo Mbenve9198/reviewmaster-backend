@@ -213,6 +213,90 @@ const getBookKnowledge = async () => {
     ).join('\n\n==========\n\n');
 };
 
+const generateValuePlanPrompt = (strength, bookKnowledge) => {
+    return `Based on this hospitality industry knowledge:
+${bookKnowledge}
+
+Create a detailed value maximization plan for this key strength:
+${JSON.stringify(strength)}
+
+The plan should:
+1. Leverage industry best practices
+2. Include specific marketing and operational strategies
+3. Provide realistic timelines and cost estimates
+4. Focus on ROI and measurable outcomes
+5. Consider current market trends
+
+Return a JSON object with this structure:
+{
+    "title": "Value Maximization Plan for [Strength]",
+    "overview": "Brief explanation of the opportunity",
+    "strategies": [{
+        "title": "Strategy name",
+        "description": "Detailed explanation",
+        "implementation": {
+            "timeline": "Expected duration",
+            "cost": "€-€€€€",
+            "effort": "low/medium/high"
+        },
+        "expectedOutcomes": {
+            "roi": "Expected ROI",
+            "timeline": "When to expect results",
+            "metrics": ["Metric 1", "Metric 2"]
+        }
+    }],
+    "risks": [{
+        "description": "Risk description",
+        "mitigation": "How to mitigate"
+    }],
+    "nextSteps": ["Step 1", "Step 2", "Step 3"]
+}`;
+};
+
+const generateSolutionPlanPrompt = (issue, bookKnowledge) => {
+    return `Based on this hospitality industry knowledge:
+${bookKnowledge}
+
+Create a detailed solution plan for this critical issue:
+${JSON.stringify(issue)}
+
+The plan should:
+1. Follow industry best practices
+2. Include specific actionable steps
+3. Provide realistic timelines and cost estimates
+4. Focus on long-term resolution
+5. Consider guest impact during implementation
+
+Return a JSON object with this structure:
+{
+    "title": "Resolution Plan for [Issue]",
+    "priority": "HIGH/MEDIUM/LOW",
+    "overview": "Brief explanation of the problem and solution",
+    "phases": [{
+        "title": "Phase name",
+        "description": "Detailed explanation",
+        "steps": ["Step 1", "Step 2", "Step 3"],
+        "timeline": "Expected duration",
+        "cost": "€-€€€€",
+        "impact": "Impact on operations"
+    }],
+    "resources": {
+        "team": ["Role 1", "Role 2"],
+        "tools": ["Tool 1", "Tool 2"],
+        "training": ["Training 1", "Training 2"]
+    },
+    "successMetrics": [{
+        "metric": "Metric name",
+        "target": "Target value",
+        "timeline": "When to measure"
+    }],
+    "contingencyPlan": {
+        "risks": ["Risk 1", "Risk 2"],
+        "mitigations": ["Mitigation 1", "Mitigation 2"]
+    }
+}`;
+};
+
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
@@ -282,8 +366,20 @@ const analyticsController = {
                         },
                         safetySettings: [
                             {
-                                category: 'HARM_CATEGORY_DEROGATORY',
-                                threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+                                category: "HARM_CATEGORY_HARASSMENT",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                            },
+                            {
+                                category: "HARM_CATEGORY_HATE_SPEECH",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                            },
+                            {
+                                category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                            },
+                            {
+                                category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
                             }
                         ]
                     });
@@ -601,6 +697,66 @@ const analyticsController = {
         } catch (error) {
             console.error('Error in getFollowUpAnalysis:', error);
             return res.status(500).json({ message: 'Error getting follow-up analysis' });
+        }
+    },
+
+    getValuePlan: async (req, res) => {
+        try {
+            const { strength } = req.body;
+            if (!strength) {
+                return res.status(400).json({ message: 'Strength data is required' });
+            }
+
+            const bookKnowledge = await getBookKnowledge();
+            const prompt = generateValuePlanPrompt(strength, bookKnowledge);
+
+            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+            const result = await model.generateContent({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.7,
+                    topP: 0.8,
+                    topK: 40
+                }
+            });
+
+            const response = await result.response;
+            const plan = JSON.parse(response.text());
+
+            return res.status(200).json(plan);
+        } catch (error) {
+            console.error('Error in getValuePlan:', error);
+            return res.status(500).json({ message: 'Error generating value plan' });
+        }
+    },
+
+    getSolutionPlan: async (req, res) => {
+        try {
+            const { issue } = req.body;
+            if (!issue) {
+                return res.status(400).json({ message: 'Issue data is required' });
+            }
+
+            const bookKnowledge = await getBookKnowledge();
+            const prompt = generateSolutionPlanPrompt(issue, bookKnowledge);
+
+            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+            const result = await model.generateContent({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.7,
+                    topP: 0.8,
+                    topK: 40
+                }
+            });
+
+            const response = await result.response;
+            const plan = JSON.parse(response.text());
+
+            return res.status(200).json(plan);
+        } catch (error) {
+            console.error('Error in getSolutionPlan:', error);
+            return res.status(500).json({ message: 'Error generating solution plan' });
         }
     }
 };

@@ -16,4 +16,8 @@ router.patch('/:id/rename', analyticsController.renameAnalysis);
 router.delete('/:id', analyticsController.deleteAnalysis);
 router.post('/:id/follow-up', analyticsController.getFollowUpAnalysis);
 
+// Nuove route per i piani di valorizzazione e risoluzione
+router.post('/value-plan', analyticsController.getValuePlan);
+router.post('/solution-plan', analyticsController.getSolutionPlan);
+
 module.exports = router; 
