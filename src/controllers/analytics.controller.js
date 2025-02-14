@@ -739,6 +739,8 @@ const analyticsController = {
     getSolutionPlan: async (req, res) => {
         try {
             const { issue } = req.body;
+            console.log('Received issue data:', issue); // Log per debug
+
             if (!issue) {
                 return res.status(400).json({ message: 'Issue data is required' });
             }
@@ -747,28 +749,65 @@ const analyticsController = {
             const prompt = generateSolutionPlanPrompt(issue, bookKnowledge);
 
             const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-            const result = await model.generateContent({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                    temperature: 0.7,
-                    topP: 0.8,
-                    topK: 40
+            
+            try {
+                const result = await model.generateContent({
+                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: 0.7,
+                        topP: 0.8,
+                        topK: 40
+                    }
+                });
+
+                const response = await result.response;
+                let text = response.text();
+                
+                // Log per debug
+                console.log('Raw Gemini response:', text);
+                
+                // Pulizia più aggressiva del JSON
+                text = text.replace(/```json\s*|\s*```/g, '');
+                text = text.replace(/^[^{]*/, '');
+                text = text.replace(/}[^}]*$/, '}');
+                text = text.trim();
+                
+                console.log('Cleaned response:', text);
+                
+                try {
+                    const plan = JSON.parse(text);
+                    
+                    // Invia il piano come risposta e anche come messaggio di follow-up
+                    return res.status(200).json({
+                        plan,
+                        message: `Ecco il piano di risoluzione per "${issue.title}":
+
+${JSON.stringify(plan, null, 2)}`
+                    });
+                } catch (parseError) {
+                    console.error('Failed to parse Gemini response:', parseError);
+                    return res.status(500).json({ 
+                        message: 'Invalid JSON response from Gemini',
+                        error: parseError.message,
+                        rawResponse: text
+                    });
                 }
-            });
-
-            const response = await result.response;
-            let text = response.text();
-            
-            // Rimuovi i backticks e l'identificatore "json" se presenti
-            text = text.replace(/```json\n/g, '').replace(/```/g, '');
-            
-            // Ora prova a parsare il JSON pulito
-            const plan = JSON.parse(text.trim());
-
-            return res.status(200).json(plan);
+            } catch (geminiError) {
+                // Gestione specifica dell'errore di quota
+                if (geminiError.status === 429) {
+                    return res.status(429).json({
+                        message: 'API quota exceeded. Please try again later.',
+                        error: 'QUOTA_EXCEEDED'
+                    });
+                }
+                throw geminiError;
+            }
         } catch (error) {
             console.error('Error in getSolutionPlan:', error);
-            return res.status(500).json({ message: 'Error generating solution plan' });
+            return res.status(500).json({ 
+                message: 'Error generating solution plan',
+                error: error.message
+            });
         }
     }
 };
