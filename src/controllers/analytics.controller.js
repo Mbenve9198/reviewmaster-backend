@@ -222,7 +222,10 @@ const analyticsController = {
                 return res.status(404).json({ message: 'Hotel not found' });
             }
 
+            // Leggiamo i libri prima di procedere
+            console.log('Fetching book knowledge...');
             const bookKnowledge = await getBookKnowledge();
+            console.log('Book knowledge fetched, length:', bookKnowledge.length);
 
             const reviewsData = reviews.map(review => ({
                 content: review.content?.text || '',
@@ -242,8 +245,6 @@ const analyticsController = {
                 systemPrompt = generateInitialPrompt(hotel, reviewsData, platforms, avgRating);
             }
 
-            const enhancedPrompt = `Use this hospitality industry knowledge to enhance your analysis (but don't mention these sources directly): ${bookKnowledge}\n\n${systemPrompt}`;
-
             let analysis;
             let provider;
             let suggestions = [];
@@ -252,19 +253,10 @@ const analyticsController = {
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
                 
-                // Leggiamo i libri prima di procedere
-                console.log('Fetching book knowledge...');
-                const bookKnowledge = await getBookKnowledge();
-                console.log('Book knowledge fetched, length:', bookKnowledge.length);
-                
                 if (previousMessages) {
-                    // Per i follow-up messages usiamo Gemini
-                    const lastAnalysis = messages[messages.length - 2].content;
-                    const followUpPrompt = generateFollowUpPrompt(hotel, reviewsData, previousMessages, lastAnalysis, bookKnowledge);
-                    
                     console.log('Sending follow-up prompt to Gemini...');
                     const result = await model.generateContent({
-                        contents: [{ role: 'user', parts: [{ text: followUpPrompt }] }],
+                        contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
                         generationConfig: {
                             temperature: 0.7,
                             topP: 0.8,
@@ -363,7 +355,7 @@ const analyticsController = {
                     YOUR ENTIRE RESPONSE SHOULD BE A SINGLE, VALID JSON OBJECT.`;
                     
                     const result = await model.generateContent({
-                        contents: [{ role: 'user', parts: [{ text: enhancedPromptWithFormat }] }],
+                        contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
                         generationConfig: {
                             temperature: 0.1,
                             topP: 0.1,
@@ -396,8 +388,32 @@ const analyticsController = {
                     }
                 }
 
-                // Generiamo i suggerimenti usando Gemini invece di Anthropic
+                // Salviamo l'analisi nel database se non è un follow-up
                 if (!previousMessages) {
+                    const defaultTitle = `Analysis - ${analysis.meta?.hotelName || 'Hotel'} - ${new Date().toLocaleDateString()}`;
+                    const dateRange = getValidDateRange(reviews);
+                    
+                    const savedAnalysis = await Analysis.create({
+                        title: defaultTitle,
+                        userId,
+                        hotelId: reviews[0].hotelId,
+                        analysis: analysis,
+                        reviewsAnalyzed: reviews.length,
+                        provider,
+                        metadata: {
+                            platforms,
+                            dateRange,
+                            creditsUsed: creditCost
+                        }
+                    });
+
+                    analysis = {
+                        ...analysis,
+                        _id: savedAnalysis._id,
+                        title: defaultTitle
+                    };
+
+                    // Generiamo i suggerimenti
                     console.log('Generating suggestions with Gemini...');
                     const suggestionsPrompt = `You are an AI assistant helping hotel managers analyze their reviews.
                     Generate 4-5 follow-up questions that the manager might want to ask about this analysis.
