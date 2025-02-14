@@ -461,6 +461,117 @@ const analyticsController = {
             console.error('Error in analyzeReviews:', error);
             return res.status(500).json({ message: 'Error in analyzeReviews' });
         }
+    },
+
+    // Aggiungiamo le funzioni mancanti
+    getAnalyses: async (req, res) => {
+        try {
+            const userId = req.userId;
+            const analyses = await Analysis.find({ userId })
+                .sort({ createdAt: -1 })
+                .select('title metadata createdAt analysis.meta');
+            
+            return res.status(200).json(analyses);
+        } catch (error) {
+            console.error('Error in getAnalyses:', error);
+            return res.status(500).json({ message: 'Error fetching analyses' });
+        }
+    },
+
+    getAnalysis: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const userId = req.userId;
+
+            const analysis = await Analysis.findOne({ _id: id, userId });
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            return res.status(200).json(analysis);
+        } catch (error) {
+            console.error('Error in getAnalysis:', error);
+            return res.status(500).json({ message: 'Error fetching analysis' });
+        }
+    },
+
+    renameAnalysis: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { title } = req.body;
+            const userId = req.userId;
+
+            if (!title) {
+                return res.status(400).json({ message: 'Title is required' });
+            }
+
+            const analysis = await Analysis.findOneAndUpdate(
+                { _id: id, userId },
+                { title },
+                { new: true }
+            );
+
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            return res.status(200).json(analysis);
+        } catch (error) {
+            console.error('Error in renameAnalysis:', error);
+            return res.status(500).json({ message: 'Error renaming analysis' });
+        }
+    },
+
+    deleteAnalysis: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const userId = req.userId;
+
+            const analysis = await Analysis.findOneAndDelete({ _id: id, userId });
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            return res.status(200).json({ message: 'Analysis deleted successfully' });
+        } catch (error) {
+            console.error('Error in deleteAnalysis:', error);
+            return res.status(500).json({ message: 'Error deleting analysis' });
+        }
+    },
+
+    getFollowUpAnalysis: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { question } = req.body;
+            const userId = req.userId;
+
+            if (!question) {
+                return res.status(400).json({ message: 'Question is required' });
+            }
+
+            const analysis = await Analysis.findOne({ _id: id, userId });
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            // Riutilizziamo la logica esistente di analyzeReviews
+            const response = await analyticsController.analyzeReviews({
+                ...req,
+                body: {
+                    ...req.body,
+                    previousMessages: question,
+                    messages: [
+                        { role: 'assistant', content: JSON.stringify(analysis.analysis) },
+                        { role: 'user', content: question }
+                    ]
+                }
+            }, res);
+
+            return response;
+        } catch (error) {
+            console.error('Error in getFollowUpAnalysis:', error);
+            return res.status(500).json({ message: 'Error getting follow-up analysis' });
+        }
     }
 };
 
