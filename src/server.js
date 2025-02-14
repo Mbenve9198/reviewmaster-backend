@@ -36,7 +36,7 @@ app.use((req, res, next) => {
 app.use(helmet());
 
 // Configurazione CORS aggiornata
-app.use(cors({
+const corsOptions = {
     origin: [
         'http://localhost:3000',
         'http://localhost:3001',
@@ -49,10 +49,13 @@ app.use(cors({
     exposedHeaders: ['Authorization'],
     preflightContinue: false,
     optionsSuccessStatus: 204
-}));
+};
 
-// Gestione esplicita delle richieste OPTIONS
-app.options('*', cors());
+// Applica CORS a tutte le route
+app.use(cors(corsOptions));
+
+// Gestione esplicita delle richieste OPTIONS per tutte le route
+app.options('*', cors(corsOptions));
 
 // Middleware specifico per il webhook di Stripe
 app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
@@ -87,6 +90,14 @@ app.use((err, req, res, next) => {
         stack: err.stack,
         details: err.errors || {}
     });
+    
+    // Se è un errore CORS, invia una risposta appropriata
+    if (err.name === 'CORSError') {
+        return res.status(405).json({
+            message: 'CORS error: Method not allowed',
+            error: process.env.NODE_ENV === 'development' ? err : {}
+        });
+    }
     
     res.status(err.status || 500).json({
         message: err.message || 'Something went wrong!',

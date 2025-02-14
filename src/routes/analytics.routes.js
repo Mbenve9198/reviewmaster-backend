@@ -20,4 +20,13 @@ router.post('/:id/follow-up', analyticsController.getFollowUpAnalysis);
 router.post('/value-plan', analyticsController.getValuePlan);
 router.post('/solution-plan', analyticsController.getSolutionPlan);
 
+// Gestione esplicita delle richieste OPTIONS per queste route specifiche
+router.options('/value-plan', (req, res) => {
+    res.status(204).end();
+});
+
+router.options('/solution-plan', (req, res) => {
+    res.status(204).end();
+});
+
 module.exports = router; 
