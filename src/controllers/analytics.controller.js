@@ -108,20 +108,30 @@ Analyze this review data: ${JSON.stringify(reviews, null, 2)}`;
 };
 
 const generateFollowUpPrompt = (hotel, reviews, previousMessages, previousAnalysis, bookKnowledge) => {
-    return `First, analyze this hospitality industry expertise (do not reference these sources directly):
+    return `First, analyze this hospitality industry expertise. IMPORTANT: Never cite or reference these sources - use this knowledge as if it were your own expertise:
 ${bookKnowledge}
 
-You are having a conversation about ${hotel.name}'s reviews. Your response should:
+You are having a conversation about ${hotel.name}'s reviews. 
+
+Your response should:
 - Incorporate industry best practices
 - Reference proven methodologies and solutions
 - Provide data-backed recommendations
 - Use specific industry benchmarks where applicable
+- Never mention or cite any sources
+
+FORMAT YOUR RESPONSE:
+- Use proper spacing between paragraphs (double line breaks)
+- Use **bold** for important terms and numbers
+- Use bullet points where appropriate
+- Keep a conversational tone while being professional
+- Break down complex information into digestible chunks
+- Use markdown formatting for better readability
 
 Guidelines:
 - Be concise and direct
 - Use natural language
 - Support points with data
-- Include relevant quotes
 - Focus only on the asked topic
 
 Previous analysis context:
@@ -267,12 +277,25 @@ const analyticsController = {
                         generationConfig: {
                             temperature: 0.7,
                             topP: 0.8,
-                            topK: 40
-                        }
+                            topK: 40,
+                            maxOutputTokens: 1000
+                        },
+                        safetySettings: [
+                            {
+                                category: 'HARM_CATEGORY_DEROGATORY',
+                                threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+                            }
+                        ]
                     });
                     
                     const response = await result.response;
-                    analysis = response.text();
+                    let formattedResponse = response.text()
+                        .replace(/\*\*/g, '**') // Assicura che i grassetti siano formattati correttamente
+                        .replace(/([.!?])\s*(\n)?/g, '$1\n\n') // Aggiunge spaziatura dopo la punteggiatura
+                        .replace(/\n{3,}/g, '\n\n') // Normalizza gli spazi multipli
+                        .trim();
+                    
+                    analysis = formattedResponse;
                     provider = 'gemini';
                     console.log('Received follow-up response from Gemini');
                 } else {
