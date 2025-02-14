@@ -295,7 +295,7 @@ const analyticsController = {
                 YOUR ENTIRE RESPONSE SHOULD BE A SINGLE, VALID JSON OBJECT.`;
                 
                 const result = await model.generateContent({
-                    contents: [{ text: enhancedPromptWithFormat }],
+                    contents: [{ role: 'user', parts: [{ text: enhancedPromptWithFormat }] }],
                     generationConfig: {
                         temperature: 0.1,
                         topP: 0.1,
