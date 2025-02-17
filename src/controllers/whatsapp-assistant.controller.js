@@ -4,36 +4,60 @@ const Hotel = require('../models/hotel.model');
 const whatsappAssistantController = {
     createAssistant: async (req, res) => {
         try {
-            const { hotelId, timezone, breakfast, checkIn, reviewLink, reviewRequestDelay, triggerName } = req.body;
+            const { hotelId, timezone, breakfast, checkIn } = req.body;
+
+            // Validazione input
+            if (!hotelId || !timezone || !breakfast || !checkIn) {
+                return res.status(400).json({ 
+                    message: 'Missing required fields',
+                    details: { hotelId, timezone, breakfast, checkIn }
+                });
+            }
 
             // Verifica che l'hotel esista e appartenga all'utente
-            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            const hotel = await Hotel.findOne({ 
+                _id: hotelId, 
+                userId: req.user._id  // Cambiato da req.userId a req.user._id
+            });
+
             if (!hotel) {
-                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+                return res.status(404).json({ 
+                    message: 'Hotel not found or unauthorized',
+                    details: { hotelId, userId: req.user._id }
+                });
             }
 
             // Verifica se esiste già un assistente per questo hotel
             const existingAssistant = await WhatsAppAssistant.findOne({ hotelId });
             if (existingAssistant) {
-                return res.status(400).json({ message: 'Assistant already exists for this hotel' });
+                // Se esiste, aggiorniamo invece di creare
+                Object.assign(existingAssistant, {
+                    timezone,
+                    breakfast,
+                    checkIn
+                });
+                await existingAssistant.save();
+                return res.status(200).json(existingAssistant);
             }
 
+            // Crea nuovo assistente
             const assistant = new WhatsAppAssistant({
                 hotelId,
                 timezone,
                 breakfast,
-                checkIn,
-                reviewLink,
-                reviewRequestDelay,
-                triggerName
+                checkIn
             });
 
             await assistant.save();
-
+            
             res.status(201).json(assistant);
         } catch (error) {
             console.error('Create assistant error:', error);
-            res.status(500).json({ message: 'Error creating WhatsApp assistant' });
+            res.status(500).json({ 
+                message: 'Error creating WhatsApp assistant',
+                error: error.message,
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            });
         }
     },
 
