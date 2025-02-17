@@ -19,6 +19,7 @@ const walletRoutes = require('./routes/wallet.routes');
 const bookRoutes = require('./routes/book.routes');
 const checkCredits = require('./middleware/credits.middleware');
 const ruleRoutes = require('./routes/rule.routes');
+const whatsappAssistantRoutes = require('./routes/whatsapp-assistant.routes');
 
 const app = express();
 
@@ -79,6 +80,7 @@ app.use('/api/analytics', authMiddleware, checkCredits, analyticsRoutes);
 app.use('/api/wallet', authMiddleware, walletRoutes);
 app.use('/api/books', authMiddleware, bookRoutes);
 app.use('/api/rules', authMiddleware, checkCredits, ruleRoutes);
+app.use('/api/whatsapp-assistant', authMiddleware, checkEmailVerification, whatsappAssistantRoutes);
 
 // Stripe webhook route
 app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));
