@@ -123,6 +123,29 @@ const whatsappAssistantController = {
             console.error('Update assistant error:', error);
             res.status(500).json({ message: 'Error updating WhatsApp assistant' });
         }
+    },
+
+    checkTriggerName: async (req, res) => {
+        try {
+            const { name } = req.params;
+            
+            // Verifica se il nome esiste già
+            const existingAssistant = await WhatsAppAssistant.findOne({ 
+                triggerName: name,
+                isActive: true
+            });
+
+            res.json({
+                available: !existingAssistant,
+                message: existingAssistant ? 'Name is already in use' : 'Name is available'
+            });
+        } catch (error) {
+            console.error('Check trigger name error:', error);
+            res.status(500).json({ 
+                message: 'Error checking trigger name',
+                error: error.message
+            });
+        }
     }
 };
 
