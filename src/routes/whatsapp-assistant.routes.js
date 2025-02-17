@@ -6,6 +6,7 @@ const authMiddleware = require('../middleware/auth.middleware');
 router.use(authMiddleware);
 
 router.post('/', whatsappAssistantController.createAssistant);
+router.get('/check-name/:name', whatsappAssistantController.checkTriggerName);
 router.get('/:hotelId', whatsappAssistantController.getAssistant);
 router.patch('/:hotelId', whatsappAssistantController.updateAssistant);
 
