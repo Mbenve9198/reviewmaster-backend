@@ -6,6 +6,11 @@ const whatsappAssistantController = {
         try {
             const { hotelId, timezone, breakfast, checkIn } = req.body;
 
+            // Debug log
+            console.log('Request user:', req.user);
+            console.log('Request userId:', req.userId);
+            console.log('Request body:', req.body);
+
             // Validazione input
             if (!hotelId || !timezone || !breakfast || !checkIn) {
                 return res.status(400).json({ 
@@ -17,13 +22,13 @@ const whatsappAssistantController = {
             // Verifica che l'hotel esista e appartenga all'utente
             const hotel = await Hotel.findOne({ 
                 _id: hotelId, 
-                userId: req.user._id
+                userId: req.userId
             });
 
             if (!hotel) {
                 return res.status(404).json({ 
                     message: 'Hotel not found or unauthorized',
-                    details: { hotelId, userId: req.user._id }
+                    details: { hotelId, userId: req.userId }
                 });
             }
 
@@ -36,7 +41,7 @@ const whatsappAssistantController = {
                     breakfast,
                     checkIn
                 });
-                await existingAssistant.save({ validateBeforeSave: false }); // Disabilitiamo temporaneamente la validazione
+                await existingAssistant.save({ validateBeforeSave: false });
                 return res.status(200).json(existingAssistant);
             }
 
@@ -52,7 +57,7 @@ const whatsappAssistantController = {
                 reviewRequestDelay: 3
             });
 
-            await assistant.save({ validateBeforeSave: false }); // Disabilitiamo temporaneamente la validazione
+            await assistant.save({ validateBeforeSave: false });
             
             res.status(201).json(assistant);
         } catch (error) {
