@@ -18,4 +18,6 @@ router.post('/:hotelId/rules', whatsappAssistantController.addRule);
 router.put('/:hotelId/rules/:ruleId', whatsappAssistantController.updateRule);
 router.delete('/:hotelId/rules/:ruleId', whatsappAssistantController.deleteRule);
 
+router.get('/:hotelId/conversations', whatsappAssistantController.getConversations);
+
 module.exports = router; 

@@ -642,6 +642,35 @@ console.log('Hotel details:', {
                 error: error.message
             });
         }
+    },
+
+    getConversations: async (req, res) => {
+        try {
+            const { hotelId } = req.params;
+            
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+
+            // Recupera le conversazioni degli ultimi 30 giorni
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+            const conversations = await WhatsappInteraction.find({
+                hotelId,
+                lastInteraction: { $gte: thirtyDaysAgo }
+            }).sort({ lastInteraction: -1 });
+
+            res.json(conversations);
+        } catch (error) {
+            console.error('Get conversations error:', error);
+            res.status(500).json({ 
+                message: 'Error fetching conversations',
+                error: error.message
+            });
+        }
     }
 };
 
