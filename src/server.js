@@ -23,6 +23,10 @@ const whatsappAssistantRoutes = require('./routes/whatsapp-assistant.routes');
 
 const app = express();
 
+// Configurazione del body parser PRIMA delle routes
+app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Importante per Twilio!
+
 // Logging middleware
 app.use((req, res, next) => {
     const timestamp = new Date().toISOString();
@@ -60,10 +64,6 @@ app.options('*', cors(corsOptions));
 
 // Middleware specifico per il webhook di Stripe
 app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
-
-// Standard middlewares
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // Health check
 app.get('/', (req, res) => {

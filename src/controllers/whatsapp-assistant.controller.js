@@ -392,11 +392,25 @@ const whatsappAssistantController = {
 
     handleWebhook: async (req, res) => {
         try {
+            console.log('Raw request body:', req.body);
+            console.log('Content-Type:', req.headers['content-type']);
+
+            // Se il body è vuoto, logga i dati grezzi
+            if (!req.body) {
+                console.log('Raw request:', req);
+                return res.status(400).json({
+                    success: false,
+                    message: 'Empty request body'
+                });
+            }
+
             const message = {
                 Body: req.body.Body,
                 From: req.body.From,
                 ProfileName: req.body.ProfileName || 'Guest'
             };
+            
+            console.log('Parsed message:', message);
 
             // Estrai il trigger name dal messaggio (es: #hotelname)
             const triggerMatch = message.Body.match(/#(\w+)/);
