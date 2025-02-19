@@ -625,7 +625,7 @@ console.log('Assistant rules:', {
             // Invia la risposta via WhatsApp
             await client.messages.create({
                 body: aiResponse,
-                from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                from: 'whatsapp:' + process.env.NEXT_PUBLIC_WHATSAPP_NUMBER,
                 to: message.From,
                 messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
             });
