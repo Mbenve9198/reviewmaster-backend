@@ -549,7 +549,7 @@ Remember:
   * Contact other services
   * Make reservations or bookings
   * Promise future actions
-- If you don't know something, simply be honest and suggest the guest contact the reception directly
+- If you don't know something, simply say you don't have that information and suggest contacting the reception directly
 
 Hotel Details (use naturally in conversation):
 - Name: ${hotel.name}
@@ -571,9 +571,9 @@ Important:
 - Keep the conversation flowing naturally
 - Use emojis sparingly but appropriately to add warmth
 - Match the guest's tone and energy level
-- Stick to the facts you have been given - don't make assumptions or promises;
+- Stick to the facts you have been given - don't make assumptions or promises`;
 
-// Aggiungiamo un log per debugging
+// Spostiamo i log di debug fuori dal prompt
 console.log('Assistant rules:', {
     hasRules: !!assistant.rules,
     rulesCount: assistant.rules?.length,
@@ -584,12 +584,11 @@ console.log('Assistant rules:', {
     }))
 });
 
-            // Aggiungiamo un log di debug
-            console.log('Hotel details:', {
-                name: interaction?.hotelId?.name,
-                type: interaction?.hotelId?.type,
-                description: interaction?.hotelId?.description
-            });
+console.log('Hotel details:', {
+    name: interaction?.hotelId?.name,
+    type: interaction?.hotelId?.type,
+    description: interaction?.hotelId?.description
+});
 
             // Genera la risposta con Claude includendo lo storico
             const response = await anthropic.messages.create({
