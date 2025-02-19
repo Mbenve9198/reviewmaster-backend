@@ -51,7 +51,17 @@ const hotelSchema = new mongoose.Schema({
         }
     }
 }, {
-    timestamps: true
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+});
+
+// Aggiungi virtual per whatsappAssistant
+hotelSchema.virtual('whatsappAssistant', {
+    ref: 'WhatsAppAssistant',
+    localField: '_id',
+    foreignField: 'hotelId',
+    justOne: true
 });
 
 module.exports = mongoose.model('Hotel', hotelSchema);
