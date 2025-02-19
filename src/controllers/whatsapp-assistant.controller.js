@@ -405,6 +405,13 @@ const whatsappAssistantController = {
                 isActive: true 
             }).populate('hotelId');
 
+            console.log('Found active assistants:', activeAssistants.map(ast => ({
+                id: ast._id,
+                triggerName: ast.triggerName,
+                hotelName: ast.hotelId?.name,
+                isActive: ast.isActive
+            })));
+
             // Cerchiamo se uno dei trigger name è presente nel messaggio
             const assistant = activeAssistants.find(ast => 
                 message.Body.toLowerCase().includes(ast.triggerName.toLowerCase())
@@ -413,8 +420,9 @@ const whatsappAssistantController = {
             console.log('Assistant search result:', {
                 found: !!assistant,
                 message: message.Body,
+                matchedTrigger: assistant?.triggerName,
                 assistantId: assistant?._id,
-                hotelId: assistant?.hotelId?._id
+                hotelName: assistant?.hotelId?.name
             });
 
             if (!assistant || !assistant.hotelId) {
