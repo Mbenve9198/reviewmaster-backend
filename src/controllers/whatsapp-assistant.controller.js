@@ -588,7 +588,22 @@ Important:
 - If unsure, be honest and offer to find out
 - Keep the conversation flowing naturally
 - Use emojis sparingly but appropriately to add warmth
-- Match the guest's tone and energy level`;
+- Match the guest's tone and energy level
+
+${assistant.rules && assistant.rules.length > 0 ? `
+Special Instructions:
+When the guest asks about ${assistant.rules.filter(rule => rule.isActive).map(rule => rule.isCustom ? rule.customTopic : rule.topic).join(' or ')}, make sure to incorporate the provided guidelines while maintaining a natural conversation flow.` : ''}`;
+
+// Aggiungiamo un log per debugging
+console.log('Assistant rules:', {
+    hasRules: !!assistant.rules,
+    rulesCount: assistant.rules?.length,
+    activeRules: assistant.rules?.filter(rule => rule.isActive)?.length,
+    rules: assistant.rules?.filter(rule => rule.isActive)?.map(rule => ({
+        topic: rule.isCustom ? rule.customTopic : rule.topic,
+        response: rule.response
+    }))
+});
 
             // Genera la risposta con Claude includendo lo storico
             const response = await anthropic.messages.create({
