@@ -92,9 +92,8 @@ El equipo de ${hotelName}`
 };
 
 const RATE_LIMITS = {
-    DAILY_MAX: 10,      // Massimo messaggi per giorno
-    MONTHLY_MAX: 100,   // Massimo messaggi per mese
-    COOLDOWN: 60,       // Secondi di attesa tra messaggi
+    DAILY_MAX: 50,      // Aumentato a 50 messaggi per giorno
+    MONTHLY_MAX: 100,   // Questo lo lasciamo per riferimento futuro
 };
 
 const getLanguageFromPhone = (phoneNumber) => {
@@ -409,6 +408,7 @@ const whatsappAssistantController = {
                 lastInteraction: { $gte: thirtyDaysAgo }
             }).populate({
                 path: 'hotelId',
+                select: 'name type description',
                 populate: {
                     path: 'whatsappAssistant'
                 }
@@ -465,32 +465,6 @@ const whatsappAssistantController = {
                 await scheduleReviewRequest(interaction, assistant);
             }
 
-            // Verifica cooldown
-            const timeSinceLastMessage = (Date.now() - interaction.lastInteraction) / 1000;
-            if (timeSinceLastMessage < RATE_LIMITS.COOLDOWN) {
-                const waitTime = Math.ceil(RATE_LIMITS.COOLDOWN - timeSinceLastMessage);
-                const cooldownMessage = {
-                    it: `Per favore attendi ${waitTime} secondi prima di inviare un altro messaggio.`,
-                    en: `Please wait ${waitTime} seconds before sending another message.`,
-                    fr: `Veuillez attendre ${waitTime} secondes avant d'envoyer un autre message.`,
-                    de: `Bitte warten Sie ${waitTime} Sekunden, bevor Sie eine weitere Nachricht senden.`,
-                    es: `Por favor, espere ${waitTime} segundos antes de enviar otro mensaje.`
-                };
-                
-                const userLanguage = getLanguageFromPhone(message.From);
-                await client.messages.create({
-                    body: cooldownMessage[userLanguage] || cooldownMessage.en,
-                    from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
-                    to: message.From,
-                    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
-                });
-                
-                return res.status(200).send({
-                    success: false,
-                    message: 'Rate limit: cooldown period'
-                });
-            }
-
             // Verifica limiti giornalieri
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -530,7 +504,7 @@ const whatsappAssistantController = {
                 });
             }
 
-            // Aggiorna i contatori
+            // Aggiorna il contatore
             dailyInteraction.count++;
             interaction.monthlyInteractions++;
             interaction.lastInteraction = new Date();
@@ -568,11 +542,19 @@ Remember:
 - Show empathy and personality in your responses
 - Use natural conversation flow, like you would in a real chat
 - Never sign off with formal closings or hotel signatures
+- IMPORTANT: Never offer to:
+  * Check with staff or management
+  * Call back later
+  * Look up additional information
+  * Contact other services
+  * Make reservations or bookings
+  * Promise future actions
+- If you don't know something, simply be honest and suggest the guest contact the reception directly
 
 Hotel Details (use naturally in conversation):
 - Name: ${hotel.name}
 - Type: ${hotel.type}
-- About: ${hotel.description}
+- About: ${hotel.description || 'A welcoming place to stay'}
 - Breakfast: ${assistant.breakfast.startTime} - ${assistant.breakfast.endTime}
 - Check-in: ${assistant.checkIn.startTime} - ${assistant.checkIn.endTime}
 - Reviews: ${assistant.reviewLink}
@@ -585,14 +567,11 @@ ${index + 1}. For ${rule.isCustom ? rule.customTopic : rule.topic}:
 
 Important:
 - Only share information you're certain about
-- If unsure, be honest and offer to find out
+- If unsure, simply say you don't have that information and suggest contacting the reception
 - Keep the conversation flowing naturally
 - Use emojis sparingly but appropriately to add warmth
 - Match the guest's tone and energy level
-
-${assistant.rules && assistant.rules.length > 0 ? `
-Special Instructions:
-When the guest asks about ${assistant.rules.filter(rule => rule.isActive).map(rule => rule.isCustom ? rule.customTopic : rule.topic).join(' or ')}, make sure to incorporate the provided guidelines while maintaining a natural conversation flow.` : ''}`;
+- Stick to the facts you have been given - don't make assumptions or promises;
 
 // Aggiungiamo un log per debugging
 console.log('Assistant rules:', {
@@ -604,6 +583,13 @@ console.log('Assistant rules:', {
         response: rule.response
     }))
 });
+
+            // Aggiungiamo un log di debug
+            console.log('Hotel details:', {
+                name: interaction?.hotelId?.name,
+                type: interaction?.hotelId?.type,
+                description: interaction?.hotelId?.description
+            });
 
             // Genera la risposta con Claude includendo lo storico
             const response = await anthropic.messages.create({
