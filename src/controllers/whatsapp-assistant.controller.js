@@ -146,6 +146,108 @@ const whatsappAssistantController = {
                 error: error.message
             });
         }
+    },
+
+    addRule: async (req, res) => {
+        try {
+            const { hotelId } = req.params;
+            const { topic, response, isCustom } = req.body;
+
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+
+            // Trova l'assistente
+            const assistant = await WhatsAppAssistant.findOne({ hotelId });
+            if (!assistant) {
+                return res.status(404).json({ message: 'Assistant not found' });
+            }
+
+            // Aggiungi la nuova regola
+            assistant.rules.push({
+                topic,
+                response,
+                isCustom: isCustom || false,
+                isActive: true
+            });
+
+            await assistant.save();
+
+            res.status(201).json(assistant.rules[assistant.rules.length - 1]);
+        } catch (error) {
+            console.error('Add rule error:', error);
+            res.status(500).json({ 
+                message: 'Error adding rule',
+                error: error.message
+            });
+        }
+    },
+
+    updateRule: async (req, res) => {
+        try {
+            const { hotelId, ruleId } = req.params;
+            const updateData = req.body;
+
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+
+            // Trova l'assistente e aggiorna la regola
+            const assistant = await WhatsAppAssistant.findOne({ hotelId });
+            if (!assistant) {
+                return res.status(404).json({ message: 'Assistant not found' });
+            }
+
+            const ruleIndex = assistant.rules.findIndex(rule => rule._id.toString() === ruleId);
+            if (ruleIndex === -1) {
+                return res.status(404).json({ message: 'Rule not found' });
+            }
+
+            // Aggiorna i campi della regola
+            Object.assign(assistant.rules[ruleIndex], updateData);
+            await assistant.save();
+
+            res.json(assistant.rules[ruleIndex]);
+        } catch (error) {
+            console.error('Update rule error:', error);
+            res.status(500).json({ 
+                message: 'Error updating rule',
+                error: error.message
+            });
+        }
+    },
+
+    deleteRule: async (req, res) => {
+        try {
+            const { hotelId, ruleId } = req.params;
+
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+
+            // Trova l'assistente e rimuovi la regola
+            const assistant = await WhatsAppAssistant.findOne({ hotelId });
+            if (!assistant) {
+                return res.status(404).json({ message: 'Assistant not found' });
+            }
+
+            assistant.rules = assistant.rules.filter(rule => rule._id.toString() !== ruleId);
+            await assistant.save();
+
+            res.json({ message: 'Rule deleted successfully' });
+        } catch (error) {
+            console.error('Delete rule error:', error);
+            res.status(500).json({ 
+                message: 'Error deleting rule',
+                error: error.message
+            });
+        }
     }
 };
 

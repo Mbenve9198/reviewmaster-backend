@@ -10,4 +10,9 @@ router.get('/check-name/:name', whatsappAssistantController.checkTriggerName);
 router.get('/:hotelId', whatsappAssistantController.getAssistant);
 router.patch('/:hotelId', whatsappAssistantController.updateAssistant);
 
+// Routes per le regole
+router.post('/:hotelId/rules', whatsappAssistantController.addRule);
+router.put('/:hotelId/rules/:ruleId', whatsappAssistantController.updateRule);
+router.delete('/:hotelId/rules/:ruleId', whatsappAssistantController.deleteRule);
+
 module.exports = router; 

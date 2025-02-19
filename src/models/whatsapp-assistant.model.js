@@ -1,5 +1,24 @@
 const mongoose = require('mongoose');
 
+const whatsappRuleSchema = new mongoose.Schema({
+    topic: {
+        type: String,
+        required: true
+    },
+    isCustom: {
+        type: Boolean,
+        default: false
+    },
+    response: {
+        type: String,
+        required: true
+    },
+    isActive: {
+        type: Boolean,
+        default: true
+    }
+});
+
 const whatsappAssistantSchema = new mongoose.Schema({
     hotelId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -48,6 +67,10 @@ const whatsappAssistantSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true
+    },
+    rules: {
+        type: [whatsappRuleSchema],
+        default: []
     }
 }, {
     timestamps: true
