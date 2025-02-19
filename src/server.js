@@ -80,7 +80,7 @@ app.use('/api/analytics', authMiddleware, checkCredits, analyticsRoutes);
 app.use('/api/wallet', authMiddleware, walletRoutes);
 app.use('/api/books', authMiddleware, bookRoutes);
 app.use('/api/rules', authMiddleware, checkCredits, ruleRoutes);
-app.use('/api/whatsapp-assistant', authMiddleware, checkEmailVerification, whatsappAssistantRoutes);
+app.use('/api/whatsapp-assistant', whatsappAssistantRoutes);
 
 // Stripe webhook route
 app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));
