@@ -393,16 +393,6 @@ const whatsappAssistantController = {
     handleWebhook: async (req, res) => {
         try {
             console.log('Raw request body:', req.body);
-            console.log('Content-Type:', req.headers['content-type']);
-
-            // Se il body è vuoto, logga i dati grezzi
-            if (!req.body) {
-                console.log('Raw request:', req);
-                return res.status(400).json({
-                    success: false,
-                    message: 'Empty request body'
-                });
-            }
 
             const message = {
                 Body: req.body.Body,
@@ -410,25 +400,23 @@ const whatsappAssistantController = {
                 ProfileName: req.body.ProfileName || 'Guest'
             };
             
-            console.log('Parsed message:', message);
-
-            // Estrai il trigger name dal messaggio (es: #hotelname)
-            const triggerMatch = message.Body.match(/#(\w+)/);
-            if (!triggerMatch) {
-                return res.status(200).send({
-                    success: false,
-                    message: 'No trigger found'
-                });
-            }
-            
-            const triggerName = triggerMatch[1].toLowerCase();
-            
-            // Trova l'assistente corrispondente
-            const assistant = await WhatsAppAssistant.findOne({ 
-                triggerName: triggerName,
+            // Prima troviamo tutti gli assistenti attivi
+            const activeAssistants = await WhatsAppAssistant.find({ 
                 isActive: true 
             }).populate('hotelId');
+
+            // Cerchiamo se uno dei trigger name è presente nel messaggio
+            const assistant = activeAssistants.find(ast => 
+                message.Body.toLowerCase().includes(ast.triggerName.toLowerCase())
+            );
             
+            console.log('Assistant search result:', {
+                found: !!assistant,
+                message: message.Body,
+                assistantId: assistant?._id,
+                hotelId: assistant?.hotelId?._id
+            });
+
             if (!assistant || !assistant.hotelId) {
                 return res.status(200).send({
                     success: false,
@@ -530,7 +518,7 @@ const whatsappAssistantController = {
             const hotel = assistant.hotelId;
 
             // Rimuovi il trigger name dal messaggio per l'elaborazione
-            const userQuery = message.Body.replace(`#${triggerName}`, '').trim();
+            const userQuery = message.Body.replace(assistant.triggerName, '').trim();
 
             // Aggiungi il messaggio dell'utente allo storico
             interaction.conversationHistory.push({
