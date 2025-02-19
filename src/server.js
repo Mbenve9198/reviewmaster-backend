@@ -24,8 +24,20 @@ const whatsappAssistantRoutes = require('./routes/whatsapp-assistant.routes');
 const app = express();
 
 // Configurazione del body parser PRIMA delle routes
-app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // Importante per Twilio!
+app.use(express.json({
+    limit: '10mb',  // Aumentato a 10MB per gestire grandi batch di recensioni
+    verify: (req, res, buf) => {
+        // Log della dimensione del payload per monitoraggio
+        const payloadSize = Buffer.byteLength(buf);
+        if (payloadSize > 1024 * 1024) { // Se più di 1MB
+            console.log(`Large payload received: ${(payloadSize / (1024 * 1024)).toFixed(2)}MB`);
+        }
+    }
+}));
+app.use(express.urlencoded({ 
+    extended: true,
+    limit: '10mb'  // Stesso limite per dati urlencoded
+}));
 
 // Logging middleware
 app.use((req, res, next) => {
