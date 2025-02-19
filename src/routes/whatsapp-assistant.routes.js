@@ -15,4 +15,7 @@ router.post('/:hotelId/rules', whatsappAssistantController.addRule);
 router.put('/:hotelId/rules/:ruleId', whatsappAssistantController.updateRule);
 router.delete('/:hotelId/rules/:ruleId', whatsappAssistantController.deleteRule);
 
+// Webhook route (no auth required)
+router.post('/webhook', whatsappAssistantController.handleWebhook);
+
 module.exports = router; 

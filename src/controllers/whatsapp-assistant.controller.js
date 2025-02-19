@@ -1,5 +1,145 @@
 const WhatsAppAssistant = require('../models/whatsapp-assistant.model');
+const WhatsappInteraction = require('../models/whatsapp-interaction.model');
 const Hotel = require('../models/hotel.model');
+const twilio = require('twilio');
+const Anthropic = require('@anthropic-ai/sdk');
+
+const client = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+const anthropic = new Anthropic({
+  apiKey: process.env.CLAUDE_API_KEY,
+});
+
+// Mappa dei prefissi telefonici e relative lingue
+const COUNTRY_CODES = {
+  '39': 'it',  // Italia
+  '44': 'en',  // Regno Unito
+  '33': 'fr',  // Francia
+  '49': 'de',  // Germania
+  '34': 'es',  // Spagna
+  '31': 'nl',  // Paesi Bassi
+  '351': 'pt', // Portogallo
+  '41': 'de',  // Svizzera (assumiamo tedesco come default)
+  '43': 'de',  // Austria
+  '32': 'fr',  // Belgio (assumiamo francese come default)
+  // Aggiungi altri paesi secondo necessità
+};
+
+// Template messaggi multilingua per le recensioni
+const REVIEW_MESSAGES = {
+  it: (hotelName) => `Gentile ospite di ${hotelName},
+
+Grazie per aver scelto la nostra struttura per il suo soggiorno. La sua opinione è molto importante per noi e ci aiuterebbe a migliorare ulteriormente i nostri servizi.
+
+Le saremmo molto grati se potesse dedicare qualche minuto per condividere la sua esperienza:
+{link}
+
+La ringraziamo per il suo prezioso feedback e speriamo di poterla accogliere nuovamente.
+
+Cordiali saluti,
+Lo staff di ${hotelName}`,
+
+  en: (hotelName) => `Dear ${hotelName} guest,
+
+Thank you for choosing our hotel for your stay. Your opinion is very important to us and would help us further improve our services.
+
+We would be grateful if you could take a few minutes to share your experience:
+{link}
+
+Thank you for your valuable feedback and we hope to welcome you again.
+
+Best regards,
+The ${hotelName} team`,
+
+  fr: (hotelName) => `Cher client de ${hotelName},
+
+Nous vous remercions d'avoir choisi notre établissement pour votre séjour. Votre avis est très important pour nous et nous aidera à améliorer davantage nos services.
+
+Nous vous serions reconnaissants de prendre quelques minutes pour partager votre expérience :
+{link}
+
+Merci pour vos précieux commentaires et nous espérons vous accueillir à nouveau.
+
+Cordialement,
+L'équipe ${hotelName}`,
+
+  de: (hotelName) => `Sehr geehrter Gast von ${hotelName},
+
+Vielen Dank, dass Sie sich für unseren Hotel entschieden haben. Ihre Meinung ist uns sehr wichtig und hilft uns, unsere Dienstleistungen weiter zu verbessern.
+
+Wir wären Ihnen dankbar, wenn Sie sich einige Minuten Zeit nehmen könnten, um Ihre Erfahrung zu teilen:
+{link}
+
+Vielen Dank für Ihr wertvolles Feedback und wir hoffen, Sie wieder bei uns begrüßen zu dürfen.
+
+Mit freundlichen Grüßen,
+Das ${hotelName}-Team`,
+
+  es: (hotelName) => `Estimado huésped de ${hotelName},
+
+Gracias por elegir nuestro establecimiento para su estancia. Su opinión es muy importante para nosotros y nos ayudaría a mejorar aún más nuestros servicios.
+
+Le agradeceríamos que dedicara unos minutos a compartir su experiencia:
+{link}
+
+Gracias por sus valiosos comentarios y esperamos darle la bienvenida nuevamente.
+
+Saludos cordiales,
+El equipo de ${hotelName}`
+};
+
+const RATE_LIMITS = {
+    DAILY_MAX: 10,      // Massimo messaggi per giorno
+    MONTHLY_MAX: 100,   // Massimo messaggi per mese
+    COOLDOWN: 60,       // Secondi di attesa tra messaggi
+};
+
+const getLanguageFromPhone = (phoneNumber) => {
+  // Rimuovi il prefisso "whatsapp:" e il "+"
+  const cleanNumber = phoneNumber.replace('whatsapp:', '').replace('+', '');
+  
+  // Cerca il prefisso più lungo che corrisponde
+  const matchingPrefix = Object.keys(COUNTRY_CODES)
+    .sort((a, b) => b.length - a.length)
+    .find(prefix => cleanNumber.startsWith(prefix));
+
+  return matchingPrefix ? COUNTRY_CODES[matchingPrefix] : 'en'; // Default a inglese
+};
+
+const scheduleReviewRequest = async (interaction, assistant) => {
+    const delayDays = assistant.reviewRequestDelay || 3;
+    const scheduledDate = new Date();
+    scheduledDate.setDate(scheduledDate.getDate() + delayDays);
+
+    // Aggiorna l'interazione con la data programmata
+    interaction.reviewScheduledFor = scheduledDate;
+    await interaction.save();
+
+    // Schedula l'invio del messaggio
+    setTimeout(async () => {
+        try {
+            const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
+            const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
+            const reviewMessage = messageTemplate(assistant.hotelId.name)
+                .replace('{link}', assistant.reviewLink);
+
+            await client.messages.create({
+                body: reviewMessage,
+                from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                to: interaction.phoneNumber,
+                messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+            });
+
+            interaction.reviewRequested = true;
+            await interaction.save();
+        } catch (error) {
+            console.error('Error sending review request:', error);
+        }
+    }, delayDays * 24 * 60 * 60 * 1000);
+};
 
 const whatsappAssistantController = {
     createAssistant: async (req, res) => {
@@ -245,6 +385,239 @@ const whatsappAssistantController = {
             console.error('Delete rule error:', error);
             res.status(500).json({ 
                 message: 'Error deleting rule',
+                error: error.message
+            });
+        }
+    },
+
+    handleWebhook: async (req, res) => {
+        try {
+            const message = {
+                Body: req.body.Body,
+                From: req.body.From,
+                ProfileName: req.body.ProfileName || 'Guest'
+            };
+
+            // Estrai il trigger name dal messaggio (es: #hotelname)
+            const triggerMatch = message.Body.match(/#(\w+)/);
+            if (!triggerMatch) {
+                return res.status(200).send({
+                    success: false,
+                    message: 'No trigger found'
+                });
+            }
+            
+            const triggerName = triggerMatch[1].toLowerCase();
+            
+            // Trova l'assistente corrispondente
+            const assistant = await WhatsAppAssistant.findOne({ 
+                triggerName: triggerName,
+                isActive: true 
+            }).populate('hotelId');
+            
+            if (!assistant || !assistant.hotelId) {
+                return res.status(200).send({
+                    success: false,
+                    message: 'No assistant found'
+                });
+            }
+
+            // Trova o crea l'interazione
+            let interaction = await WhatsappInteraction.findOne({
+                hotelId: assistant.hotelId._id,
+                phoneNumber: message.From
+            });
+
+            if (!interaction) {
+                interaction = new WhatsappInteraction({
+                    hotelId: assistant.hotelId._id,
+                    phoneNumber: message.From,
+                    firstInteraction: new Date(),
+                    dailyInteractions: [{
+                        date: new Date(),
+                        count: 1
+                    }]
+                });
+                await interaction.save();
+                await scheduleReviewRequest(interaction, assistant);
+            } else {
+                // Verifica cooldown
+                const timeSinceLastMessage = (Date.now() - interaction.lastInteraction) / 1000;
+                if (timeSinceLastMessage < RATE_LIMITS.COOLDOWN) {
+                    const waitTime = Math.ceil(RATE_LIMITS.COOLDOWN - timeSinceLastMessage);
+                    const cooldownMessage = {
+                        it: `Per favore attendi ${waitTime} secondi prima di inviare un altro messaggio.`,
+                        en: `Please wait ${waitTime} seconds before sending another message.`,
+                        fr: `Veuillez attendre ${waitTime} secondes avant d'envoyer un autre message.`,
+                        de: `Bitte warten Sie ${waitTime} Sekunden, bevor Sie eine weitere Nachricht senden.`,
+                        es: `Por favor, espere ${waitTime} segundos antes de enviar otro mensaje.`
+                    };
+                    
+                    const userLanguage = getLanguageFromPhone(message.From);
+                    await client.messages.create({
+                        body: cooldownMessage[userLanguage] || cooldownMessage.en,
+                        from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                        to: message.From,
+                        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                    });
+                    
+                    return res.status(200).send({
+                        success: false,
+                        message: 'Rate limit: cooldown period'
+                    });
+                }
+
+                // Verifica limiti giornalieri
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                let dailyInteraction = interaction.dailyInteractions.find(
+                    di => di.date.getTime() === today.getTime()
+                );
+
+                if (!dailyInteraction) {
+                    dailyInteraction = {
+                        date: today,
+                        count: 0
+                    };
+                    interaction.dailyInteractions.push(dailyInteraction);
+                }
+
+                if (dailyInteraction.count >= RATE_LIMITS.DAILY_MAX) {
+                    const limitMessage = {
+                        it: `Hai raggiunto il limite giornaliero di messaggi. Riprova domani.`,
+                        en: `You've reached the daily message limit. Please try again tomorrow.`,
+                        fr: `Vous avez atteint la limite quotidienne de messages. Réessayez demain.`,
+                        de: `Sie haben das tägliche Nachrichtenlimit erreicht. Bitte versuchen Sie es morgen erneut.`,
+                        es: `Has alcanzado el límite diario de mensajes. Inténtalo de nuevo mañana.`
+                    };
+
+                    const userLanguage = getLanguageFromPhone(message.From);
+                    await client.messages.create({
+                        body: limitMessage[userLanguage] || limitMessage.en,
+                        from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                        to: message.From,
+                        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                    });
+
+                    return res.status(200).send({
+                        success: false,
+                        message: 'Rate limit: daily limit exceeded'
+                    });
+                }
+
+                // Aggiorna i contatori
+                dailyInteraction.count++;
+                interaction.monthlyInteractions++;
+                interaction.lastInteraction = new Date();
+                await interaction.save();
+            }
+
+            const hotel = assistant.hotelId;
+
+            // Rimuovi il trigger name dal messaggio per l'elaborazione
+            const userQuery = message.Body.replace(`#${triggerName}`, '').trim();
+
+            // Aggiungi il messaggio dell'utente allo storico
+            interaction.conversationHistory.push({
+                role: 'user',
+                content: userQuery,
+                timestamp: new Date()
+            });
+
+            // Prepara il contesto della conversazione per Claude
+            // Prendiamo gli ultimi 10 messaggi per mantenere il contesto rilevante
+            const recentHistory = interaction.conversationHistory
+                .slice(-10)
+                .map(msg => ({
+                    role: msg.role,
+                    content: msg.content
+                }));
+
+            const userLanguage = getLanguageFromPhone(message.From);
+            
+            const systemPrompt = `You are a WhatsApp assistant for ${hotel.name}. 
+You must respond in ${userLanguage.toUpperCase()}.
+You must ALWAYS address the guest as "${message.ProfileName}" in your responses to create a personal connection.
+You must only provide information that is explicitly available in the hotel's data. 
+Never improvise or make assumptions.
+
+Basic Hotel Information:
+- Hotel Name: ${hotel.name}
+- Hotel Type: ${hotel.type}
+- Hotel Description: ${hotel.description}
+- Guest Name: ${message.ProfileName}
+
+Operating Hours:
+- Breakfast Hours: ${assistant.breakfast.startTime} - ${assistant.breakfast.endTime}
+- Check-in Hours: ${assistant.checkIn.startTime} - ${assistant.checkIn.endTime}
+
+Review Link: ${assistant.reviewLink}
+
+Guidelines:
+1. Start each response by greeting the guest by name (e.g., "Caro ${message.ProfileName}" or "Dear ${message.ProfileName}")
+2. Only respond to queries that can be answered using the provided information
+3. If information is not available, politely state that you don't have that specific information
+4. Keep responses concise and professional
+5. For review requests, provide the saved review link
+6. ALWAYS respond in ${userLanguage.toUpperCase()}
+7. Use the conversation history to maintain context and provide relevant responses
+
+${assistant.rules && assistant.rules.length > 0 ? `
+Active Response Rules:
+${assistant.rules.filter(rule => rule.isActive).map((rule, index) => `
+${index + 1}. Topic: ${rule.isCustom ? rule.customTopic : rule.topic}
+   Response: ${rule.response}`).join('\n')}` : ''}`;
+
+            // Genera la risposta con Claude includendo lo storico
+            const response = await anthropic.messages.create({
+                model: "claude-3-5-sonnet-20241022",
+                max_tokens: 500,
+                temperature: 0.7,
+                system: systemPrompt,
+                messages: [
+                    ...recentHistory,
+                    { 
+                        role: "user", 
+                        content: userQuery
+                    }
+                ]
+            });
+
+            if (!response?.content?.[0]?.text) {
+                throw new Error('Failed to generate response');
+            }
+
+            const aiResponse = response.content[0].text;
+
+            // Salva la risposta dell'assistente nello storico
+            interaction.conversationHistory.push({
+                role: 'assistant',
+                content: aiResponse,
+                timestamp: new Date()
+            });
+
+            // Salva l'interazione aggiornata
+            await interaction.save();
+
+            // Invia la risposta via WhatsApp
+            await client.messages.create({
+                body: aiResponse,
+                from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                to: message.From,
+                messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+            });
+
+            res.status(200).send({
+                success: true,
+                message: 'Message processed successfully'
+            });
+
+        } catch (error) {
+            console.error('WhatsApp webhook error:', error);
+            res.status(500).json({ 
+                success: false,
+                message: 'Error processing message',
                 error: error.message
             });
         }
