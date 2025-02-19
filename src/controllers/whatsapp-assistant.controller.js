@@ -399,31 +399,49 @@ const whatsappAssistantController = {
                 From: req.body.From,
                 ProfileName: req.body.ProfileName || 'Guest'
             };
-            
-            // Prima troviamo tutti gli assistenti attivi
-            const activeAssistants = await WhatsAppAssistant.find({ 
-                isActive: true 
-            }).populate('hotelId');
 
-            console.log('Found active assistants:', activeAssistants.map(ast => ({
-                id: ast._id,
-                triggerName: ast.triggerName,
-                hotelName: ast.hotelId?.name,
-                isActive: ast.isActive
-            })));
+            // Prima cerchiamo una conversazione attiva negli ultimi 30 giorni
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-            // Cerchiamo se uno dei trigger name è presente nel messaggio
-            const assistant = activeAssistants.find(ast => 
-                message.Body.toLowerCase().includes(ast.triggerName.toLowerCase())
-            );
-            
-            console.log('Assistant search result:', {
-                found: !!assistant,
-                message: message.Body,
-                matchedTrigger: assistant?.triggerName,
-                assistantId: assistant?._id,
-                hotelName: assistant?.hotelId?.name
+            let interaction = await WhatsappInteraction.findOne({
+                phoneNumber: message.From,
+                lastInteraction: { $gte: thirtyDaysAgo }
+            }).populate({
+                path: 'hotelId',
+                populate: {
+                    path: 'whatsappAssistant'
+                }
             });
+
+            let assistant;
+
+            if (interaction && interaction.hotelId?.whatsappAssistant?.isActive) {
+                // Se esiste una conversazione attiva, usa quell'assistente
+                assistant = interaction.hotelId.whatsappAssistant;
+                console.log('Found active conversation with assistant:', {
+                    assistantId: assistant._id,
+                    hotelName: interaction.hotelId.name,
+                    lastInteraction: interaction.lastInteraction
+                });
+            } else {
+                // Se non c'è una conversazione attiva, cerca il trigger name
+                const activeAssistants = await WhatsAppAssistant.find({ 
+                    isActive: true 
+                }).populate('hotelId');
+
+                assistant = activeAssistants.find(ast => 
+                    message.Body.toLowerCase().includes(ast.triggerName.toLowerCase())
+                );
+
+                console.log('Assistant search result:', {
+                    found: !!assistant,
+                    message: message.Body,
+                    matchedTrigger: assistant?.triggerName,
+                    assistantId: assistant?._id,
+                    hotelName: assistant?.hotelId?.name
+                });
+            }
 
             if (!assistant || !assistant.hotelId) {
                 return res.status(200).send({
@@ -432,12 +450,7 @@ const whatsappAssistantController = {
                 });
             }
 
-            // Trova o crea l'interazione
-            let interaction = await WhatsappInteraction.findOne({
-                hotelId: assistant.hotelId._id,
-                phoneNumber: message.From
-            });
-
+            // Se non esisteva l'interazione, creala
             if (!interaction) {
                 interaction = new WhatsappInteraction({
                     hotelId: assistant.hotelId._id,
@@ -450,78 +463,78 @@ const whatsappAssistantController = {
                 });
                 await interaction.save();
                 await scheduleReviewRequest(interaction, assistant);
-            } else {
-                // Verifica cooldown
-                const timeSinceLastMessage = (Date.now() - interaction.lastInteraction) / 1000;
-                if (timeSinceLastMessage < RATE_LIMITS.COOLDOWN) {
-                    const waitTime = Math.ceil(RATE_LIMITS.COOLDOWN - timeSinceLastMessage);
-                    const cooldownMessage = {
-                        it: `Per favore attendi ${waitTime} secondi prima di inviare un altro messaggio.`,
-                        en: `Please wait ${waitTime} seconds before sending another message.`,
-                        fr: `Veuillez attendre ${waitTime} secondes avant d'envoyer un autre message.`,
-                        de: `Bitte warten Sie ${waitTime} Sekunden, bevor Sie eine weitere Nachricht senden.`,
-                        es: `Por favor, espere ${waitTime} segundos antes de enviar otro mensaje.`
-                    };
-                    
-                    const userLanguage = getLanguageFromPhone(message.From);
-                    await client.messages.create({
-                        body: cooldownMessage[userLanguage] || cooldownMessage.en,
-                        from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
-                        to: message.From,
-                        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
-                    });
-                    
-                    return res.status(200).send({
-                        success: false,
-                        message: 'Rate limit: cooldown period'
-                    });
-                }
-
-                // Verifica limiti giornalieri
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                
-                let dailyInteraction = interaction.dailyInteractions.find(
-                    di => di.date.getTime() === today.getTime()
-                );
-
-                if (!dailyInteraction) {
-                    dailyInteraction = {
-                        date: today,
-                        count: 0
-                    };
-                    interaction.dailyInteractions.push(dailyInteraction);
-                }
-
-                if (dailyInteraction.count >= RATE_LIMITS.DAILY_MAX) {
-                    const limitMessage = {
-                        it: `Hai raggiunto il limite giornaliero di messaggi. Riprova domani.`,
-                        en: `You've reached the daily message limit. Please try again tomorrow.`,
-                        fr: `Vous avez atteint la limite quotidienne de messages. Réessayez demain.`,
-                        de: `Sie haben das tägliche Nachrichtenlimit erreicht. Bitte versuchen Sie es morgen erneut.`,
-                        es: `Has alcanzado el límite diario de mensajes. Inténtalo de nuevo mañana.`
-                    };
-
-                    const userLanguage = getLanguageFromPhone(message.From);
-                    await client.messages.create({
-                        body: limitMessage[userLanguage] || limitMessage.en,
-                        from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
-                        to: message.From,
-                        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
-                    });
-
-                    return res.status(200).send({
-                        success: false,
-                        message: 'Rate limit: daily limit exceeded'
-                    });
-                }
-
-                // Aggiorna i contatori
-                dailyInteraction.count++;
-                interaction.monthlyInteractions++;
-                interaction.lastInteraction = new Date();
-                await interaction.save();
             }
+
+            // Verifica cooldown
+            const timeSinceLastMessage = (Date.now() - interaction.lastInteraction) / 1000;
+            if (timeSinceLastMessage < RATE_LIMITS.COOLDOWN) {
+                const waitTime = Math.ceil(RATE_LIMITS.COOLDOWN - timeSinceLastMessage);
+                const cooldownMessage = {
+                    it: `Per favore attendi ${waitTime} secondi prima di inviare un altro messaggio.`,
+                    en: `Please wait ${waitTime} seconds before sending another message.`,
+                    fr: `Veuillez attendre ${waitTime} secondes avant d'envoyer un autre message.`,
+                    de: `Bitte warten Sie ${waitTime} Sekunden, bevor Sie eine weitere Nachricht senden.`,
+                    es: `Por favor, espere ${waitTime} segundos antes de enviar otro mensaje.`
+                };
+                
+                const userLanguage = getLanguageFromPhone(message.From);
+                await client.messages.create({
+                    body: cooldownMessage[userLanguage] || cooldownMessage.en,
+                    from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                    to: message.From,
+                    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                });
+                
+                return res.status(200).send({
+                    success: false,
+                    message: 'Rate limit: cooldown period'
+                });
+            }
+
+            // Verifica limiti giornalieri
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            let dailyInteraction = interaction.dailyInteractions.find(
+                di => di.date.getTime() === today.getTime()
+            );
+
+            if (!dailyInteraction) {
+                dailyInteraction = {
+                    date: today,
+                    count: 0
+                };
+                interaction.dailyInteractions.push(dailyInteraction);
+            }
+
+            if (dailyInteraction.count >= RATE_LIMITS.DAILY_MAX) {
+                const limitMessage = {
+                    it: `Hai raggiunto il limite giornaliero di messaggi. Riprova domani.`,
+                    en: `You've reached the daily message limit. Please try again tomorrow.`,
+                    fr: `Vous avez atteint la limite quotidienne de messages. Réessayez demain.`,
+                    de: `Sie haben das tägliche Nachrichtenlimit erreicht. Bitte versuchen Sie es morgen erneut.`,
+                    es: `Has alcanzado el límite diario de mensajes. Inténtalo de nuevo mañana.`
+                };
+
+                const userLanguage = getLanguageFromPhone(message.From);
+                await client.messages.create({
+                    body: limitMessage[userLanguage] || limitMessage.en,
+                    from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                    to: message.From,
+                    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                });
+
+                return res.status(200).send({
+                    success: false,
+                    message: 'Rate limit: daily limit exceeded'
+                });
+            }
+
+            // Aggiorna i contatori
+            dailyInteraction.count++;
+            interaction.monthlyInteractions++;
+            interaction.lastInteraction = new Date();
+            await interaction.save();
 
             const hotel = assistant.hotelId;
 
@@ -546,38 +559,36 @@ const whatsappAssistantController = {
 
             const userLanguage = getLanguageFromPhone(message.From);
             
-            const systemPrompt = `You are a WhatsApp assistant for ${hotel.name}. 
-You must respond in ${userLanguage.toUpperCase()}.
-You must ALWAYS address the guest as "${message.ProfileName}" in your responses to create a personal connection.
-You must only provide information that is explicitly available in the hotel's data. 
-Never improvise or make assumptions.
+            const systemPrompt = `You are ${hotel.name}'s personal WhatsApp concierge, having a natural, friendly conversation with ${message.ProfileName}. 
+Always respond in ${userLanguage.toUpperCase()}, maintaining a warm and personal tone.
 
-Basic Hotel Information:
-- Hotel Name: ${hotel.name}
-- Hotel Type: ${hotel.type}
-- Hotel Description: ${hotel.description}
-- Guest Name: ${message.ProfileName}
+Remember:
+- You're having a casual chat with ${message.ProfileName}, like a helpful friend at the hotel
+- Keep responses conversational and natural, avoiding formal or robotic language
+- Show empathy and personality in your responses
+- Use natural conversation flow, like you would in a real chat
+- Never sign off with formal closings or hotel signatures
 
-Operating Hours:
-- Breakfast Hours: ${assistant.breakfast.startTime} - ${assistant.breakfast.endTime}
-- Check-in Hours: ${assistant.checkIn.startTime} - ${assistant.checkIn.endTime}
-
-Review Link: ${assistant.reviewLink}
-
-Guidelines:
-1. Start each response by greeting the guest by name (e.g., "Caro ${message.ProfileName}" or "Dear ${message.ProfileName}")
-2. Only respond to queries that can be answered using the provided information
-3. If information is not available, politely state that you don't have that specific information
-4. Keep responses concise and professional
-5. For review requests, provide the saved review link
-6. ALWAYS respond in ${userLanguage.toUpperCase()}
-7. Use the conversation history to maintain context and provide relevant responses
+Hotel Details (use naturally in conversation):
+- Name: ${hotel.name}
+- Type: ${hotel.type}
+- About: ${hotel.description}
+- Breakfast: ${assistant.breakfast.startTime} - ${assistant.breakfast.endTime}
+- Check-in: ${assistant.checkIn.startTime} - ${assistant.checkIn.endTime}
+- Reviews: ${assistant.reviewLink}
 
 ${assistant.rules && assistant.rules.length > 0 ? `
-Active Response Rules:
+Response Guidelines:
 ${assistant.rules.filter(rule => rule.isActive).map((rule, index) => `
-${index + 1}. Topic: ${rule.isCustom ? rule.customTopic : rule.topic}
-   Response: ${rule.response}`).join('\n')}` : ''}`;
+${index + 1}. For ${rule.isCustom ? rule.customTopic : rule.topic}:
+   ${rule.response}`).join('\n')}` : ''}
+
+Important:
+- Only share information you're certain about
+- If unsure, be honest and offer to find out
+- Keep the conversation flowing naturally
+- Use emojis sparingly but appropriately to add warmth
+- Match the guest's tone and energy level`;
 
             // Genera la risposta con Claude includendo lo storico
             const response = await anthropic.messages.create({
