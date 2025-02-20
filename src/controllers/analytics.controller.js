@@ -140,18 +140,18 @@ ${previousAnalysis}
 Question: ${previousMessages}`;
 };
 
-const validateRequestBody = (body) => {
-    if (!body) {
-        throw new Error('Request body is required');
-    }
+const validateRequestBody = (req) => {
+    const { hotelId, reviews } = req.body;
     
-    const { reviews, previousMessages, messages } = body;
+    if (!hotelId) {
+        throw new Error('hotelId is required');
+    }
     
     if (!Array.isArray(reviews) || reviews.length === 0) {
-        throw new Error('Reviews array is required and must not be empty');
+        throw new Error('reviews array is required and must not be empty');
     }
     
-    return { reviews, previousMessages, messages };
+    return { hotelId, reviews };
 };
 
 const getValidDate = (dateStr) => {
@@ -300,15 +300,38 @@ Return a JSON object with this structure:
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
-            const { reviews, previousMessages, messages } = validateRequestBody(req.body);
+            const { hotelId, reviews: reviewIds } = validateRequestBody(req);
             const userId = req.userId;
 
+            // Verifica hotel
+            const hotel = await Hotel.findById(hotelId);
+            if (!hotel) {
+                return res.status(404).json({ 
+                    message: 'Hotel not found',
+                    details: `Hotel with ID ${hotelId} does not exist`
+                });
+            }
+
+            // Verifica user
             const user = await User.findById(userId);
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            const creditCost = previousMessages ? 1 : 10;
+            // Ottieni recensioni complete
+            const reviews = await Review.find({
+                _id: { $in: reviewIds },
+                hotelId: hotelId
+            });
+
+            if (!reviews.length) {
+                return res.status(404).json({ 
+                    message: 'No reviews found',
+                    details: 'No reviews found for the given IDs and hotel'
+                });
+            }
+
+            const creditCost = 10;
             const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
             
             if (totalCreditsAvailable < creditCost) {
@@ -316,11 +339,6 @@ const analyticsController = {
                     message: 'Insufficient credits available. Please purchase more credits to continue.',
                     type: 'NO_CREDITS'
                 });
-            }
-
-            const hotel = await Hotel.findById(reviews[0].hotelId);
-            if (!hotel) {
-                return res.status(404).json({ message: 'Hotel not found' });
             }
 
             // Leggiamo i libri prima di procedere
@@ -339,9 +357,9 @@ const analyticsController = {
             const platforms = [...new Set(reviewsData.map(r => r.platform))];
 
             let systemPrompt;
-            if (previousMessages) {
-                const lastAnalysis = messages[messages.length - 2].content;
-                systemPrompt = generateFollowUpPrompt(hotel, reviewsData, previousMessages, lastAnalysis, bookKnowledge);
+            if (req.body.previousMessages) {
+                const lastAnalysis = req.body.messages[req.body.messages.length - 2].content;
+                systemPrompt = generateFollowUpPrompt(hotel, reviewsData, req.body.previousMessages, lastAnalysis, bookKnowledge);
             } else {
                 systemPrompt = generateInitialPrompt(hotel, reviewsData, platforms, avgRating);
             }
@@ -354,7 +372,7 @@ const analyticsController = {
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
                 
-                if (previousMessages) {
+                if (req.body.previousMessages) {
                     console.log('Sending follow-up prompt to Gemini...');
                     const result = await model.generateContent({
                         contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
@@ -515,14 +533,14 @@ const analyticsController = {
                 }
 
                 // Salviamo l'analisi nel database se non è un follow-up
-                if (!previousMessages) {
+                if (!req.body.previousMessages) {
                     const defaultTitle = `Analysis - ${analysis.meta?.hotelName || 'Hotel'} - ${new Date().toLocaleDateString()}`;
                     const dateRange = getValidDateRange(reviews);
                     
                     const savedAnalysis = await Analysis.create({
                         title: defaultTitle,
                         userId,
-                        hotelId: reviews[0].hotelId,
+                        hotelId: hotelId,
                         analysis: analysis,
                         reviewsAnalyzed: reviews.length,
                         provider,
@@ -585,7 +603,10 @@ const analyticsController = {
             });
         } catch (error) {
             console.error('Error in analyzeReviews:', error);
-            return res.status(500).json({ message: 'Error in analyzeReviews' });
+            return res.status(500).json({ 
+                message: 'Error in analyzeReviews',
+                details: error.message 
+            });
         }
     },
 
@@ -606,18 +627,99 @@ const analyticsController = {
 
     getAnalysis: async (req, res) => {
         try {
-            const { id } = req.params;
-            const userId = req.userId;
+            const analysis = await Analysis.findById(req.params.id)
+                .populate('hotelId', 'name')
+                .lean()
 
-            const analysis = await Analysis.findOne({ _id: id, userId });
             if (!analysis) {
-                return res.status(404).json({ message: 'Analysis not found' });
+                return res.status(404).json({ message: 'Analysis not found' })
             }
 
-            return res.status(200).json(analysis);
+            if (analysis.userId.toString() !== req.user._id.toString()) {
+                return res.status(403).json({ message: 'Unauthorized access to this analysis' })
+            }
+
+            // Funzione helper per convertire stringhe di percentuali in numeri
+            const parsePercentage = (value) => {
+                if (typeof value === 'number') return value
+                return parseInt(value.replace('%', ''))
+            }
+
+            // Funzione helper per standardizzare impact/priority
+            const standardizeStatus = (value) => {
+                if (!value) return 'MEDIUM'
+                return value.toUpperCase()
+            }
+
+            const formattedAnalysis = {
+                _id: analysis._id,
+                hotelName: analysis.hotelId.name,
+                analysis: {
+                    meta: {
+                        ...analysis.analysis.meta,
+                        reviewCount: parseInt(analysis.analysis.meta.reviewCount),
+                        avgRating: parseFloat(analysis.analysis.meta.avgRating).toFixed(1),
+                    },
+                    sentiment: {
+                        excellent: parsePercentage(analysis.analysis.sentiment.excellent) + '%',
+                        average: parsePercentage(analysis.analysis.sentiment.average) + '%',
+                        needsImprovement: parsePercentage(analysis.analysis.sentiment.needsImprovement) + '%',
+                        distribution: {
+                            rating5: parsePercentage(analysis.analysis.sentiment.distribution.rating5) + '%',
+                            rating4: parsePercentage(analysis.analysis.sentiment.distribution.rating4) + '%',
+                            rating3: parsePercentage(analysis.analysis.sentiment.distribution.rating3) + '%',
+                            rating2: parsePercentage(analysis.analysis.sentiment.distribution.rating2) + '%',
+                            rating1: parsePercentage(analysis.analysis.sentiment.distribution.rating1) + '%'
+                        }
+                    },
+                    strengths: analysis.analysis.strengths.map(strength => ({
+                        ...strength,
+                        impact: standardizeStatus(strength.impact),
+                        mentions: parseInt(strength.mentions) || 0,
+                        // Assicuriamoci che tutti i campi necessari esistano
+                        title: strength.title || '',
+                        details: strength.details || '',
+                        quote: strength.quote || ''
+                    })),
+                    issues: analysis.analysis.issues.map(issue => ({
+                        ...issue,
+                        priority: standardizeStatus(issue.priority),
+                        impact: standardizeStatus(issue.impact),
+                        mentions: parseInt(issue.mentions) || 0,
+                        // Assicuriamoci che tutti i campi necessari esistano
+                        title: issue.title || '',
+                        details: issue.details || '',
+                        quote: issue.quote || ''
+                    })),
+                    quickWins: analysis.analysis.quickWins.map(win => ({
+                        ...win,
+                        // Standardizziamo i campi dei quick wins
+                        action: win.action || '',
+                        timeline: win.timeline || 'Short term',
+                        cost: win.cost || 'Low',
+                        impact: standardizeStatus(win.impact)
+                    }))
+                },
+                metadata: {
+                    ...analysis.metadata,
+                    platforms: Array.isArray(analysis.metadata.platforms) 
+                        ? analysis.metadata.platforms 
+                        : [],
+                    dateRange: {
+                        start: analysis.metadata.dateRange?.start || new Date(),
+                        end: analysis.metadata.dateRange?.end || new Date()
+                    }
+                },
+                createdAt: analysis.createdAt
+            }
+
+            return res.json(formattedAnalysis)
         } catch (error) {
-            console.error('Error in getAnalysis:', error);
-            return res.status(500).json({ message: 'Error fetching analysis' });
+            console.error('Error in getAnalysis:', error)
+            return res.status(500).json({ 
+                message: 'Error retrieving analysis',
+                error: error.message
+            })
         }
     },
 
