@@ -872,39 +872,72 @@ ${JSON.stringify(plan, null, 2)}`
             const { id, category, itemId } = req.params;
             const userId = req.userId;
 
-            const analysis = await Analysis.findOne({ _id: id, userId })
-                .populate({
-                    path: `analysis.${category}.${itemId}.relatedReviews.reviewId`,
-                    model: 'Review'
-                });
+            // Trova l'analisi
+            const analysis = await Analysis.findOne({ 
+                _id: id, 
+                userId 
+            }).populate({
+                path: 'reviewIds',
+                select: 'text rating metadata.platform metadata.originalCreatedAt'
+            });
 
             if (!analysis) {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            let reviews;
+            // Trova il gruppo specifico di recensioni
+            let targetGroup;
             if (category === 'strengths') {
-                reviews = analysis.analysis.strengths.find(s => s._id.toString() === itemId)?.relatedReviews;
+                targetGroup = analysis.analysis.strengths.find(s => s._id.toString() === itemId);
             } else if (category === 'issues') {
-                reviews = analysis.analysis.issues.find(i => i._id.toString() === itemId)?.relatedReviews;
+                targetGroup = analysis.analysis.issues.find(i => i._id.toString() === itemId);
             }
 
-            if (!reviews) {
-                return res.status(404).json({ message: 'Reviews not found for this category' });
+            if (!targetGroup) {
+                return res.status(404).json({ 
+                    message: `${category} group not found` 
+                });
+            }
+
+            // Se il gruppo ha relatedReviews, usali per filtrare le recensioni
+            let groupedReviews = [];
+            if (targetGroup.relatedReviews && targetGroup.relatedReviews.length > 0) {
+                groupedReviews = targetGroup.relatedReviews.map(related => {
+                    const review = analysis.reviewIds.find(r => r._id.toString() === related.reviewId.toString());
+                    if (review) {
+                        return {
+                            id: review._id,
+                            text: related.relevantText || review.text,
+                            rating: review.rating,
+                            date: review.metadata?.originalCreatedAt || review.createdAt,
+                            platform: review.metadata?.platform || 'Unknown'
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+            } else {
+                // Se non ci sono relatedReviews, restituisci tutte le recensioni
+                groupedReviews = analysis.reviewIds.map(review => ({
+                    id: review._id,
+                    text: review.text,
+                    rating: review.rating,
+                    date: review.metadata?.originalCreatedAt || review.createdAt,
+                    platform: review.metadata?.platform || 'Unknown'
+                }));
             }
 
             return res.status(200).json({
-                reviews: reviews.map(r => ({
-                    id: r.reviewId._id,
-                    text: r.relevantText,
-                    rating: r.rating,
-                    date: r.reviewId.metadata?.originalCreatedAt,
-                    platform: r.reviewId.metadata?.platform
-                }))
+                title: targetGroup.title,
+                count: groupedReviews.length,
+                reviews: groupedReviews
             });
+
         } catch (error) {
             console.error('Error in getGroupedReviews:', error);
-            return res.status(500).json({ message: 'Error fetching grouped reviews' });
+            return res.status(500).json({ 
+                message: 'Error fetching grouped reviews',
+                error: error.message 
+            });
         }
     }
 };
