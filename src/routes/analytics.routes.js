@@ -29,4 +29,6 @@ router.options('/solution-plan', (req, res) => {
     res.status(204).end();
 });
 
+router.get('/:id/reviews/:category/:itemId', analyticsController.getGroupedReviews);
+
 module.exports = router; 

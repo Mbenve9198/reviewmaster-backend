@@ -865,6 +865,47 @@ ${JSON.stringify(plan, null, 2)}`
                 error: error.message
             });
         }
+    },
+
+    getGroupedReviews: async (req, res) => {
+        try {
+            const { id, category, itemId } = req.params;
+            const userId = req.userId;
+
+            const analysis = await Analysis.findOne({ _id: id, userId })
+                .populate({
+                    path: `analysis.${category}.${itemId}.relatedReviews.reviewId`,
+                    model: 'Review'
+                });
+
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            let reviews;
+            if (category === 'strengths') {
+                reviews = analysis.analysis.strengths.find(s => s._id.toString() === itemId)?.relatedReviews;
+            } else if (category === 'issues') {
+                reviews = analysis.analysis.issues.find(i => i._id.toString() === itemId)?.relatedReviews;
+            }
+
+            if (!reviews) {
+                return res.status(404).json({ message: 'Reviews not found for this category' });
+            }
+
+            return res.status(200).json({
+                reviews: reviews.map(r => ({
+                    id: r.reviewId._id,
+                    text: r.relevantText,
+                    rating: r.rating,
+                    date: r.reviewId.metadata?.originalCreatedAt,
+                    platform: r.reviewId.metadata?.platform
+                }))
+            });
+        } catch (error) {
+            console.error('Error in getGroupedReviews:', error);
+            return res.status(500).json({ message: 'Error fetching grouped reviews' });
+        }
     }
 };
 
