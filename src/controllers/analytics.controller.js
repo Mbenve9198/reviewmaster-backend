@@ -872,20 +872,19 @@ ${JSON.stringify(plan, null, 2)}`
             const { id, category, itemId } = req.params;
             const userId = req.userId;
 
-            // Trova l'analisi
+            // Trova l'analisi e popola completamente le recensioni
             const analysis = await Analysis.findOne({ 
                 _id: id, 
                 userId 
             }).populate({
                 path: 'reviewIds',
-                select: 'text rating metadata.platform metadata.originalCreatedAt'
+                select: 'text rating platform date metadata' // Aggiungiamo platform e date
             });
 
             if (!analysis) {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            // Trova il gruppo specifico di recensioni
             let targetGroup;
             if (category === 'strengths') {
                 targetGroup = analysis.analysis.strengths.find(s => s._id.toString() === itemId);
@@ -899,7 +898,6 @@ ${JSON.stringify(plan, null, 2)}`
                 });
             }
 
-            // Se il gruppo ha relatedReviews, usali per filtrare le recensioni
             let groupedReviews = [];
             if (targetGroup.relatedReviews && targetGroup.relatedReviews.length > 0) {
                 groupedReviews = targetGroup.relatedReviews.map(related => {
@@ -909,22 +907,39 @@ ${JSON.stringify(plan, null, 2)}`
                             id: review._id,
                             text: related.relevantText || review.text,
                             rating: review.rating,
-                            date: review.metadata?.originalCreatedAt || review.createdAt,
-                            platform: review.metadata?.platform || 'Unknown'
+                            // Controlliamo tutte le possibili posizioni della data
+                            date: review.date || 
+                                  review.metadata?.date || 
+                                  review.metadata?.originalCreatedAt || 
+                                  review.createdAt,
+                            // Controlliamo tutte le possibili posizioni della piattaforma
+                            platform: review.platform || 
+                                     review.metadata?.platform || 
+                                     review.metadata?.source || 
+                                     'Unknown'
                         };
                     }
                     return null;
                 }).filter(Boolean);
             } else {
-                // Se non ci sono relatedReviews, restituisci tutte le recensioni
                 groupedReviews = analysis.reviewIds.map(review => ({
                     id: review._id,
                     text: review.text,
                     rating: review.rating,
-                    date: review.metadata?.originalCreatedAt || review.createdAt,
-                    platform: review.metadata?.platform || 'Unknown'
+                    // Stessa logica qui
+                    date: review.date || 
+                          review.metadata?.date || 
+                          review.metadata?.originalCreatedAt || 
+                          review.createdAt,
+                    platform: review.platform || 
+                             review.metadata?.platform || 
+                             review.metadata?.source || 
+                             'Unknown'
                 }));
             }
+
+            // Aggiungiamo un console.log per debug
+            console.log('Sample review:', groupedReviews[0]);
 
             return res.status(200).json({
                 title: targetGroup.title,
