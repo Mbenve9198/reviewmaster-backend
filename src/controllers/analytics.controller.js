@@ -905,18 +905,14 @@ ${JSON.stringify(plan, null, 2)}`
                     if (review) {
                         return {
                             id: review._id,
-                            text: related.relevantText || review.text,
-                            rating: review.rating,
-                            // Controlliamo tutte le possibili posizioni della data
-                            date: review.date || 
+                            text: related.relevantText || review.content?.text || '',
+                            rating: review.content?.rating || 0,
+                            date: review.metadata?.originalCreatedAt || 
                                   review.metadata?.date || 
-                                  review.metadata?.originalCreatedAt || 
                                   review.createdAt,
-                            // Controlliamo tutte le possibili posizioni della piattaforma
-                            platform: review.platform || 
-                                     review.metadata?.platform || 
-                                     review.metadata?.source || 
-                                     'Unknown'
+                            platform: review.platform || 'Unknown',
+                            author: review.content?.reviewerName || 'Guest',
+                            response: review.response  // Aggiungiamo anche la risposta se presente
                         };
                     }
                     return null;
@@ -924,17 +920,13 @@ ${JSON.stringify(plan, null, 2)}`
             } else {
                 groupedReviews = analysis.reviewIds.map(review => ({
                     id: review._id,
-                    text: review.text,
-                    rating: review.rating,
-                    // Stessa logica qui
-                    date: review.date || 
-                          review.metadata?.date || 
-                          review.metadata?.originalCreatedAt || 
+                    text: review.content?.text || '',  // Corretto l'accesso al testo della recensione
+                    rating: review.content?.rating || 0,  // Corretto anche l'accesso al rating
+                    date: review.metadata?.originalCreatedAt || 
                           review.createdAt,
-                    platform: review.platform || 
-                             review.metadata?.platform || 
-                             review.metadata?.source || 
-                             'Unknown'
+                    platform: review.platform || 'Unknown',
+                    author: review.content?.reviewerName || 'Guest',
+                    response: review.response  // Aggiungiamo anche la risposta se presente
                 }));
             }
 
