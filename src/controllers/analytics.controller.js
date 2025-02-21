@@ -716,16 +716,19 @@ const analyticsController = {
                 return res.status(400).json({ message: 'Question is required' });
             }
 
-            const analysis = await Analysis.findOne({ _id: id, userId });
+            const analysis = await Analysis.findOne({ _id: id, userId })
+                .populate('hotelId'); // Aggiungiamo il populate per ottenere i dati dell'hotel
+
             if (!analysis) {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            // Riutilizziamo la logica esistente di analyzeReviews
+            // Ora possiamo accedere all'hotelId dall'analisi
             const response = await analyticsController.analyzeReviews({
                 ...req,
                 body: {
-                    ...req.body,
+                    hotelId: analysis.hotelId._id, // Aggiungiamo l'hotelId
+                    question: question,
                     previousMessages: question,
                     messages: [
                         { role: 'assistant', content: JSON.stringify(analysis.analysis) },
@@ -737,7 +740,10 @@ const analyticsController = {
             return response;
         } catch (error) {
             console.error('Error in getFollowUpAnalysis:', error);
-            return res.status(500).json({ message: 'Error getting follow-up analysis' });
+            return res.status(500).json({ 
+                message: 'Error getting follow-up analysis',
+                error: error.message 
+            });
         }
     },
 
