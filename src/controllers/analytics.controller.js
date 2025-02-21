@@ -628,99 +628,29 @@ const analyticsController = {
 
     getAnalysis: async (req, res) => {
         try {
-            const analysis = await Analysis.findById(req.params.id)
-                .populate('hotelId', 'name')
-                .lean()
+            const analysisId = req.params.id;
+            const userId = req.userId; // Ottenuto dal middleware di autenticazione
+
+            // Cerca l'analisi specifica per id e userId
+            const analysis = await Analysis.findOne({ 
+                _id: analysisId,
+                userId: userId  // Assicura che l'utente possa vedere solo le proprie analisi
+            });
 
             if (!analysis) {
-                return res.status(404).json({ message: 'Analysis not found' })
+                return res.status(404).json({ 
+                    message: 'Analysis not found',
+                    details: 'No analysis found with the provided ID for this user'
+                });
             }
 
-            if (analysis.userId.toString() !== req.user._id.toString()) {
-                return res.status(403).json({ message: 'Unauthorized access to this analysis' })
-            }
-
-            // Funzione helper per convertire stringhe di percentuali in numeri
-            const parsePercentage = (value) => {
-                if (typeof value === 'number') return value
-                return parseInt(value.replace('%', ''))
-            }
-
-            // Funzione helper per standardizzare impact/priority
-            const standardizeStatus = (value) => {
-                if (!value) return 'MEDIUM'
-                return value.toUpperCase()
-            }
-
-            const formattedAnalysis = {
-                _id: analysis._id,
-                hotelName: analysis.hotelId.name,
-                analysis: {
-                    meta: {
-                        ...analysis.analysis.meta,
-                        reviewCount: parseInt(analysis.analysis.meta.reviewCount),
-                        avgRating: parseFloat(analysis.analysis.meta.avgRating).toFixed(1),
-                    },
-                    sentiment: {
-                        excellent: parsePercentage(analysis.analysis.sentiment.excellent) + '%',
-                        average: parsePercentage(analysis.analysis.sentiment.average) + '%',
-                        needsImprovement: parsePercentage(analysis.analysis.sentiment.needsImprovement) + '%',
-                        distribution: {
-                            rating5: parsePercentage(analysis.analysis.sentiment.distribution.rating5) + '%',
-                            rating4: parsePercentage(analysis.analysis.sentiment.distribution.rating4) + '%',
-                            rating3: parsePercentage(analysis.analysis.sentiment.distribution.rating3) + '%',
-                            rating2: parsePercentage(analysis.analysis.sentiment.distribution.rating2) + '%',
-                            rating1: parsePercentage(analysis.analysis.sentiment.distribution.rating1) + '%'
-                        }
-                    },
-                    strengths: analysis.analysis.strengths.map(strength => ({
-                        ...strength,
-                        impact: standardizeStatus(strength.impact),
-                        mentions: parseInt(strength.mentions) || 0,
-                        // Assicuriamoci che tutti i campi necessari esistano
-                        title: strength.title || '',
-                        details: strength.details || '',
-                        quote: strength.quote || ''
-                    })),
-                    issues: analysis.analysis.issues.map(issue => ({
-                        ...issue,
-                        priority: standardizeStatus(issue.priority),
-                        impact: standardizeStatus(issue.impact),
-                        mentions: parseInt(issue.mentions) || 0,
-                        // Assicuriamoci che tutti i campi necessari esistano
-                        title: issue.title || '',
-                        details: issue.details || '',
-                        quote: issue.quote || ''
-                    })),
-                    quickWins: analysis.analysis.quickWins.map(win => ({
-                        ...win,
-                        // Standardizziamo i campi dei quick wins
-                        action: win.action || '',
-                        timeline: win.timeline || 'Short term',
-                        cost: win.cost || 'Low',
-                        impact: standardizeStatus(win.impact)
-                    }))
-                },
-                metadata: {
-                    ...analysis.metadata,
-                    platforms: Array.isArray(analysis.metadata.platforms) 
-                        ? analysis.metadata.platforms 
-                        : [],
-                    dateRange: {
-                        start: analysis.metadata.dateRange?.start || new Date(),
-                        end: analysis.metadata.dateRange?.end || new Date()
-                    }
-                },
-                createdAt: analysis.createdAt
-            }
-
-            return res.json(formattedAnalysis)
+            return res.status(200).json(analysis);
         } catch (error) {
-            console.error('Error in getAnalysis:', error)
+            console.error('Error in getAnalysis:', error);
             return res.status(500).json({ 
-                message: 'Error retrieving analysis',
-                error: error.message
-            })
+                message: 'Error fetching analysis',
+                error: error.message 
+            });
         }
     },
 
