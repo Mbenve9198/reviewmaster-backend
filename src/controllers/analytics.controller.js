@@ -544,6 +544,7 @@ const analyticsController = {
                         hotelId: hotelId,
                         analysis: analysis,
                         reviewsAnalyzed: reviews.length,
+                        reviewIds: reviews.map(r => r._id),
                         provider,
                         metadata: {
                             platforms,
@@ -717,27 +718,35 @@ const analyticsController = {
             }
 
             const analysis = await Analysis.findOne({ _id: id, userId })
-                .populate('hotelId'); // Aggiungiamo il populate per ottenere i dati dell'hotel
+                .populate('hotelId');
 
             if (!analysis) {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            // Ora possiamo accedere all'hotelId dall'analisi
-            const response = await analyticsController.analyzeReviews({
+            // Ottieni le recensioni associate all'analisi originale
+            const reviews = await Review.find({ 
+                hotelId: analysis.hotelId._id,
+                _id: { $in: analysis.reviewsAnalyzed } // Assumendo che tu stia salvando gli ID delle recensioni
+            });
+
+            // Modifica la chiamata a analyzeReviews
+            const modifiedReq = {
                 ...req,
                 body: {
-                    hotelId: analysis.hotelId._id, // Aggiungiamo l'hotelId
+                    hotelId: analysis.hotelId._id,
+                    reviews: reviews.map(r => r._id), // Passa gli ID delle recensioni
                     question: question,
                     previousMessages: question,
                     messages: [
                         { role: 'assistant', content: JSON.stringify(analysis.analysis) },
                         { role: 'user', content: question }
                     ]
-                }
-            }, res);
+                },
+                userId: userId
+            };
 
-            return response;
+            return await analyticsController.analyzeReviews(modifiedReq, res);
         } catch (error) {
             console.error('Error in getFollowUpAnalysis:', error);
             return res.status(500).json({ 

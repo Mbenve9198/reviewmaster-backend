@@ -83,7 +83,11 @@ const analysisSchema = new mongoose.Schema({
       end: Date
     },
     creditsUsed: Number
-  }
+  },
+  reviewIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Review'
+  }]
 }, {
   timestamps: true,
   indexes: [
