@@ -596,6 +596,7 @@ const analyticsController = {
             }
 
             return res.status(200).json({
+                _id: analysis._id,
                 analysis,
                 provider,
                 suggestions,
