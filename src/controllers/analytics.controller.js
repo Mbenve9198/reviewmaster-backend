@@ -6,6 +6,7 @@ const Hotel = require('../models/hotel.model');
 const Analysis = require('../models/analysis.model');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Book, BookChunk } = require('../models/book.model');
+const mongoose = require('mongoose');
 
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
@@ -629,12 +630,19 @@ const analyticsController = {
     getAnalysis: async (req, res) => {
         try {
             const analysisId = req.params.id;
-            const userId = req.userId; // Ottenuto dal middleware di autenticazione
+            const userId = req.userId;
 
-            // Cerca l'analisi specifica per id e userId
+            // Verifica se l'ID è un ObjectId valido
+            if (!mongoose.Types.ObjectId.isValid(analysisId)) {
+                return res.status(400).json({ 
+                    message: 'Invalid analysis ID format',
+                    details: 'The provided ID is not in the correct format'
+                });
+            }
+
             const analysis = await Analysis.findOne({ 
                 _id: analysisId,
-                userId: userId  // Assicura che l'utente possa vedere solo le proprie analisi
+                userId: userId
             });
 
             if (!analysis) {
