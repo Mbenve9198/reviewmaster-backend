@@ -916,7 +916,7 @@ ${JSON.stringify(plan, null, 2)}`
                 userId 
             }).populate({
                 path: 'reviewIds',
-                select: 'text rating platform date metadata' // Aggiungiamo platform e date
+                select: 'content platform metadata response'  // Modificato per includere l'intero oggetto content
             });
 
             if (!analysis) {
@@ -956,13 +956,15 @@ ${JSON.stringify(plan, null, 2)}`
                     return null;
                 }).filter(Boolean);
             } else {
+                console.log('Complete raw review structure:', JSON.stringify(analysis.reviewIds[0], null, 2));
+                
                 groupedReviews = analysis.reviewIds.map(review => ({
                     id: review._id,
-                    text: review.content?.text || '',
-                    rating: review.content?.rating || 0,
+                    text: review.content.text || '',
+                    rating: review.content.rating || 0,
                     date: review.metadata?.originalCreatedAt || review.createdAt,
-                    platform: review.metadata?.platform || review.platform || 'Unknown',
-                    author: review.content?.reviewerName || 'Guest',
+                    platform: review.platform || 'Unknown',
+                    author: review.content.reviewerName || 'Guest',
                     response: review.response
                 }));
             }
