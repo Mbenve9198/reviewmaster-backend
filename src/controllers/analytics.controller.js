@@ -504,7 +504,8 @@ const analyticsController = {
                         generationConfig: {
                             temperature: 0.1,
                             topP: 0.1,
-                            topK: 1
+                            topK: 1,
+                            maxOutputTokens: 4000
                         }
                     });
                     
@@ -529,7 +530,44 @@ const analyticsController = {
                     } catch (parseError) {
                         console.error('Failed to parse Gemini response as JSON:', parseError);
                         console.error('Raw response:', rawText);
-                        throw new Error('Invalid JSON response from Gemini');
+                        
+                        // Tenta una correzione automatica di JSON potenzialmente malformato
+                        try {
+                            // Assicuriamoci che inizi e finisca con parentesi graffe
+                            let fixedText = rawText;
+                            if (!fixedText.trim().startsWith('{')) fixedText = '{' + fixedText;
+                            if (!fixedText.trim().endsWith('}')) fixedText = fixedText + '}';
+                            
+                            // Prova a correggere errori comuni come virgole in eccesso
+                            fixedText = fixedText.replace(/,\s*}/g, '}');
+                            fixedText = fixedText.replace(/,\s*\]/g, ']');
+                            
+                            analysis = JSON.parse(fixedText);
+                            provider = 'gemini';
+                            console.log('Successfully fixed and parsed JSON');
+                        } catch (fixError) {
+                            console.error('Failed to fix and parse JSON:', fixError);
+                            
+                            // Fornisci una struttura JSON di fallback minima se tutto fallisce
+                            analysis = {
+                                meta: {
+                                    hotelName: hotel.name,
+                                    reviewCount: reviews.length,
+                                    avgRating: avgRating,
+                                    platforms: platforms.join(', ')
+                                },
+                                sentiment: {
+                                    excellent: "0%",
+                                    average: "0%",
+                                    needsImprovement: "0%"
+                                },
+                                strengths: [],
+                                issues: [],
+                                quickWins: [],
+                                trends: []
+                            };
+                            provider = 'fallback';
+                        }
                     }
                 }
 
