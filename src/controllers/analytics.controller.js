@@ -994,7 +994,15 @@ ${JSON.stringify(plan, null, 2)}`
 
             let groupedReviews = [];
             if (targetGroup.relatedReviews && targetGroup.relatedReviews.length > 0) {
+                console.log('Target group relatedReviews:', targetGroup.relatedReviews);
+                
                 groupedReviews = targetGroup.relatedReviews.map(related => {
+                    // Verifica che reviewId sia definito prima di usare toString()
+                    if (!related.reviewId) {
+                        console.error('Found a related review without reviewId:', related);
+                        return null;
+                    }
+                    
                     const review = analysis.reviewIds.find(r => r._id.toString() === related.reviewId.toString());
                     if (review) {
                         return {
@@ -1006,7 +1014,7 @@ ${JSON.stringify(plan, null, 2)}`
                                   review.createdAt,
                             platform: review.platform || 'Unknown',
                             author: review.content?.reviewerName || 'Guest',
-                            response: review.response  // Aggiungiamo anche la risposta se presente
+                            response: review.response
                         };
                     }
                     return null;
