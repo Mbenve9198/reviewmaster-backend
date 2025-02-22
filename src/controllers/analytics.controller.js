@@ -55,6 +55,13 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
           "cost": "€",
           "roi": "125%"
         }
+      ],
+      "relatedReviews": [
+        {
+          "reviewIndex": 0,
+          "relevantText": "The hotel location was exceptional",
+          "rating": 5
+        }
       ]
     }
   ],
@@ -76,7 +83,14 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
           "Add wall insulation",
           "Replace door seals"
         ]
-      }
+      },
+      "relatedReviews": [
+        {
+          "reviewIndex": 3,
+          "relevantText": "I could hear everything from the adjacent rooms",
+          "rating": 2
+        }
+      ]
     }
   ],
   "quickWins": [
@@ -104,6 +118,8 @@ Guidelines:
 5. Focus on actionable insights that align with industry best practices
 6. Count and include the actual number of times each strength and issue is mentioned in the reviews
 7. Ensure all recommendations follow established hospitality management principles
+8. For each strength and issue, include "relatedReviews" with references to the specific reviews that mention this topic
+9. Use the array index (0-based) in the reviews array as the "reviewIndex" field
 
 Analyze this review data: ${JSON.stringify(reviews, null, 2)}`;
 };
@@ -630,6 +646,46 @@ const analyticsController = {
                         suggestions = [];
                     }
                 }
+
+                if (!req.body.previousMessages && analysis.strengths && analysis.issues) {
+                    // Popola relatedReviews per gli strengths
+                    for (const strength of analysis.strengths) {
+                        if (strength.relatedReviews && Array.isArray(strength.relatedReviews)) {
+                            strength.relatedReviews = strength.relatedReviews.map(related => {
+                                const index = related.reviewIndex;
+                                if (index !== undefined && index >= 0 && index < reviews.length) {
+                                    return {
+                                        reviewId: reviews[index]._id,
+                                        relevantText: related.relevantText || reviews[index].content?.text || '',
+                                        rating: related.rating || reviews[index].content?.rating || 0
+                                    };
+                                }
+                                return null;
+                            }).filter(Boolean);
+                        } else {
+                            strength.relatedReviews = [];
+                        }
+                    }
+
+                    // Popola relatedReviews per gli issues
+                    for (const issue of analysis.issues) {
+                        if (issue.relatedReviews && Array.isArray(issue.relatedReviews)) {
+                            issue.relatedReviews = issue.relatedReviews.map(related => {
+                                const index = related.reviewIndex;
+                                if (index !== undefined && index >= 0 && index < reviews.length) {
+                                    return {
+                                        reviewId: reviews[index]._id,
+                                        relevantText: related.relevantText || reviews[index].content?.text || '',
+                                        rating: related.rating || reviews[index].content?.rating || 0
+                                    };
+                                }
+                                return null;
+                            }).filter(Boolean);
+                        } else {
+                            issue.relatedReviews = [];
+                        }
+                    }
+                }
             } catch (error) {
                 console.error('Error in analysis:', error);
                 throw new Error('Error in analysis');
@@ -956,17 +1012,39 @@ ${JSON.stringify(plan, null, 2)}`
                     return null;
                 }).filter(Boolean);
             } else {
-                console.log('Complete raw review structure:', JSON.stringify(analysis.reviewIds[0], null, 2));
+                // Se relatedReviews non è disponibile, cerca recensioni contenenti il titolo o parole chiave
+                const titleWords = targetGroup.title.toLowerCase().split(/\s+/).filter(word => word.length > 3);
                 
-                groupedReviews = analysis.reviewIds.map(review => ({
-                    id: review._id,
-                    text: review.content.text || '',
-                    rating: review.content.rating || 0,
-                    date: review.metadata?.originalCreatedAt || review.createdAt,
-                    platform: review.platform || 'Unknown',
-                    author: review.content.reviewerName || 'Guest',
-                    response: review.response
-                }));
+                groupedReviews = analysis.reviewIds
+                    .filter(review => {
+                        const reviewText = review.content.text.toLowerCase();
+                        return titleWords.some(word => reviewText.includes(word)) || 
+                               reviewText.includes(targetGroup.title.toLowerCase());
+                    })
+                    .map(review => ({
+                        id: review._id,
+                        text: review.content.text || '',
+                        rating: review.content.rating || 0,
+                        date: review.metadata?.originalCreatedAt || review.createdAt,
+                        platform: review.platform || 'Unknown',
+                        author: review.content.reviewerName || 'Guest',
+                        response: review.response
+                    }));
+                
+                // Se ancora non ci sono recensioni, mostra le prime 20 come fallback
+                if (groupedReviews.length === 0) {
+                    console.log(`No matching reviews found for '${targetGroup.title}'. Showing a sample.`);
+                    const sampleSize = Math.min(20, analysis.reviewIds.length);
+                    groupedReviews = analysis.reviewIds.slice(0, sampleSize).map(review => ({
+                        id: review._id,
+                        text: review.content.text || '',
+                        rating: review.content.rating || 0,
+                        date: review.metadata?.originalCreatedAt || review.createdAt,
+                        platform: review.platform || 'Unknown',
+                        author: review.content.reviewerName || 'Guest',
+                        response: review.response
+                    }));
+                }
             }
 
             // Aggiungiamo più log dettagliati per debug
