@@ -920,18 +920,27 @@ ${JSON.stringify(plan, null, 2)}`
             } else {
                 groupedReviews = analysis.reviewIds.map(review => ({
                     id: review._id,
-                    text: review.content?.text || '',  // Corretto l'accesso al testo della recensione
-                    rating: review.content?.rating || 0,  // Corretto anche l'accesso al rating
-                    date: review.metadata?.originalCreatedAt || 
-                          review.createdAt,
-                    platform: review.platform || 'Unknown',
+                    text: review.content?.text || '',
+                    rating: review.content?.rating || 0,
+                    date: review.metadata?.originalCreatedAt || review.createdAt,
+                    platform: review.metadata?.platform || review.platform || 'Unknown',
                     author: review.content?.reviewerName || 'Guest',
-                    response: review.response  // Aggiungiamo anche la risposta se presente
+                    response: review.response
                 }));
             }
 
-            // Aggiungiamo un console.log per debug
-            console.log('Sample review:', groupedReviews[0]);
+            // Aggiungiamo più log dettagliati per debug
+            console.log('Sample raw review:', analysis.reviewIds[0]);
+            console.log('Sample processed review:', groupedReviews[0]);
+            console.log('Fields in sample review:', {
+                id: groupedReviews[0]?.id || null,
+                text: groupedReviews[0]?.text || null,
+                rating: groupedReviews[0]?.rating || null,
+                date: groupedReviews[0]?.date || null,
+                platform: groupedReviews[0]?.platform || null,
+                author: groupedReviews[0]?.author || null,
+                hasResponse: groupedReviews[0]?.response ? true : false
+            });
 
             return res.status(200).json({
                 title: targetGroup.title,
