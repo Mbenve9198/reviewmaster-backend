@@ -376,18 +376,21 @@ const analyticsController = {
                 content: review.content?.text || '',
                 rating: review.content?.rating || 0,
                 date: review.metadata?.originalCreatedAt || new Date().toISOString(),
-                platform: review.metadata?.platform || 'unknown'
+                platform: review.platform
             }));
 
-            const avgRating = (reviewsData.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1);
-            const platforms = [...new Set(reviewsData.map(r => r.platform))];
+            // Calcola avgRating usando i dati originali delle recensioni
+            const avgRating = (reviews.reduce((acc, r) => acc + (r.content?.rating || 0), 0) / reviews.length).toFixed(1);
+
+            // Estrai le piattaforme direttamente dalle recensioni originali
+            const platforms = [...new Set(reviews.map(r => r.platform))];
 
             let systemPrompt;
             if (req.body.previousMessages) {
                 const lastAnalysis = req.body.messages[req.body.messages.length - 2].content;
                 systemPrompt = generateFollowUpPrompt(hotel, reviewsData, req.body.previousMessages, lastAnalysis, bookKnowledge);
             } else {
-                systemPrompt = generateInitialPrompt(hotel, reviewsData, platforms, avgRating);
+                systemPrompt = generateInitialPrompt(hotel, reviews, platforms, avgRating);
             }
 
             let analysis;
