@@ -29,7 +29,9 @@ const generateInitialPrompt = (hotel, reviews, platforms, avgRating) => {
 
     return `First, carefully study this hospitality industry knowledge and use it as the foundation for your analysis. Your recommendations must reflect these industry best practices and methodologies:
 
-You are an expert hospitality industry analyst. Analyze the reviews and return a JSON object with this exact structure:
+You are an expert hospitality industry analyst. Analyze the reviews and return a JSON object with this exact structure.
+
+IMPORTANT: For each strength and issue, you MUST include ALL reviews that mention that topic. If you say there are 35 mentions of small rooms, then relatedReviews should contain exactly 35 reviews with their IDs. Do not skip any relevant reviews.
 
 {
   "meta": {
@@ -54,7 +56,7 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
     {
       "title": "Location & Accessibility",
       "impact": "+1.2",
-      "mentions": 87,
+      "mentions": 87,  // If you specify 87 mentions, you must include 87 related reviews
       "quote": "Perfect location, close to train station and attractions",
       "details": "Consistently praised for central location and easy access to public transport",
       "marketingTips": [
@@ -66,8 +68,19 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
       ],
       "relatedReviews": [
         {
-          "reviewId": "mongoid_here",
+          "reviewId": "mongoid_here_1",
           "relevantText": "The hotel location was exceptional",
+          "rating": 5
+        },
+        {
+          "reviewId": "mongoid_here_2",
+          "relevantText": "Perfect central location",
+          "rating": 4
+        },
+        // ... and so on for ALL reviews that mention location (all 87 of them)
+        {
+          "reviewId": "mongoid_here_87",
+          "relevantText": "Great position near attractions",
           "rating": 5
         }
       ]
@@ -78,7 +91,7 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
       "title": "Noise Insulation", 
       "priority": "HIGH",
       "impact": "-0.9",
-      "mentions": 42,
+      "mentions": 42,  // If you specify 42 mentions, you must include 42 related reviews
       "quote": "Walls are thin, can hear everything from adjacent rooms",
       "details": "Major issue affecting guest sleep quality and satisfaction",
       "solution": {
@@ -94,8 +107,19 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
       },
       "relatedReviews": [
         {
-          "reviewId": "mongoid_here",
-          "relevantText": "I could hear everything from the adjacent rooms",
+          "reviewId": "mongoid_here_1",
+          "relevantText": "Could hear everything through the walls",
+          "rating": 2
+        },
+        {
+          "reviewId": "mongoid_here_2",
+          "relevantText": "Very noisy at night",
+          "rating": 3
+        },
+        // ... and so on for ALL reviews that mention noise (all 42 of them)
+        {
+          "reviewId": "mongoid_here_42",
+          "relevantText": "Poor sound insulation between rooms",
           "rating": 2
         }
       ]
@@ -126,9 +150,10 @@ Guidelines:
 5. Focus on actionable insights that align with industry best practices
 6. Count and include the actual number of times each strength and issue is mentioned in the reviews
 7. Ensure all recommendations follow established hospitality management principles
-8. For each strength and issue, include specific reviewIds from the original reviews that mention this topic
+8. For each strength and issue, you MUST include ALL reviews that mention that topic in relatedReviews
 9. Use the MongoDB ObjectId from the reviews array as the reviewId in relatedReviews
-10. Include relevant quotes from the actual reviews when referencing them
+10. The number of relatedReviews MUST match exactly the number of mentions you specify
+11. Do not skip any relevant reviews - if you say there are N mentions, include all N reviews
 
 Review data (with IDs) for analysis: ${JSON.stringify(reviewsForAnalysis, null, 2)}`;
 };
