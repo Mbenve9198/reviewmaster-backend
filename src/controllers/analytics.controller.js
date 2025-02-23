@@ -584,42 +584,62 @@ const analyticsController = {
                         console.error('Failed to parse Gemini response as JSON:', parseError);
                         console.error('Raw response:', rawText);
                         
-                        // Tenta una correzione automatica di JSON potenzialmente malformato
+                        // Tenta più livelli di pulizia
                         try {
-                            // Assicuriamoci che inizi e finisca con parentesi graffe
                             let fixedText = rawText;
-                            if (!fixedText.trim().startsWith('{')) fixedText = '{' + fixedText;
-                            if (!fixedText.trim().endsWith('}')) fixedText = fixedText + '}';
                             
-                            // Prova a correggere errori comuni come virgole in eccesso
-                            fixedText = fixedText.replace(/,\s*}/g, '}');
-                            fixedText = fixedText.replace(/,\s*\]/g, ']');
+                            // Rimuovi eventuali commenti
+                            fixedText = fixedText.replace(/\/\/.*/g, '');
                             
+                            // Correggi virgole doppie
+                            fixedText = fixedText.replace(/,,/g, ',');
+                            
+                            // Rimuovi virgole alla fine degli array
+                            fixedText = fixedText.replace(/,(\s*[\]}])/g, '$1');
+                            
+                            // Assicurati che ogni proprietà abbia un valore
+                            fixedText = fixedText.replace(/:\s*,/g, ': null,');
+                            
+                            // Rimuovi tutto prima della prima parentesi graffa
+                            fixedText = fixedText.replace(/^[^{]*/, '');
+                            
+                            // Rimuovi tutto dopo l'ultima parentesi graffa
+                            fixedText = fixedText.replace(/}[^}]*$/, '}');
+                            
+                            console.log('Attempting to parse cleaned JSON:', fixedText);
                             analysis = JSON.parse(fixedText);
                             provider = 'gemini';
-                            console.log('Successfully fixed and parsed JSON');
+                            console.log('Successfully parsed cleaned JSON');
                         } catch (fixError) {
-                            console.error('Failed to fix and parse JSON:', fixError);
-                            
-                            // Fornisci una struttura JSON di fallback minima se tutto fallisce
-                            analysis = {
-                                meta: {
-                                    hotelName: hotel.name,
-                                    reviewCount: reviews.length,
-                                    avgRating: avgRating,
-                                    platforms: platforms.join(', ')
-                                },
-                                sentiment: {
-                                    excellent: "0%",
-                                    average: "0%",
-                                    needsImprovement: "0%"
-                                },
-                                strengths: [],
-                                issues: [],
-                                quickWins: [],
-                                trends: []
-                            };
-                            provider = 'fallback';
+                            // Se ancora non funziona, prova con un retry a Gemini
+                            console.error('Failed to fix JSON, retrying with Gemini');
+                            try {
+                                const retryResult = await model.generateContent({
+                                    contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+                                    generationConfig: {
+                                        temperature: 0.05, // Temperatura più bassa per il retry
+                                        maxOutputTokens: 4000
+                                    }
+                                });
+                                
+                                const retryResponse = await retryResult.response;
+                                let retryText = retryResponse.text();
+                                
+                                // Applica le stesse pulizie al retry
+                                retryText = retryText.replace(/\/\/.*/g, '')
+                                                   .replace(/,,/g, ',')
+                                                   .replace(/,(\s*[\]}])/g, '$1')
+                                                   .replace(/:\s*,/g, ': null,')
+                                                   .replace(/^[^{]*/, '')
+                                                   .replace(/}[^}]*$/, '}');
+                                
+                                analysis = JSON.parse(retryText);
+                                provider = 'gemini';
+                                console.log('Successfully parsed retry response');
+                            } catch (retryError) {
+                                console.error('Failed to get valid response after retry:', retryError);
+                                throw new Error('Failed to get valid response after retry');
+                            }
                         }
                     }
                 }
