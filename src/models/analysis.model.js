@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 
 const analysisSchema = new mongoose.Schema({
+  title: {
+    type: String,
+    required: true
+  },
   hotelId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Hotel',

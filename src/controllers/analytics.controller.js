@@ -19,6 +19,14 @@ const openai = new OpenAI({
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const generateInitialPrompt = (hotel, reviews, platforms, avgRating) => {
+    const reviewsForAnalysis = reviews.map((review, index) => ({
+        id: review._id.toString(),
+        text: review.content?.text || '',
+        rating: review.content?.rating || 0,
+        platform: review.platform,
+        date: review.metadata?.originalCreatedAt || new Date().toISOString()
+    }));
+
     return `First, carefully study this hospitality industry knowledge and use it as the foundation for your analysis. Your recommendations must reflect these industry best practices and methodologies:
 
 You are an expert hospitality industry analyst. Analyze the reviews and return a JSON object with this exact structure:
@@ -58,7 +66,7 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
       ],
       "relatedReviews": [
         {
-          "reviewIndex": 0,
+          "reviewId": "mongoid_here",
           "relevantText": "The hotel location was exceptional",
           "rating": 5
         }
@@ -67,7 +75,7 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
   ],
   "issues": [
     {
-      "title": "Noise Insulation",
+      "title": "Noise Insulation", 
       "priority": "HIGH",
       "impact": "-0.9",
       "mentions": 42,
@@ -75,7 +83,7 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
       "details": "Major issue affecting guest sleep quality and satisfaction",
       "solution": {
         "title": "Comprehensive Sound Proofing",
-        "timeline": "3-4 months",
+        "timeline": "3-4 months", 
         "cost": "€€€",
         "roi": "180%",
         "steps": [
@@ -86,7 +94,7 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
       },
       "relatedReviews": [
         {
-          "reviewIndex": 3,
+          "reviewId": "mongoid_here",
           "relevantText": "I could hear everything from the adjacent rooms",
           "rating": 2
         }
@@ -118,10 +126,11 @@ Guidelines:
 5. Focus on actionable insights that align with industry best practices
 6. Count and include the actual number of times each strength and issue is mentioned in the reviews
 7. Ensure all recommendations follow established hospitality management principles
-8. For each strength and issue, include "relatedReviews" with references to the specific reviews that mention this topic
-9. Use the array index (0-based) in the reviews array as the "reviewIndex" field
+8. For each strength and issue, include specific reviewIds from the original reviews that mention this topic
+9. Use the MongoDB ObjectId from the reviews array as the reviewId in relatedReviews
+10. Include relevant quotes from the actual reviews when referencing them
 
-Analyze this review data: ${JSON.stringify(reviews, null, 2)}`;
+Review data (with IDs) for analysis: ${JSON.stringify(reviewsForAnalysis, null, 2)}`;
 };
 
 const generateFollowUpPrompt = (hotel, reviews, previousMessages, previousAnalysis, bookKnowledge) => {
@@ -648,40 +657,15 @@ const analyticsController = {
                 }
 
                 if (!req.body.previousMessages && analysis.strengths && analysis.issues) {
-                    // Popola relatedReviews per gli strengths
+                    // Verifica solo che relatedReviews sia un array valido per ogni strength e issue
                     for (const strength of analysis.strengths) {
-                        if (strength.relatedReviews && Array.isArray(strength.relatedReviews)) {
-                            strength.relatedReviews = strength.relatedReviews.map(related => {
-                                const index = related.reviewIndex;
-                                if (index !== undefined && index >= 0 && index < reviews.length) {
-                                    return {
-                                        reviewId: reviews[index]._id,
-                                        relevantText: related.relevantText || reviews[index].content?.text || '',
-                                        rating: related.rating || reviews[index].content?.rating || 0
-                                    };
-                                }
-                                return null;
-                            }).filter(Boolean);
-                        } else {
+                        if (!Array.isArray(strength.relatedReviews)) {
                             strength.relatedReviews = [];
                         }
                     }
 
-                    // Popola relatedReviews per gli issues
                     for (const issue of analysis.issues) {
-                        if (issue.relatedReviews && Array.isArray(issue.relatedReviews)) {
-                            issue.relatedReviews = issue.relatedReviews.map(related => {
-                                const index = related.reviewIndex;
-                                if (index !== undefined && index >= 0 && index < reviews.length) {
-                                    return {
-                                        reviewId: reviews[index]._id,
-                                        relevantText: related.relevantText || reviews[index].content?.text || '',
-                                        rating: related.rating || reviews[index].content?.rating || 0
-                                    };
-                                }
-                                return null;
-                            }).filter(Boolean);
-                        } else {
+                        if (!Array.isArray(issue.relatedReviews)) {
                             issue.relatedReviews = [];
                         }
                     }
@@ -966,25 +950,23 @@ ${JSON.stringify(plan, null, 2)}`
             const { id, category, itemId } = req.params;
             const userId = req.userId;
 
-            // Trova l'analisi e popola completamente le recensioni
+            // Trova l'analisi e popola le recensioni con i campi necessari
             const analysis = await Analysis.findOne({ 
                 _id: id, 
                 userId 
             }).populate({
                 path: 'reviewIds',
-                select: 'content platform metadata response'  // Modificato per includere l'intero oggetto content
+                select: 'content platform metadata response'
             });
 
             if (!analysis) {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            let targetGroup;
-            if (category === 'strengths') {
-                targetGroup = analysis.analysis.strengths.find(s => s._id.toString() === itemId);
-            } else if (category === 'issues') {
-                targetGroup = analysis.analysis.issues.find(i => i._id.toString() === itemId);
-            }
+            // Trova il gruppo target (strengths o issues)
+            const targetGroup = category === 'strengths' 
+                ? analysis.analysis.strengths.find(s => s._id.toString() === itemId)
+                : analysis.analysis.issues.find(i => i._id.toString() === itemId);
 
             if (!targetGroup) {
                 return res.status(404).json({ 
@@ -992,81 +974,46 @@ ${JSON.stringify(plan, null, 2)}`
                 });
             }
 
-            let groupedReviews = [];
-            if (targetGroup.relatedReviews && targetGroup.relatedReviews.length > 0) {
-                console.log('Target group relatedReviews:', targetGroup.relatedReviews);
-                
-                groupedReviews = targetGroup.relatedReviews.map(related => {
-                    // Verifica che reviewId sia definito prima di usare toString()
-                    if (!related.reviewId) {
-                        console.error('Found a related review without reviewId:', related);
-                        return null;
-                    }
-                    
-                    const review = analysis.reviewIds.find(r => r._id.toString() === related.reviewId.toString());
-                    if (review) {
+            // Mappa le recensioni correlate usando gli ID MongoDB
+            const groupedReviews = targetGroup.relatedReviews?.length 
+                ? targetGroup.relatedReviews
+                    .map(related => {
+                        const review = analysis.reviewIds.find(
+                            r => r._id.toString() === related.reviewId?.toString()
+                        );
+                        
+                        if (!review) return null;
+
                         return {
                             id: review._id,
                             text: related.relevantText || review.content?.text || '',
-                            rating: review.content?.rating || 0,
-                            date: review.metadata?.originalCreatedAt || 
-                                  review.metadata?.date || 
-                                  review.createdAt,
+                            rating: related.rating || review.content?.rating || 0,
+                            date: review.metadata?.originalCreatedAt || review.createdAt,
                             platform: review.platform || 'Unknown',
-                            author: review.content?.reviewerName || 'Guest',
+                            author: review.content?.reviewerName || 'Anonymous',
                             response: review.response
                         };
-                    }
-                    return null;
-                }).filter(Boolean);
-            } else {
-                // Se relatedReviews non è disponibile, cerca recensioni contenenti il titolo o parole chiave
-                const titleWords = targetGroup.title.toLowerCase().split(/\s+/).filter(word => word.length > 3);
-                
-                groupedReviews = analysis.reviewIds
+                    })
+                    .filter(Boolean)
+                : analysis.reviewIds
                     .filter(review => {
-                        const reviewText = review.content.text.toLowerCase();
+                        const reviewText = (review.content?.text || '').toLowerCase();
+                        const titleWords = targetGroup.title.toLowerCase()
+                            .split(/\s+/)
+                            .filter(word => word.length > 3);
+                        
                         return titleWords.some(word => reviewText.includes(word)) || 
                                reviewText.includes(targetGroup.title.toLowerCase());
                     })
                     .map(review => ({
                         id: review._id,
-                        text: review.content.text || '',
-                        rating: review.content.rating || 0,
+                        text: review.content?.text || '',
+                        rating: review.content?.rating || 0,
                         date: review.metadata?.originalCreatedAt || review.createdAt,
                         platform: review.platform || 'Unknown',
-                        author: review.content.reviewerName || 'Guest',
+                        author: review.content?.reviewerName || 'Anonymous',
                         response: review.response
                     }));
-                
-                // Se ancora non ci sono recensioni, mostra le prime 20 come fallback
-                if (groupedReviews.length === 0) {
-                    console.log(`No matching reviews found for '${targetGroup.title}'. Showing a sample.`);
-                    const sampleSize = Math.min(20, analysis.reviewIds.length);
-                    groupedReviews = analysis.reviewIds.slice(0, sampleSize).map(review => ({
-                        id: review._id,
-                        text: review.content.text || '',
-                        rating: review.content.rating || 0,
-                        date: review.metadata?.originalCreatedAt || review.createdAt,
-                        platform: review.platform || 'Unknown',
-                        author: review.content.reviewerName || 'Guest',
-                        response: review.response
-                    }));
-                }
-            }
-
-            // Aggiungiamo più log dettagliati per debug
-            console.log('Sample raw review:', analysis.reviewIds[0]);
-            console.log('Sample processed review:', groupedReviews[0]);
-            console.log('Fields in sample review:', {
-                id: groupedReviews[0]?.id || null,
-                text: groupedReviews[0]?.text || null,
-                rating: groupedReviews[0]?.rating || null,
-                date: groupedReviews[0]?.date || null,
-                platform: groupedReviews[0]?.platform || null,
-                author: groupedReviews[0]?.author || null,
-                hasResponse: groupedReviews[0]?.response ? true : false
-            });
 
             return res.status(200).json({
                 title: targetGroup.title,
