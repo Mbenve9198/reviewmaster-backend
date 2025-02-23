@@ -434,7 +434,7 @@ const analyticsController = {
                             temperature: 0.7,
                             topP: 0.8,
                             topK: 40,
-                            maxOutputTokens: 1000
+                            maxOutputTokens: 10000
                         },
                         safetySettings: [
                             {
@@ -558,7 +558,7 @@ const analyticsController = {
                             temperature: 0.1,
                             topP: 0.1,
                             topK: 1,
-                            maxOutputTokens: 4000
+                            maxOutputTokens: 10000
                         }
                     });
                     
@@ -618,7 +618,7 @@ const analyticsController = {
                                     contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
                                     generationConfig: {
                                         temperature: 0.05, // Temperatura più bassa per il retry
-                                        maxOutputTokens: 4000
+                                        maxOutputTokens: 10000
                                     }
                                 });
                                 
