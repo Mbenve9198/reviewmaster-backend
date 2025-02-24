@@ -322,38 +322,28 @@ const sanitizeGeminiJson = async (rawJson, reviews) => {
             model: "claude-3-5-sonnet-20241022",
             max_tokens: 4000,
             temperature: 0,
-            system: "You are a JSON validation and correction expert. Your task is to fix malformed JSON from another LLM while preserving all the data and ensuring the correct structure.",
+            system: "You are a JSON validator. Your ONLY task is to output a clean, valid JSON. Do not output ANY text, logs, or explanations - only the JSON object.",
             messages: [{
                 role: "user",
-                content: `This is a malformed JSON response from another LLM analyzing hotel reviews. Fix any structural issues while preserving ALL the data.
+                content: `Fix and return this JSON. Output ONLY the JSON object - no text, no explanations, no error messages:
 
-The JSON should follow this exact structure:
-1. Each strength/issue must have a "relatedReviews" array containing ONLY review IDs (MongoDB ObjectIds)
-2. The number of IDs in relatedReviews must EXACTLY match the "mentions" count
-3. Preserve all other data exactly as is
-
-Original JSON:
 ${rawJson}
 
-Review IDs available:
-${reviews.map(r => r._id.toString()).join(', ')}
+Rules:
+1. Each strength/issue must have a "relatedReviews" array containing ONLY review IDs
+2. The number of IDs in relatedReviews must EXACTLY match the "mentions" count
+3. Available review IDs: ${reviews.map(r => r._id.toString()).join(', ')}
 
-Return ONLY the fixed JSON with no explanation, comments, or markup.`
+Remember: Return ONLY the JSON object. No other text allowed.`
             }]
         });
 
         console.log('2. Raw Claude response:', response?.content?.[0]?.text);
 
-        let cleanedJson = response.content[0].text
-            .replace(/```json\n?|\n?```/g, '')
-            .replace(/^[^{]*/, '')
-            .replace(/}[^}]*$/, '')
-            .trim();
-
-        console.log('3. Cleaned Claude response:', cleanedJson);
+        const cleanedJson = response.content[0].text.trim();
+        console.log('3. Cleaned response:', cleanedJson);
 
         const parsedJson = JSON.parse(cleanedJson);
-        
         console.log('4. Successfully parsed JSON');
 
         // Validazione delle mentions
