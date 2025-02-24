@@ -93,6 +93,24 @@ const analysisSchema = new mongoose.Schema({
   reviewIds: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Review'
+  }],
+  conversations: [{
+    messages: [{
+      role: {
+        type: String,
+        enum: ['user', 'assistant'],
+        required: true
+      },
+      content: String,
+      timestamp: {
+        type: Date,
+        default: Date.now
+      }
+    }],
+    context: {
+      sourceId: String,
+      sourceType: String
+    }
   }]
 }, {
   timestamps: true,

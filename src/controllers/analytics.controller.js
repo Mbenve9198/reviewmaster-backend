@@ -651,43 +651,80 @@ const analyticsController = {
     getFollowUpAnalysis: async (req, res) => {
         try {
             const { id } = req.params;
-            const { question } = req.body;
+            const { question, conversationId } = req.body;
             const userId = req.userId;
 
-            if (!question) {
-                return res.status(400).json({ message: 'Question is required' });
+            // Se la richiesta è per le domande iniziali
+            if (question === 'initial') {
+                const analysis = await Analysis.findOne({ _id: id, userId });
+                if (!analysis) {
+                    return res.status(404).json({ message: 'Analysis not found' });
+                }
+
+                // Genera nuove domande suggerite
+                const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+                const suggestionsPrompt = `Based on this analysis, generate 4-5 follow-up questions:
+                ${JSON.stringify(analysis.analysis)}`;
+
+                const result = await model.generateContent({
+                    contents: [{ role: 'user', parts: [{ text: suggestionsPrompt }] }],
+                    generationConfig: {
+                        temperature: 0.7
+                    }
+                });
+
+                const response = await result.response;
+                let suggestions = [];
+                
+                try {
+                    suggestions = JSON.parse(response.text().replace(/```json\s*|\s*```/g, '').trim());
+                } catch (e) {
+                    console.error('Failed to parse suggestions:', e);
+                    suggestions = [];
+                }
+
+                return res.status(200).json({ suggestions });
             }
 
-            const analysis = await Analysis.findOne({ _id: id, userId })
-                .populate('hotelId');
-
+            const analysis = await Analysis.findOne({ _id: id, userId });
             if (!analysis) {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            // Ottieni le recensioni associate all'analisi originale
-            const reviews = await Review.find({ 
-                hotelId: analysis.hotelId._id,
-                _id: { $in: analysis.reviewsAnalyzed } // Assumendo che tu stia salvando gli ID delle recensioni
+            // Recupera o crea una nuova conversazione
+            let conversation = analysis.conversations?.find(c => c._id.toString() === conversationId);
+            if (!conversation) {
+                conversation = {
+                    messages: [],
+                    context: { sourceType: 'analysis', sourceId: id }
+                };
+                analysis.conversations = [...(analysis.conversations || []), conversation];
+            }
+
+            // Aggiungi il nuovo messaggio
+            conversation.messages.push({
+                role: 'user',
+                content: question,
+                timestamp: new Date()
             });
 
-            // Modifica la chiamata a analyzeReviews
-            const modifiedReq = {
-                ...req,
-                body: {
-                    hotelId: analysis.hotelId._id,
-                    reviews: reviews.map(r => r._id), // Passa gli ID delle recensioni
-                    question: question,
-                    previousMessages: question,
-                    messages: [
-                        { role: 'assistant', content: JSON.stringify(analysis.analysis) },
-                        { role: 'user', content: question }
-                    ]
-                },
-                userId: userId
-            };
+            // Genera la risposta
+            const response = await generateAIResponse(analysis, conversation.messages);
 
-            return await analyticsController.analyzeReviews(modifiedReq, res);
+            // Salva la risposta
+            conversation.messages.push({
+                role: 'assistant',
+                content: response,
+                timestamp: new Date()
+            });
+
+            await analysis.save();
+
+            return res.status(200).json({
+                conversationId: conversation._id,
+                messages: conversation.messages,
+                response
+            });
         } catch (error) {
             console.error('Error in getFollowUpAnalysis:', error);
             return res.status(500).json({ 
