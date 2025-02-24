@@ -823,16 +823,18 @@ const analyticsController = {
             const { question, messages, conversationId } = req.body;
             const userId = req.userId;
 
+            // Trova l'analisi e verifica che esista
             const analysis = await Analysis.findOne({ _id: id, userId });
             if (!analysis) {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            // Recupera o crea una nuova conversazione
+            // Inizializza l'array delle conversazioni se non esiste
             if (!analysis.conversations) {
                 analysis.conversations = [];
             }
 
+            // Trova o crea una nuova conversazione
             let conversation;
             if (conversationId) {
                 conversation = analysis.conversations.find(c => c._id.toString() === conversationId);
@@ -846,14 +848,14 @@ const analyticsController = {
                 analysis.conversations.push(conversation);
             }
 
-            // Aggiungi il nuovo messaggio
+            // Aggiungi il messaggio dell'utente
             conversation.messages.push({
                 role: 'user',
                 content: question,
                 timestamp: new Date()
             });
 
-            // Se la richiesta è per le domande iniziali, mantieni la logica esistente
+            // Se la richiesta è per le domande iniziali
             if (question === 'initial') {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
                 const suggestionsPrompt = `Based on this analysis, generate 4-5 follow-up questions:
@@ -893,26 +895,27 @@ const analyticsController = {
                     ];
                     return res.status(200).json({ suggestions });
                 }
+            } else {
+                // Genera la risposta per domande normali
+                const response = await generateAIResponse(analysis, conversation.messages);
+                
+                // Aggiungi la risposta dell'assistente
+                conversation.messages.push({
+                    role: 'assistant',
+                    content: response,
+                    timestamp: new Date()
+                });
+
+                // Salva l'analisi aggiornata usando markModified per assicurarsi che Mongoose rilevi le modifiche
+                analysis.markModified('conversations');
+                await analysis.save();
+
+                return res.status(200).json({
+                    conversationId: conversation._id,
+                    messages: conversation.messages,
+                    response
+                });
             }
-
-            // Genera la risposta per domande normali
-            const response = await generateAIResponse(analysis, conversation.messages);
-            
-            // Aggiungi la risposta dell'assistente
-            conversation.messages.push({
-                role: 'assistant',
-                content: response,
-                timestamp: new Date()
-            });
-
-            // Salva l'analisi aggiornata
-            await analysis.save();
-
-            return res.status(200).json({
-                conversationId: conversation._id,
-                messages: conversation.messages,
-                response
-            });
 
         } catch (error) {
             console.error('Error in getFollowUpAnalysis:', error);
