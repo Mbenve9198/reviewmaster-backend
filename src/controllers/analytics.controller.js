@@ -316,6 +316,8 @@ Return a JSON object with this structure:
 
 const sanitizeGeminiJson = async (rawJson, reviews) => {
     try {
+        console.log('1. Input to Claude:', rawJson);
+
         const response = await anthropic.messages.create({
             model: "claude-3-5-sonnet-20241022",
             max_tokens: 4000,
@@ -340,9 +342,7 @@ Return ONLY the fixed JSON with no explanation, comments, or markup.`
             }]
         });
 
-        if (!response?.content?.[0]?.text) {
-            throw new Error('Invalid response from Claude');
-        }
+        console.log('2. Raw Claude response:', response?.content?.[0]?.text);
 
         let cleanedJson = response.content[0].text
             .replace(/```json\n?|\n?```/g, '')
@@ -350,22 +350,35 @@ Return ONLY the fixed JSON with no explanation, comments, or markup.`
             .replace(/}[^}]*$/, '')
             .trim();
 
+        console.log('3. Cleaned Claude response:', cleanedJson);
+
         const parsedJson = JSON.parse(cleanedJson);
         
+        console.log('4. Successfully parsed JSON');
+
+        // Validazione delle mentions
         for (const strength of (parsedJson.strengths || [])) {
+            console.log(`5. Validating strength "${strength.title}": ${strength.mentions} mentions vs ${strength.relatedReviews.length} reviews`);
             if (strength.mentions !== strength.relatedReviews.length) {
                 throw new Error(`Strength "${strength.title}" has mismatched mentions count`);
             }
         }
+        
         for (const issue of (parsedJson.issues || [])) {
+            console.log(`6. Validating issue "${issue.title}": ${issue.mentions} mentions vs ${issue.relatedReviews.length} reviews`);
             if (issue.mentions !== issue.relatedReviews.length) {
                 throw new Error(`Issue "${issue.title}" has mismatched mentions count`);
             }
         }
 
+        console.log('7. All validations passed');
         return parsedJson;
     } catch (error) {
-        console.error('Error in sanitizeGeminiJson:', error);
+        console.error('Error in sanitizeGeminiJson at step:', error);
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack
+        });
         throw error;
     }
 };
