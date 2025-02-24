@@ -823,20 +823,38 @@ const analyticsController = {
             const { question, messages, conversationId } = req.body;
             const userId = req.userId;
 
-            // Se la richiesta è per le domande iniziali
+            const analysis = await Analysis.findOne({ _id: id, userId });
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            // Recupera o crea una nuova conversazione
+            if (!analysis.conversations) {
+                analysis.conversations = [];
+            }
+
+            let conversation;
+            if (conversationId) {
+                conversation = analysis.conversations.find(c => c._id.toString() === conversationId);
+            }
+            
+            if (!conversation) {
+                conversation = {
+                    messages: [],
+                    context: { sourceType: 'analysis', sourceId: id }
+                };
+                analysis.conversations.push(conversation);
+            }
+
+            // Aggiungi il nuovo messaggio
+            conversation.messages.push({
+                role: 'user',
+                content: question,
+                timestamp: new Date()
+            });
+
+            // Se la richiesta è per le domande iniziali, mantieni la logica esistente
             if (question === 'initial') {
-                const analysis = await Analysis.findOne({ _id: id, userId });
-                if (!analysis) {
-                    return res.status(404).json({ message: 'Analysis not found' });
-                }
-
-                // Verifica se l'analisi ha già delle followUpSuggestions salvate
-                if (analysis.followUpSuggestions && analysis.followUpSuggestions.length > 0) {
-                    // Restituisci le domande già esistenti
-                    return res.status(200).json({ suggestions: analysis.followUpSuggestions });
-                }
-
-                // Genera nuove domande suggerite
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
                 const suggestionsPrompt = `Based on this analysis, generate 4-5 follow-up questions:
                 ${JSON.stringify(analysis.analysis)}`;
@@ -852,93 +870,50 @@ const analyticsController = {
                 let suggestions = [];
                 
                 try {
-                    // FIX: Salva prima il testo della risposta, poi elaboralo
                     const responseText = await response.text();
-                    console.log('Raw suggestions response:', responseText);
-                    
-                    // Pulizia del testo prima del parsing
                     const cleanedText = responseText.replace(/```json\s*|\s*```/g, '').trim();
-                    console.log('Cleaned suggestions text:', cleanedText);
                     
-                    // Verifica se il testo inizia con '[' e termina con ']'
                     if (cleanedText.startsWith('[') && cleanedText.endsWith(']')) {
                         suggestions = JSON.parse(cleanedText);
                     } else {
-                        // Se non è un array JSON valido, estrai le domande usando regex
                         const questionsRegex = /"([^"]+)"/g;
                         const matches = [...cleanedText.matchAll(questionsRegex)];
                         suggestions = matches.map(match => match[1]);
                     }
                     
-                    console.log('Successfully parsed suggestions:', suggestions);
-                    
-                    // Aggiorna l'analisi con le nuove domande
-                    if (suggestions.length > 0) {
-                        analysis.followUpSuggestions = suggestions;
-                        await analysis.save();
-                    }
+                    await analysis.save(); // Salva la conversazione
+                    return res.status(200).json({ suggestions });
                 } catch (e) {
                     console.error('Failed to parse suggestions:', e);
-                    // Fallback a domande predefinite
                     suggestions = [
                         "What are the top 3 areas we should focus on improving?",
                         "Can you suggest specific actions for our biggest strength?",
                         "How do our ratings compare to industry averages?",
                         "What quick wins can we implement immediately?"
                     ];
+                    return res.status(200).json({ suggestions });
                 }
-
-                return res.status(200).json({ suggestions });
             }
 
-            const analysis = await Analysis.findOne({ _id: id, userId });
-            if (!analysis) {
-                return res.status(404).json({ message: 'Analysis not found' });
-            }
-
-            // Recupera o crea una nuova conversazione
-            let conversation;
-            if (conversationId) {
-                conversation = analysis.conversations?.find(c => c._id.toString() === conversationId);
-            }
-            
-            if (!conversation) {
-                conversation = {
-                    messages: [],
-                    context: { sourceType: 'analysis', sourceId: id }
-                };
-                if (!analysis.conversations) {
-                    analysis.conversations = [];
-                }
-                analysis.conversations.push(conversation);
-            }
-
-            // Aggiungi il nuovo messaggio
-            conversation.messages.push({
-                role: 'user',
-                content: question,
-                timestamp: new Date()
-            });
-
-            // Genera la risposta
+            // Genera la risposta per domande normali
             const response = await generateAIResponse(analysis, conversation.messages);
-
-            // Salva la risposta
+            
+            // Aggiungi la risposta dell'assistente
             conversation.messages.push({
                 role: 'assistant',
                 content: response,
                 timestamp: new Date()
             });
 
-            // Assicurati di salvare l'analisi dopo aver aggiunto i messaggi
+            // Salva l'analisi aggiornata
             await analysis.save();
 
             return res.status(200).json({
                 conversationId: conversation._id,
                 messages: conversation.messages,
-                response,
-                suggestions: [] // Aggiungi eventuali nuove domande suggerite
+                response
             });
+
         } catch (error) {
             console.error('Error in getFollowUpAnalysis:', error);
             return res.status(500).json({ 
@@ -1109,6 +1084,89 @@ ${JSON.stringify(plan, null, 2)}`
                 message: 'Error fetching grouped reviews',
                 error: error.message 
             });
+        }
+    },
+
+    // Ottieni tutte le chat di un'analisi
+    getChats: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const userId = req.userId;
+
+            const analysis = await Analysis.findOne({ _id: id, userId });
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            // Formatta le conversazioni per il frontend
+            const conversations = analysis.conversations.map(conv => ({
+                _id: conv._id,
+                messages: conv.messages,
+                createdAt: conv.messages[0]?.timestamp || new Date(),
+                title: conv.messages[0]?.content?.slice(0, 30) + '...' || 'New Chat'
+            }));
+
+            return res.status(200).json({ conversations });
+        } catch (error) {
+            console.error('Error in getChats:', error);
+            return res.status(500).json({ message: 'Error fetching chats' });
+        }
+    },
+
+    // Crea una nuova chat
+    createChat: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const userId = req.userId;
+
+            const analysis = await Analysis.findOne({ _id: id, userId });
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            const newChat = {
+                messages: [],
+                context: { sourceType: 'analysis', sourceId: id }
+            };
+
+            analysis.conversations.push(newChat);
+            await analysis.save();
+
+            const createdChat = analysis.conversations[analysis.conversations.length - 1];
+
+            return res.status(201).json({
+                _id: createdChat._id,
+                messages: [],
+                createdAt: new Date(),
+                title: 'New Chat'
+            });
+        } catch (error) {
+            console.error('Error in createChat:', error);
+            return res.status(500).json({ message: 'Error creating chat' });
+        }
+    },
+
+    // Elimina una chat
+    deleteChat: async (req, res) => {
+        try {
+            const { id, chatId } = req.params;
+            const userId = req.userId;
+
+            const analysis = await Analysis.findOne({ _id: id, userId });
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            analysis.conversations = analysis.conversations.filter(
+                conv => conv._id.toString() !== chatId
+            );
+
+            await analysis.save();
+
+            return res.status(200).json({ message: 'Chat deleted successfully' });
+        } catch (error) {
+            console.error('Error in deleteChat:', error);
+            return res.status(500).json({ message: 'Error deleting chat' });
         }
     }
 };
