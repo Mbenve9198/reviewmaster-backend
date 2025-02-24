@@ -31,6 +31,12 @@ router.options('/solution-plan', (req, res) => {
 
 router.get('/:id/reviews/:category/:itemId', analyticsController.getGroupedReviews);
 
+// Route per la chat history
 router.get('/:id/chat-history', analyticsController.getChatHistory);
+
+// Nuove route per la gestione delle chat
+router.get('/:id/chats', analyticsController.getChats);
+router.post('/:id/chats', analyticsController.createChat);
+router.delete('/:id/chats/:chatId', analyticsController.deleteChat);
 
 module.exports = router; 

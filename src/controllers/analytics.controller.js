@@ -1124,21 +1124,25 @@ ${JSON.stringify(plan, null, 2)}`
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
+            // Crea una nuova conversazione con un titolo predefinito
             const newChat = {
                 messages: [],
-                context: { sourceType: 'analysis', sourceId: id }
+                context: { sourceType: 'analysis', sourceId: id },
+                title: 'New Chat' // Aggiungiamo un titolo predefinito
             };
 
             analysis.conversations.push(newChat);
             await analysis.save();
 
+            // Recupera la conversazione appena creata con il suo _id generato da MongoDB
             const createdChat = analysis.conversations[analysis.conversations.length - 1];
 
+            // Formatta la risposta nello stesso formato usato in getChats
             return res.status(201).json({
                 _id: createdChat._id,
-                messages: [],
+                messages: createdChat.messages,
                 createdAt: new Date(),
-                title: 'New Chat'
+                title: createdChat.title || 'New Chat'
             });
         } catch (error) {
             console.error('Error in createChat:', error);
