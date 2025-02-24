@@ -1117,6 +1117,7 @@ ${JSON.stringify(plan, null, 2)}`
     createChat: async (req, res) => {
         try {
             const { id } = req.params;
+            const { firstMessage } = req.body;
             const userId = req.userId;
 
             const analysis = await Analysis.findOne({ _id: id, userId });
@@ -1124,25 +1125,31 @@ ${JSON.stringify(plan, null, 2)}`
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            // Crea una nuova conversazione con un titolo predefinito
+            // Genera un titolo basato sul primo messaggio
+            const title = firstMessage.length > 30 
+                ? `${firstMessage.slice(0, 30)}...` 
+                : firstMessage;
+
             const newChat = {
-                messages: [],
+                messages: [{
+                    role: 'user',
+                    content: firstMessage,
+                    timestamp: new Date()
+                }],
                 context: { sourceType: 'analysis', sourceId: id },
-                title: 'New Chat' // Aggiungiamo un titolo predefinito
+                title: title
             };
 
             analysis.conversations.push(newChat);
             await analysis.save();
 
-            // Recupera la conversazione appena creata con il suo _id generato da MongoDB
             const createdChat = analysis.conversations[analysis.conversations.length - 1];
 
-            // Formatta la risposta nello stesso formato usato in getChats
             return res.status(201).json({
                 _id: createdChat._id,
                 messages: createdChat.messages,
                 createdAt: new Date(),
-                title: createdChat.title || 'New Chat'
+                title: createdChat.title
             });
         } catch (error) {
             console.error('Error in createChat:', error);
