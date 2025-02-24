@@ -562,28 +562,6 @@ const analyticsController = {
                     const defaultTitle = `Analysis - ${analysis.meta?.hotelName || 'Hotel'} - ${new Date().toLocaleDateString()}`;
                     const dateRange = getValidDateRange(reviews);
                     
-                    const savedAnalysis = await Analysis.create({
-                        title: defaultTitle,
-                        userId,
-                        hotelId: hotelId,
-                        analysis: analysis,
-                        reviewsAnalyzed: reviews.length,
-                        reviewIds: reviews.map(r => r._id),
-                        provider,
-                        metadata: {
-                            platforms,
-                            dateRange,
-                            creditsUsed: creditCost
-                        }
-                    });
-
-                    analysis = {
-                        ...analysis,
-                        _id: savedAnalysis._id,
-                        title: defaultTitle
-                    };
-
-                    // Generiamo i suggerimenti
                     console.log('Generating suggestions with Gemini...');
                     const suggestionsPrompt = `You are an AI assistant helping hotel managers analyze their reviews.
                     Generate 4-5 follow-up questions that the manager might want to ask about this analysis.
@@ -608,13 +586,37 @@ const analyticsController = {
                     });
 
                     const suggestionsResponse = await suggestionsResult.response;
+                    let followUpSuggestions = [];
                     try {
-                        suggestions = JSON.parse(suggestionsResponse.text());
-                        console.log('Successfully generated suggestions:', suggestions);
+                        followUpSuggestions = JSON.parse(suggestionsResponse.text());
+                        console.log('Successfully generated suggestions:', followUpSuggestions);
                     } catch (e) {
                         console.error('Failed to parse suggestions response:', e);
-                        suggestions = [];
+                        followUpSuggestions = [];
                     }
+
+                    const savedAnalysis = await Analysis.create({
+                        title: defaultTitle,
+                        userId,
+                        hotelId: hotelId,
+                        analysis: analysis,
+                        reviewsAnalyzed: reviews.length,
+                        reviewIds: reviews.map(r => r._id),
+                        provider,
+                        followUpSuggestions,
+                        metadata: {
+                            platforms,
+                            dateRange,
+                            creditsUsed: creditCost
+                        }
+                    });
+
+                    analysis = {
+                        ...analysis,
+                        _id: savedAnalysis._id,
+                        title: defaultTitle,
+                        followUpSuggestions
+                    };
                 }
 
                 if (!req.body.previousMessages && analysis.strengths && analysis.issues) {
@@ -645,7 +647,7 @@ const analyticsController = {
                 _id: analysis._id,
                 analysis,
                 provider,
-                suggestions,
+                suggestions: analysis.followUpSuggestions || [],
                 suggestionsMessage
             });
         } catch (error) {
