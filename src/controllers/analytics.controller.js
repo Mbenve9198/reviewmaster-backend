@@ -316,60 +316,78 @@ Return a JSON object with this structure:
 
 const sanitizeGeminiJson = async (rawJson, reviews) => {
     try {
-        // Rimuovi i log e i backticks dal JSON grezzo
-        let cleanJson = rawJson
-            .replace(/^\s*```json\s*/, '')  // Rimuove ```json all'inizio
-            .replace(/\s*```\s*$/, '')      // Rimuove ``` alla fine
-            .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z.*Request Body:.*{}/g, '') // Rimuove i log
-            .replace(/Error.*\n/g, '')      // Rimuove le linee di errore
-            .replace(/at.*\n/g, '')         // Rimuove gli stack trace
-            .trim();
-
-        // Prima prova a parsare direttamente
+        // First try direct parsing
         try {
-            const parsed = JSON.parse(cleanJson);
-            console.log('Direct parsing successful');
-            return parsed;
+            const directParse = JSON.parse(rawJson);
+            return directParse;
         } catch (e) {
-            console.log('Direct parsing failed, trying with Claude...');
+            console.log('Direct parsing failed, cleaning JSON...');
         }
 
-        // Se il parsing diretto fallisce, usa Claude per riparare il JSON
+        // Clean the JSON before sending to Claude
+        const cleanedInput = rawJson
+            .replace(/Error.*\n/g, '')
+            .replace(/at.*\n/g, '')
+            .replace(/```json\s*/g, '')
+            .replace(/```/g, '')
+            .replace(/\n/g, ' ')
+            .replace(/\s+/g, ' ')
+            .replace(/\\"/g, '"')
+            .trim();
+
         const response = await anthropic.messages.create({
             model: "claude-3-5-sonnet-20241022",
             max_tokens: 4000,
             temperature: 0,
-            system: "You are a JSON repair expert. Your task is to fix malformed JSON and return only valid JSON.",
+            system: `You are a JSON repair expert. Your task is to fix malformed JSON and ensure the relatedReviews arrays match exactly with their mentions count.
+
+CRITICAL RULES:
+1. For each strength and issue, the number of IDs in relatedReviews array MUST EXACTLY match the mentions count
+2. If a strength has mentions: 42, then relatedReviews must contain exactly 42 review IDs
+3. Never skip or omit any relatedReviews
+4. Never add fake or made-up review IDs
+5. Only use review IDs from the provided list
+6. If there aren't enough review IDs to match mentions, reduce the mentions count to match available reviews`,
             messages: [{
                 role: "user",
-                content: `Fix this malformed JSON. Return ONLY the fixed JSON with no other text or markdown:
+                content: `Fix this malformed JSON. The most critical requirement is that each strength and issue must have exactly the same number of relatedReviews as their mentions count.
 
-${cleanJson}
+${cleanedInput}
 
-Rules:
+Available review IDs: ${reviews.map(r => r._id.toString()).join(', ')}
+
+Requirements:
 1. Return ONLY valid JSON
 2. No text before or after the JSON
-3. No markdown or code blocks
-4. Preserve all data exactly as is
-5. Fix any unterminated strings or missing commas
-6. Each strength/issue must have a "relatedReviews" array
-7. Available review IDs: ${reviews.map(r => r._id.toString()).join(', ')}`
+3. For each strength/issue:
+   - If mentions = N, then relatedReviews must contain exactly N review IDs
+   - Only use IDs from the provided list
+   - If there aren't enough review IDs, reduce the mentions count
+4. Validate all relatedReviews arrays match their mentions count before returning`
             }]
         });
 
         const fixedJson = response.content[0].text
-            .replace(/```json\s*|\s*```/g, '')  // Rimuove i backticks
+            .replace(/```json\s*/g, '')
+            .replace(/```/g, '')
             .trim();
 
-        try {
-            // Verifica che il JSON riparato sia valido
-            const parsed = JSON.parse(fixedJson);
-            console.log('Successfully parsed fixed JSON');
-            return parsed;
-        } catch (parseError) {
-            console.error('Failed to parse Claude response:', parseError);
-            throw new Error('Failed to repair JSON structure');
-        }
+        // Validate the fixed JSON
+        const parsed = JSON.parse(fixedJson);
+        
+        // Double check the mentions counts match relatedReviews lengths
+        const validateCounts = (items) => {
+            items.forEach(item => {
+                if (item.mentions !== item.relatedReviews.length) {
+                    throw new Error(`Validation failed: mentions count (${item.mentions}) doesn't match relatedReviews length (${item.relatedReviews.length})`);
+                }
+            });
+        };
+
+        validateCounts(parsed.strengths);
+        validateCounts(parsed.issues);
+
+        return parsed;
     } catch (error) {
         console.error('Error in sanitizeGeminiJson:', error);
         throw error;
