@@ -316,48 +316,60 @@ Return a JSON object with this structure:
 
 const sanitizeGeminiJson = async (rawJson, reviews) => {
     try {
-        // Prima proviamo a parsare direttamente il JSON di Gemini
-        try {
-            const directParse = JSON.parse(rawJson);
-            return directParse;
-        } catch (e) {
-            console.log('Direct parsing failed, cleaning JSON...');
-        }
-
-        // Puliamo il JSON prima di mandarlo a Claude
-        const cleanedInput = rawJson
-            .replace(/Error.*\n/g, '') // Rimuove le linee di errore
-            .replace(/at.*\n/g, '')    // Rimuove gli stack trace
-            .replace(/```json\s*/g, '') // Rimuove i delimitatori di codice JSON
-            .replace(/```/g, '')        // Rimuove i delimitatori di codice
-            .replace(/\n/g, ' ')       // Rimuove i newline
-            .replace(/\s+/g, ' ')      // Normalizza gli spazi
-            .replace(/\\"/g, '"')      // Gestisce le virgolette escapate
+        // Rimuovi i log e i backticks dal JSON grezzo
+        let cleanJson = rawJson
+            .replace(/^\s*```json\s*/, '')  // Rimuove ```json all'inizio
+            .replace(/\s*```\s*$/, '')      // Rimuove ``` alla fine
+            .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z.*Request Body:.*{}/g, '') // Rimuove i log
+            .replace(/Error.*\n/g, '')      // Rimuove le linee di errore
+            .replace(/at.*\n/g, '')         // Rimuove gli stack trace
             .trim();
 
+        // Prima prova a parsare direttamente
+        try {
+            const parsed = JSON.parse(cleanJson);
+            console.log('Direct parsing successful');
+            return parsed;
+        } catch (e) {
+            console.log('Direct parsing failed, trying with Claude...');
+        }
+
+        // Se il parsing diretto fallisce, usa Claude per riparare il JSON
         const response = await anthropic.messages.create({
             model: "claude-3-5-sonnet-20241022",
             max_tokens: 4000,
             temperature: 0,
-            system: "You are a JSON validator. Return ONLY the fixed JSON with no other text.",
+            system: "You are a JSON repair expert. Your task is to fix malformed JSON and return only valid JSON.",
             messages: [{
                 role: "user",
-                content: `Fix this JSON and return ONLY the fixed JSON. No other text:
-${cleanedInput}
+                content: `Fix this malformed JSON. Return ONLY the fixed JSON with no other text or markdown:
+
+${cleanJson}
 
 Rules:
-1. Each strength/issue must have a "relatedReviews" array containing ONLY review IDs
-2. The number of IDs in relatedReviews must EXACTLY match the "mentions" count
-3. Available review IDs: ${reviews.map(r => r._id.toString()).join(', ')}`
+1. Return ONLY valid JSON
+2. No text before or after the JSON
+3. No markdown or code blocks
+4. Preserve all data exactly as is
+5. Fix any unterminated strings or missing commas
+6. Each strength/issue must have a "relatedReviews" array
+7. Available review IDs: ${reviews.map(r => r._id.toString()).join(', ')}`
             }]
         });
 
-        const cleanedJson = response.content[0].text
-            .replace(/```json\s*/g, '')
-            .replace(/```/g, '')
+        const fixedJson = response.content[0].text
+            .replace(/```json\s*|\s*```/g, '')  // Rimuove i backticks
             .trim();
 
-        return JSON.parse(cleanedJson);
+        try {
+            // Verifica che il JSON riparato sia valido
+            const parsed = JSON.parse(fixedJson);
+            console.log('Successfully parsed fixed JSON');
+            return parsed;
+        } catch (parseError) {
+            console.error('Failed to parse Claude response:', parseError);
+            throw new Error('Failed to repair JSON structure');
+        }
     } catch (error) {
         console.error('Error in sanitizeGeminiJson:', error);
         throw error;
