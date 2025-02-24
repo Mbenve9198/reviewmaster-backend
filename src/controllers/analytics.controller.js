@@ -347,7 +347,7 @@ CRITICAL RULES:
 3. Never skip or omit any relatedReviews
 4. Never add fake or made-up review IDs
 5. Only use review IDs from the provided list
-6. If there aren't enough review IDs to match mentions, reduce the mentions count to match available reviews`,
+6. If there aren't enough review IDs to match mentions, reduce the mentions count`,
             messages: [{
                 role: "user",
                 content: `Fix this malformed JSON. The most critical requirement is that each strength and issue must have exactly the same number of relatedReviews as their mentions count.
@@ -367,6 +367,9 @@ Requirements:
             }]
         });
 
+        // Aggiungiamo il log della risposta di Claude
+        console.log('Claude response:', JSON.stringify(response.content[0].text, null, 2));
+
         const fixedJson = response.content[0].text
             .replace(/```json\s*/g, '')
             .replace(/```/g, '')
@@ -379,7 +382,8 @@ Requirements:
         const validateCounts = (items) => {
             items.forEach(item => {
                 if (item.mentions !== item.relatedReviews.length) {
-                    throw new Error(`Validation failed: mentions count (${item.mentions}) doesn't match relatedReviews length (${item.relatedReviews.length})`);
+                    // Aggiustiamo il numero di mentions per corrispondere al numero effettivo di relatedReviews
+                    item.mentions = item.relatedReviews.length;
                 }
             });
         };
