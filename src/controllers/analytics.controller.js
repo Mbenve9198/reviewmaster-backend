@@ -444,7 +444,13 @@ const analyticsController = {
                     });
                     
                     const response = await result.response;
-                    analysis = JSON.parse(response.text()); // Parsing diretto della risposta
+                    let text = response.text();
+                    
+                    // Pulizia della risposta prima del parsing
+                    text = text.replace(/```json\s*|\s*```/g, '').trim();
+                    console.log('Cleaned Gemini response:', text); // Log per debug
+                    
+                    analysis = JSON.parse(text);
                     provider = 'gemini';
                 }
 
