@@ -318,14 +318,22 @@ const generateAIResponse = async (analysis, messages) => {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
         
+        // Recupera le conoscenze dai libri
+        console.log('Fetching book knowledge for chat response...');
+        const bookKnowledge = await getBookKnowledge();
+        console.log('Book knowledge fetched, length:', bookKnowledge.length);
+
         // Prepara il contesto dell'analisi
-        const analysisContext = `You are an AI assistant helping analyze this hotel data:
-        Hotel: ${analysis.analysis.meta.hotelName}
-        Reviews analyzed: ${analysis.reviewsAnalyzed}
-        Average rating: ${analysis.analysis.meta.avgRating}
-        
-        Key strengths: ${analysis.analysis.strengths.map(s => s.title).join(', ')}
-        Key issues: ${analysis.analysis.issues.map(i => i.title).join(', ')}`;
+        const analysisContext = `First, carefully study this hospitality industry knowledge and use it as the foundation for your response:
+${bookKnowledge}
+
+You are an AI assistant helping analyze this hotel data:
+Hotel: ${analysis.analysis.meta.hotelName}
+Reviews analyzed: ${analysis.reviewsAnalyzed}
+Average rating: ${analysis.analysis.meta.avgRating}
+
+Key strengths: ${analysis.analysis.strengths.map(s => s.title).join(', ')}
+Key issues: ${analysis.analysis.issues.map(i => i.title).join(', ')}`;
 
         // Prepara la cronologia della conversazione
         const conversationHistory = messages
@@ -339,14 +347,16 @@ Previous conversation:
 ${conversationHistory}
 
 Guidelines for your response:
+- Use the hospitality industry knowledge provided above to inform your answers
 - Be concise and professional
 - Use data from the analysis to support your points
-- Provide actionable insights
+- Provide actionable insights based on industry best practices
 - Use markdown formatting for better readability
 - Break down complex information into digestible chunks
 - Keep the conversation focused on the hotel's performance
+- NEVER mention or reference the source of your knowledge directly
 
-Please respond to the last user message.`;
+Please respond to the last user message, incorporating relevant industry expertise where appropriate.`;
 
         const result = await model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -377,11 +387,29 @@ Please respond to the last user message.`;
         });
 
         const response = await result.response;
-        return response.text()
-            .replace(/\*\*/g, '**')  // Mantieni il markdown
-            .replace(/([.!?])\s*(\n)?/g, '$1\n\n')  // Doppio a capo dopo la punteggiatura
-            .replace(/\n{3,}/g, '\n\n')  // Rimuovi spazi multipli
+        const rawText = response.text();
+        
+        // Ensure proper markdown formatting
+        let formattedText = rawText
+            // Preserve markdown bold formatting
+            .replace(/\*\*(.*?)\*\*/g, '**$1**')
+            
+            // Ensure proper paragraph spacing
+            .replace(/([.!?])\s*(\n)?/g, '$1\n\n')
+            
+            // Remove excess line breaks
+            .replace(/\n{3,}/g, '\n\n')
+            
+            // Format bullet points
+            .replace(/\n\*\s/g, '\n\n* ')
+            .replace(/\n-\s/g, '\n\n- ')
+            
+            // Format headers
+            .replace(/\n(#{1,3})\s/g, '\n\n$1 ')
+            
             .trim();
+        
+        return formattedText;
 
     } catch (error) {
         console.error('Error generating AI response:', error);
