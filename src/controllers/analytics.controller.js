@@ -515,17 +515,22 @@ const analyticsController = {
                 }
 
                 if (!req.body.previousMessages && analysis.strengths && analysis.issues) {
-                    // Verifica solo che relatedReviews sia un array valido per ogni strength e issue
+                    // Allinea mentions con il numero effettivo di relatedReviews per ogni strength
                     for (const strength of analysis.strengths) {
                         if (!Array.isArray(strength.relatedReviews)) {
                             strength.relatedReviews = [];
                         }
+                        // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
+                        strength.mentions = strength.relatedReviews.length;
                     }
 
+                    // Allinea mentions con il numero effettivo di relatedReviews per ogni issue
                     for (const issue of analysis.issues) {
                         if (!Array.isArray(issue.relatedReviews)) {
                             issue.relatedReviews = [];
                         }
+                        // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
+                        issue.mentions = issue.relatedReviews.length;
                     }
                 }
             } catch (error) {
