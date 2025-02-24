@@ -31,4 +31,6 @@ router.options('/solution-plan', (req, res) => {
 
 router.get('/:id/reviews/:category/:itemId', analyticsController.getGroupedReviews);
 
+router.get('/:id/chat-history', analyticsController.getChatHistory);
+
 module.exports = router; 

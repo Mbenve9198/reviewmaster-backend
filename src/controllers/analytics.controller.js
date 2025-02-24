@@ -787,10 +787,40 @@ const analyticsController = {
         }
     },
 
+    getChatHistory: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const userId = req.userId;
+
+            const analysis = await Analysis.findOne({ 
+                _id: id,
+                userId 
+            });
+
+            if (!analysis) {
+                return res.status(404).json({ message: 'Analysis not found' });
+            }
+
+            // Prendi l'ultima conversazione se esiste
+            const lastConversation = analysis.conversations?.[analysis.conversations.length - 1];
+            
+            return res.status(200).json({
+                messages: lastConversation?.messages || []
+            });
+
+        } catch (error) {
+            console.error('Error in getChatHistory:', error);
+            return res.status(500).json({ 
+                message: 'Error fetching chat history',
+                error: error.message 
+            });
+        }
+    },
+
     getFollowUpAnalysis: async (req, res) => {
         try {
             const { id } = req.params;
-            const { question, conversationId } = req.body;
+            const { question, messages, conversationId } = req.body;
             const userId = req.userId;
 
             // Se la richiesta è per le domande iniziali
@@ -867,13 +897,20 @@ const analyticsController = {
             }
 
             // Recupera o crea una nuova conversazione
-            let conversation = analysis.conversations?.find(c => c._id.toString() === conversationId);
+            let conversation;
+            if (conversationId) {
+                conversation = analysis.conversations?.find(c => c._id.toString() === conversationId);
+            }
+            
             if (!conversation) {
                 conversation = {
                     messages: [],
                     context: { sourceType: 'analysis', sourceId: id }
                 };
-                analysis.conversations = [...(analysis.conversations || []), conversation];
+                if (!analysis.conversations) {
+                    analysis.conversations = [];
+                }
+                analysis.conversations.push(conversation);
             }
 
             // Aggiungi il nuovo messaggio
@@ -893,12 +930,14 @@ const analyticsController = {
                 timestamp: new Date()
             });
 
+            // Assicurati di salvare l'analisi dopo aver aggiunto i messaggi
             await analysis.save();
 
             return res.status(200).json({
                 conversationId: conversation._id,
                 messages: conversation.messages,
-                response
+                response,
+                suggestions: [] // Aggiungi eventuali nuove domande suggerite
             });
         } catch (error) {
             console.error('Error in getFollowUpAnalysis:', error);
