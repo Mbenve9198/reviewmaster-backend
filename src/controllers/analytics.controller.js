@@ -588,11 +588,45 @@ const analyticsController = {
                     const suggestionsResponse = await suggestionsResult.response;
                     let followUpSuggestions = [];
                     try {
-                        followUpSuggestions = JSON.parse(suggestionsResponse.text());
+                        // FIX: Prima ottieni il testo, poi elaboralo
+                        const responseText = await suggestionsResponse.text();
+                        console.log('Raw suggestions response:', responseText);
+                        
+                        // Pulizia del testo prima del parsing
+                        const cleanedText = responseText.replace(/```json\s*|\s*```/g, '').trim();
+                        console.log('Cleaned suggestions text:', cleanedText);
+                        
+                        // Verifica se il testo è già un array JSON valido
+                        if (cleanedText.startsWith('[') && cleanedText.endsWith(']')) {
+                            followUpSuggestions = JSON.parse(cleanedText);
+                        } else {
+                            // Se non è un array JSON valido, estrai le domande usando regex
+                            const questionsRegex = /"([^"]+)"/g;
+                            const matches = [...cleanedText.matchAll(questionsRegex)];
+                            followUpSuggestions = matches.map(match => match[1]);
+                        }
+                        
+                        // Se ancora non abbiamo suggerimenti, creiamo domande predefinite
+                        if (!followUpSuggestions || followUpSuggestions.length === 0) {
+                            followUpSuggestions = [
+                                "What are the top 3 areas we should focus on improving?",
+                                "Can you suggest specific actions for our biggest strength?",
+                                "How do our ratings compare to industry averages?",
+                                "What quick wins can we implement immediately?"
+                            ];
+                        }
+                        
                         console.log('Successfully generated suggestions:', followUpSuggestions);
                     } catch (e) {
                         console.error('Failed to parse suggestions response:', e);
-                        followUpSuggestions = [];
+                        console.error('Raw text:', responseText);
+                        // Fallback a domande predefinite
+                        followUpSuggestions = [
+                            "What are the top 3 areas we should focus on improving?",
+                            "Can you suggest specific actions for our biggest strength?",
+                            "How do our ratings compare to industry averages?",
+                            "What quick wins can we implement immediately?"
+                        ];
                     }
 
                     const savedAnalysis = await Analysis.create({
@@ -766,6 +800,12 @@ const analyticsController = {
                     return res.status(404).json({ message: 'Analysis not found' });
                 }
 
+                // Verifica se l'analisi ha già delle followUpSuggestions salvate
+                if (analysis.followUpSuggestions && analysis.followUpSuggestions.length > 0) {
+                    // Restituisci le domande già esistenti
+                    return res.status(200).json({ suggestions: analysis.followUpSuggestions });
+                }
+
                 // Genera nuove domande suggerite
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
                 const suggestionsPrompt = `Based on this analysis, generate 4-5 follow-up questions:
@@ -782,10 +822,40 @@ const analyticsController = {
                 let suggestions = [];
                 
                 try {
-                    suggestions = JSON.parse(response.text().replace(/```json\s*|\s*```/g, '').trim());
+                    // FIX: Salva prima il testo della risposta, poi elaboralo
+                    const responseText = await response.text();
+                    console.log('Raw suggestions response:', responseText);
+                    
+                    // Pulizia del testo prima del parsing
+                    const cleanedText = responseText.replace(/```json\s*|\s*```/g, '').trim();
+                    console.log('Cleaned suggestions text:', cleanedText);
+                    
+                    // Verifica se il testo inizia con '[' e termina con ']'
+                    if (cleanedText.startsWith('[') && cleanedText.endsWith(']')) {
+                        suggestions = JSON.parse(cleanedText);
+                    } else {
+                        // Se non è un array JSON valido, estrai le domande usando regex
+                        const questionsRegex = /"([^"]+)"/g;
+                        const matches = [...cleanedText.matchAll(questionsRegex)];
+                        suggestions = matches.map(match => match[1]);
+                    }
+                    
+                    console.log('Successfully parsed suggestions:', suggestions);
+                    
+                    // Aggiorna l'analisi con le nuove domande
+                    if (suggestions.length > 0) {
+                        analysis.followUpSuggestions = suggestions;
+                        await analysis.save();
+                    }
                 } catch (e) {
                     console.error('Failed to parse suggestions:', e);
-                    suggestions = [];
+                    // Fallback a domande predefinite
+                    suggestions = [
+                        "What are the top 3 areas we should focus on improving?",
+                        "Can you suggest specific actions for our biggest strength?",
+                        "How do our ratings compare to industry averages?",
+                        "What quick wins can we implement immediately?"
+                    ];
                 }
 
                 return res.status(200).json({ suggestions });
