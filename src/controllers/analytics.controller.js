@@ -339,35 +339,34 @@ const sanitizeGeminiJson = async (rawJson, reviews) => {
             model: "claude-3-5-sonnet-20241022",
             max_tokens: 4000,
             temperature: 0,
-            system: `You are a JSON repair expert. Your task is to fix malformed JSON and ensure the relatedReviews arrays match exactly with their mentions count.
+            system: `You are a JSON repair expert. Your task is to fix any JSON syntax issues while preserving ALL original data and structure.
 
 CRITICAL RULES:
-1. For each strength and issue, the number of IDs in relatedReviews array MUST EXACTLY match the mentions count
-2. If a strength has mentions: 42, then relatedReviews must contain exactly 42 review IDs
-3. Never skip or omit any relatedReviews
-4. Never add fake or made-up review IDs
+1. Preserve ALL fields and values from the original JSON
+2. Only fix syntax errors (missing quotes, commas, brackets)
+3. For each strength and issue, ensure relatedReviews array matches mentions count
+4. Never remove or modify any existing data
 5. Only use review IDs from the provided list
 6. If there aren't enough review IDs to match mentions, reduce the mentions count`,
             messages: [{
                 role: "user",
-                content: `Fix this malformed JSON. The most critical requirement is that each strength and issue must have exactly the same number of relatedReviews as their mentions count.
+                content: `Fix any JSON syntax errors in this data while preserving ALL original content and structure. Do not remove or modify any fields.
 
 ${cleanedInput}
 
 Available review IDs: ${reviews.map(r => r._id.toString()).join(', ')}
 
 Requirements:
-1. Return ONLY valid JSON
-2. No text before or after the JSON
+1. Return the complete JSON with ALL original fields and values
+2. Fix ONLY syntax errors (quotes, commas, brackets)
 3. For each strength/issue:
    - If mentions = N, then relatedReviews must contain exactly N review IDs
    - Only use IDs from the provided list
    - If there aren't enough review IDs, reduce the mentions count
-4. Validate all relatedReviews arrays match their mentions count before returning`
+4. Do not remove or modify any other data`
             }]
         });
 
-        // Aggiungiamo il log della risposta di Claude
         console.log('Claude response:', JSON.stringify(response.content[0].text, null, 2));
 
         const fixedJson = response.content[0].text
@@ -382,7 +381,6 @@ Requirements:
         const validateCounts = (items) => {
             items.forEach(item => {
                 if (item.mentions !== item.relatedReviews.length) {
-                    // Aggiustiamo il numero di mentions per corrispondere al numero effettivo di relatedReviews
                     item.mentions = item.relatedReviews.length;
                 }
             });
