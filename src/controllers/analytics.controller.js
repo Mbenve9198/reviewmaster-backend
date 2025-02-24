@@ -316,59 +316,50 @@ Return a JSON object with this structure:
 
 const sanitizeGeminiJson = async (rawJson, reviews) => {
     try {
-        console.log('1. Input to Claude:', rawJson);
+        // Prima proviamo a parsare direttamente il JSON di Gemini
+        try {
+            const directParse = JSON.parse(rawJson);
+            return directParse;
+        } catch (e) {
+            console.log('Direct parsing failed, cleaning JSON...');
+        }
+
+        // Puliamo il JSON prima di mandarlo a Claude
+        const cleanedInput = rawJson
+            .replace(/Error.*\n/g, '') // Rimuove le linee di errore
+            .replace(/at.*\n/g, '')    // Rimuove gli stack trace
+            .replace(/```json\s*/g, '') // Rimuove i delimitatori di codice JSON
+            .replace(/```/g, '')        // Rimuove i delimitatori di codice
+            .replace(/\n/g, ' ')       // Rimuove i newline
+            .replace(/\s+/g, ' ')      // Normalizza gli spazi
+            .replace(/\\"/g, '"')      // Gestisce le virgolette escapate
+            .trim();
 
         const response = await anthropic.messages.create({
             model: "claude-3-5-sonnet-20241022",
             max_tokens: 4000,
             temperature: 0,
-            system: "You are a JSON validator. Your ONLY task is to output a clean, valid JSON. Do not output ANY text, logs, or explanations - only the JSON object.",
+            system: "You are a JSON validator. Return ONLY the fixed JSON with no other text.",
             messages: [{
                 role: "user",
-                content: `Fix and return this JSON. Output ONLY the JSON object - no text, no explanations, no error messages:
-
-${rawJson}
+                content: `Fix this JSON and return ONLY the fixed JSON. No other text:
+${cleanedInput}
 
 Rules:
 1. Each strength/issue must have a "relatedReviews" array containing ONLY review IDs
 2. The number of IDs in relatedReviews must EXACTLY match the "mentions" count
-3. Available review IDs: ${reviews.map(r => r._id.toString()).join(', ')}
-
-Remember: Return ONLY the JSON object. No other text allowed.`
+3. Available review IDs: ${reviews.map(r => r._id.toString()).join(', ')}`
             }]
         });
 
-        console.log('2. Raw Claude response:', response?.content?.[0]?.text);
+        const cleanedJson = response.content[0].text
+            .replace(/```json\s*/g, '')
+            .replace(/```/g, '')
+            .trim();
 
-        const cleanedJson = response.content[0].text.trim();
-        console.log('3. Cleaned response:', cleanedJson);
-
-        const parsedJson = JSON.parse(cleanedJson);
-        console.log('4. Successfully parsed JSON');
-
-        // Validazione delle mentions
-        for (const strength of (parsedJson.strengths || [])) {
-            console.log(`5. Validating strength "${strength.title}": ${strength.mentions} mentions vs ${strength.relatedReviews.length} reviews`);
-            if (strength.mentions !== strength.relatedReviews.length) {
-                throw new Error(`Strength "${strength.title}" has mismatched mentions count`);
-            }
-        }
-        
-        for (const issue of (parsedJson.issues || [])) {
-            console.log(`6. Validating issue "${issue.title}": ${issue.mentions} mentions vs ${issue.relatedReviews.length} reviews`);
-            if (issue.mentions !== issue.relatedReviews.length) {
-                throw new Error(`Issue "${issue.title}" has mismatched mentions count`);
-            }
-        }
-
-        console.log('7. All validations passed');
-        return parsedJson;
+        return JSON.parse(cleanedJson);
     } catch (error) {
-        console.error('Error in sanitizeGeminiJson at step:', error);
-        console.error('Error details:', {
-            message: error.message,
-            stack: error.stack
-        });
+        console.error('Error in sanitizeGeminiJson:', error);
         throw error;
     }
 };
