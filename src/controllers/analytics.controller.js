@@ -314,6 +314,62 @@ Return a JSON object with this structure:
 }`;
 };
 
+const sanitizeGeminiJson = async (rawJson, reviews) => {
+    try {
+        const response = await anthropic.messages.create({
+            model: "claude-3-5-sonnet-20241022",
+            max_tokens: 4000,
+            temperature: 0,
+            system: "You are a JSON validation and correction expert. Your task is to fix malformed JSON from another LLM while preserving all the data and ensuring the correct structure.",
+            messages: [{
+                role: "user",
+                content: `This is a malformed JSON response from another LLM analyzing hotel reviews. Fix any structural issues while preserving ALL the data.
+
+The JSON should follow this exact structure:
+1. Each strength/issue must have a "relatedReviews" array containing ONLY review IDs (MongoDB ObjectIds)
+2. The number of IDs in relatedReviews must EXACTLY match the "mentions" count
+3. Preserve all other data exactly as is
+
+Original JSON:
+${rawJson}
+
+Review IDs available:
+${reviews.map(r => r._id.toString()).join(', ')}
+
+Return ONLY the fixed JSON with no explanation, comments, or markup.`
+            }]
+        });
+
+        if (!response?.content?.[0]?.text) {
+            throw new Error('Invalid response from Claude');
+        }
+
+        let cleanedJson = response.content[0].text
+            .replace(/```json\n?|\n?```/g, '')
+            .replace(/^[^{]*/, '')
+            .replace(/}[^}]*$/, '')
+            .trim();
+
+        const parsedJson = JSON.parse(cleanedJson);
+        
+        for (const strength of (parsedJson.strengths || [])) {
+            if (strength.mentions !== strength.relatedReviews.length) {
+                throw new Error(`Strength "${strength.title}" has mismatched mentions count`);
+            }
+        }
+        for (const issue of (parsedJson.issues || [])) {
+            if (issue.mentions !== issue.relatedReviews.length) {
+                throw new Error(`Issue "${issue.title}" has mismatched mentions count`);
+            }
+        }
+
+        return parsedJson;
+    } catch (error) {
+        console.error('Error in sanitizeGeminiJson:', error);
+        throw error;
+    }
+};
+
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
@@ -531,82 +587,14 @@ const analyticsController = {
                     const response = await result.response;
                     let rawText = response.text();
                     
-                    // Log per debug
                     console.log('Raw Gemini response:', rawText);
                     
-                    // Pulizia più aggressiva
-                    rawText = rawText.replace(/```json\n?|\n?```/g, '');
-                    rawText = rawText.replace(/^[^{]*/, '');  // Rimuove tutto prima della prima {
-                    rawText = rawText.replace(/}[^}]*$/, '}'); // Rimuove tutto dopo l'ultima }
-                    rawText = rawText.trim();
-                    
-                    // Log dopo la pulizia
-                    console.log('Cleaned response:', rawText);
-                    
                     try {
-                        analysis = JSON.parse(rawText);
+                        analysis = await sanitizeGeminiJson(rawText, reviews);
                         provider = 'gemini';
-                    } catch (parseError) {
-                        console.error('Failed to parse Gemini response as JSON:', parseError);
-                        console.error('Raw response:', rawText);
-                        
-                        // Tenta più livelli di pulizia
-                        try {
-                            let fixedText = rawText;
-                            
-                            // Rimuovi eventuali commenti
-                            fixedText = fixedText.replace(/\/\/.*/g, '');
-                            
-                            // Correggi virgole doppie
-                            fixedText = fixedText.replace(/,,/g, ',');
-                            
-                            // Rimuovi virgole alla fine degli array
-                            fixedText = fixedText.replace(/,(\s*[\]}])/g, '$1');
-                            
-                            // Assicurati che ogni proprietà abbia un valore
-                            fixedText = fixedText.replace(/:\s*,/g, ': null,');
-                            
-                            // Rimuovi tutto prima della prima parentesi graffa
-                            fixedText = fixedText.replace(/^[^{]*/, '');
-                            
-                            // Rimuovi tutto dopo l'ultima parentesi graffa
-                            fixedText = fixedText.replace(/}[^}]*$/, '}');
-                            
-                            console.log('Attempting to parse cleaned JSON:', fixedText);
-                            analysis = JSON.parse(fixedText);
-                            provider = 'gemini';
-                            console.log('Successfully parsed cleaned JSON');
-                        } catch (fixError) {
-                            // Se ancora non funziona, prova con un retry a Gemini
-                            console.error('Failed to fix JSON, retrying with Gemini');
-                            try {
-                                const retryResult = await model.generateContent({
-                                    contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
-                                    generationConfig: {
-                                        temperature: 0.05, // Temperatura più bassa per il retry
-                                        maxOutputTokens: 10000
-                                    }
-                                });
-                                
-                                const retryResponse = await retryResult.response;
-                                let retryText = retryResponse.text();
-                                
-                                // Applica le stesse pulizie al retry
-                                retryText = retryText.replace(/\/\/.*/g, '')
-                                                   .replace(/,,/g, ',')
-                                                   .replace(/,(\s*[\]}])/g, '$1')
-                                                   .replace(/:\s*,/g, ': null,')
-                                                   .replace(/^[^{]*/, '')
-                                                   .replace(/}[^}]*$/, '}');
-                                
-                                analysis = JSON.parse(retryText);
-                                provider = 'gemini';
-                                console.log('Successfully parsed retry response');
-                            } catch (retryError) {
-                                console.error('Failed to get valid response after retry:', retryError);
-                                throw new Error('Failed to get valid response after retry');
-                            }
-                        }
+                    } catch (error) {
+                        console.error('Failed to sanitize JSON:', error);
+                        throw new Error('Failed to process analysis results');
                     }
                 }
 
