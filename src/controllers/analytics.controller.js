@@ -342,15 +342,15 @@ const sanitizeGeminiJson = async (rawJson, reviews) => {
             system: `You are a JSON repair expert. Your task is to fix any JSON syntax issues while preserving ALL original data and structure.
 
 CRITICAL RULES:
-1. Preserve ALL fields and values from the original JSON
-2. Only fix syntax errors (missing quotes, commas, brackets)
-3. For each strength and issue, ensure relatedReviews array matches mentions count
-4. Never remove or modify any existing data
-5. Only use review IDs from the provided list
+1. Output ONLY the fixed JSON - no explanations, no other text
+2. Preserve ALL fields and values from the original JSON
+3. Only fix syntax errors (missing quotes, commas, brackets)
+4. For each strength/issue, ensure relatedReviews array matches mentions count
+5. Never remove or modify any existing data
 6. If there aren't enough review IDs to match mentions, reduce the mentions count`,
             messages: [{
                 role: "user",
-                content: `Fix any JSON syntax errors in this data while preserving ALL original content and structure. Do not remove or modify any fields.
+                content: `Fix any JSON syntax errors while preserving ALL original content. Return ONLY the valid JSON, with no additional text.
 
 ${cleanedInput}
 
@@ -363,7 +363,8 @@ Requirements:
    - If mentions = N, then relatedReviews must contain exactly N review IDs
    - Only use IDs from the provided list
    - If there aren't enough review IDs, reduce the mentions count
-4. Do not remove or modify any other data`
+4. Do not remove or modify any other data
+Remember: Output ONLY the fixed JSON - no explanations or other text.`
             }]
         });
 
