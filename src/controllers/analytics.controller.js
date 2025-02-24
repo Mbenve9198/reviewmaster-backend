@@ -314,89 +314,6 @@ Return a JSON object with this structure:
 }`;
 };
 
-const sanitizeGeminiJson = async (rawJson, reviews) => {
-    try {
-        // First try direct parsing
-        try {
-            const directParse = JSON.parse(rawJson);
-            return directParse;
-        } catch (e) {
-            console.log('Direct parsing failed, cleaning JSON...');
-        }
-
-        // Clean the JSON before sending to Claude
-        const cleanedInput = rawJson
-            .replace(/Error.*\n/g, '')
-            .replace(/at.*\n/g, '')
-            .replace(/```json\s*/g, '')
-            .replace(/```/g, '')
-            .replace(/\n/g, ' ')
-            .replace(/\s+/g, ' ')
-            .replace(/\\"/g, '"')
-            .trim();
-
-        const response = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20241022",
-            max_tokens: 4000,
-            temperature: 0,
-            system: `You are a JSON repair expert. Your task is to fix any JSON syntax issues while preserving ALL original data and structure.
-
-CRITICAL RULES:
-1. Output ONLY the fixed JSON - no explanations, no other text
-2. Preserve ALL fields and values from the original JSON
-3. Only fix syntax errors (missing quotes, commas, brackets)
-4. For each strength/issue, ensure relatedReviews array matches mentions count
-5. Never remove or modify any existing data
-6. If there aren't enough review IDs to match mentions, reduce the mentions count`,
-            messages: [{
-                role: "user",
-                content: `Fix any JSON syntax errors while preserving ALL original content. Return ONLY the valid JSON, with no additional text.
-
-${cleanedInput}
-
-Available review IDs: ${reviews.map(r => r._id.toString()).join(', ')}
-
-Requirements:
-1. Return the complete JSON with ALL original fields and values
-2. Fix ONLY syntax errors (quotes, commas, brackets)
-3. For each strength/issue:
-   - If mentions = N, then relatedReviews must contain exactly N review IDs
-   - Only use IDs from the provided list
-   - If there aren't enough review IDs, reduce the mentions count
-4. Do not remove or modify any other data
-Remember: Output ONLY the fixed JSON - no explanations or other text.`
-            }]
-        });
-
-        console.log('Claude response:', JSON.stringify(response.content[0].text, null, 2));
-
-        const fixedJson = response.content[0].text
-            .replace(/```json\s*/g, '')
-            .replace(/```/g, '')
-            .trim();
-
-        // Validate the fixed JSON
-        const parsed = JSON.parse(fixedJson);
-        
-        // Double check the mentions counts match relatedReviews lengths
-        const validateCounts = (items) => {
-            items.forEach(item => {
-                if (item.mentions !== item.relatedReviews.length) {
-                    item.mentions = item.relatedReviews.length;
-                }
-            });
-        };
-
-        validateCounts(parsed.strengths);
-        validateCounts(parsed.issues);
-
-        return parsed;
-    } catch (error) {
-        console.error('Error in sanitizeGeminiJson:', error);
-        throw error;
-    }
-};
-
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
@@ -507,100 +424,15 @@ const analyticsController = {
                     
                     const response = await result.response;
                     let formattedResponse = response.text()
-                        .replace(/\*\*/g, '**') // Assicura che i grassetti siano formattati correttamente
-                        .replace(/([.!?])\s*(\n)?/g, '$1\n\n') // Aggiunge spaziatura dopo la punteggiatura
-                        .replace(/\n{3,}/g, '\n\n') // Normalizza gli spazi multipli
+                        .replace(/\*\*/g, '**')
+                        .replace(/([.!?])\s*(\n)?/g, '$1\n\n')
+                        .replace(/\n{3,}/g, '\n\n')
                         .trim();
                     
                     analysis = formattedResponse;
                     provider = 'gemini';
                     console.log('Received follow-up response from Gemini');
                 } else {
-                    // Per l'analisi iniziale, usiamo il codice esistente
-                    const enhancedPromptWithFormat = `IMPORTANT: THIS IS A JSON-ONLY TASK. YOUR RESPONSE MUST BE A SINGLE VALID JSON OBJECT.
-
-                    Step 1: Read and analyze this hospitality knowledge:
-                    ${bookKnowledge}
-
-                    Step 2: Read and analyze these ${reviews.length} reviews:
-                    ${systemPrompt}
-
-                    Step 3: Generate a SINGLE JSON OBJECT with this exact structure. DO NOT include any other text:
-
-                    {
-                        "meta": {
-                            "hotelName": "string",
-                            "reviewCount": ${reviews.length},
-                            "avgRating": 4.5,
-                            "platforms": "string"
-                        },
-                        "sentiment": {
-                            "excellent": "45%",
-                            "average": "35%",
-                            "needsImprovement": "20%",
-                            "distribution": {
-                                "rating5": "30%",
-                                "rating4": "25%",
-                                "rating3": "20%",
-                                "rating2": "15%",
-                                "rating1": "10%"
-                            }
-                        },
-                        "strengths": [{
-                            "title": "string",
-                            "impact": "string",
-                            "mentions": 0,
-                            "quote": "string",
-                            "details": "string",
-                            "marketingTips": [{
-                                "action": "string",
-                                "cost": "string",
-                                "roi": "string"
-                            }]
-                        }],
-                        "issues": [{
-                            "title": "string",
-                            "priority": "string",
-                            "impact": "string",
-                            "mentions": 0,
-                            "quote": "string",
-                            "details": "string",
-                            "solution": {
-                                "title": "string",
-                                "timeline": "string",
-                                "cost": "string",
-                                "roi": "string",
-                                "steps": ["string"]
-                            }
-                        }],
-                        "quickWins": [{
-                            "action": "string",
-                            "timeline": "string",
-                            "cost": "string",
-                            "impact": "string"
-                        }],
-                        "trends": [{
-                            "metric": "string",
-                            "change": "string",
-                            "period": "string"
-                        }]
-                    }
-
-                    STRICT JSON RULES:
-                    1. Response MUST start with { and end with }
-                    2. NO text before or after the JSON
-                    3. NO markdown
-                    4. NO code blocks
-                    5. NO explanations
-                    6. NO comments
-                    7. ALL strings MUST use double quotes
-                    8. Use commas between properties
-                    9. Format as a single line (no line breaks)
-                    10. ONLY valid JSON syntax is allowed
-
-                    FAILURE TO FOLLOW THESE RULES WILL RESULT IN AN ERROR.
-                    YOUR ENTIRE RESPONSE SHOULD BE A SINGLE, VALID JSON OBJECT.`;
-                    
                     const result = await model.generateContent({
                         contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
                         generationConfig: {
@@ -612,17 +444,8 @@ const analyticsController = {
                     });
                     
                     const response = await result.response;
-                    let rawText = response.text();
-                    
-                    console.log('Raw Gemini response:', rawText);
-                    
-                    try {
-                        analysis = await sanitizeGeminiJson(rawText, reviews);
-                        provider = 'gemini';
-                    } catch (error) {
-                        console.error('Failed to sanitize JSON:', error);
-                        throw new Error('Failed to process analysis results');
-                    }
+                    analysis = JSON.parse(response.text()); // Parsing diretto della risposta
+                    provider = 'gemini';
                 }
 
                 // Salviamo l'analisi nel database se non è un follow-up
