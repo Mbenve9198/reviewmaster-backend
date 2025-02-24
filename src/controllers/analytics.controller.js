@@ -314,6 +314,81 @@ Return a JSON object with this structure:
 }`;
 };
 
+const generateAIResponse = async (analysis, messages) => {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        
+        // Prepara il contesto dell'analisi
+        const analysisContext = `You are an AI assistant helping analyze this hotel data:
+        Hotel: ${analysis.analysis.meta.hotelName}
+        Reviews analyzed: ${analysis.reviewsAnalyzed}
+        Average rating: ${analysis.analysis.meta.avgRating}
+        
+        Key strengths: ${analysis.analysis.strengths.map(s => s.title).join(', ')}
+        Key issues: ${analysis.analysis.issues.map(i => i.title).join(', ')}`;
+
+        // Prepara la cronologia della conversazione
+        const conversationHistory = messages
+            .map(m => `${m.role}: ${m.content}`)
+            .join('\n');
+
+        // Costruisci il prompt completo
+        const prompt = `${analysisContext}
+
+Previous conversation:
+${conversationHistory}
+
+Guidelines for your response:
+- Be concise and professional
+- Use data from the analysis to support your points
+- Provide actionable insights
+- Use markdown formatting for better readability
+- Break down complex information into digestible chunks
+- Keep the conversation focused on the hotel's performance
+
+Please respond to the last user message.`;
+
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+                temperature: 0.7,
+                topP: 0.8,
+                topK: 40,
+                maxOutputTokens: 2000
+            },
+            safetySettings: [
+                {
+                    category: "HARM_CATEGORY_HARASSMENT",
+                    threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    category: "HARM_CATEGORY_HATE_SPEECH",
+                    threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                }
+            ]
+        });
+
+        const response = await result.response;
+        return response.text()
+            .replace(/\*\*/g, '**')  // Mantieni il markdown
+            .replace(/([.!?])\s*(\n)?/g, '$1\n\n')  // Doppio a capo dopo la punteggiatura
+            .replace(/\n{3,}/g, '\n\n')  // Rimuovi spazi multipli
+            .trim();
+
+    } catch (error) {
+        console.error('Error generating AI response:', error);
+        throw new Error('Failed to generate AI response');
+    }
+};
+
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
