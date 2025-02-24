@@ -66,37 +66,20 @@ IMPORTANT: For each strength and issue, you MUST include ALL reviews that mentio
           "roi": "125%"
         }
       ],
-      "relatedReviews": [
-        {
-          "reviewId": "mongoid_here_1",
-          "relevantText": "The hotel location was exceptional",
-          "rating": 5
-        },
-        {
-          "reviewId": "mongoid_here_2",
-          "relevantText": "Perfect central location",
-          "rating": 4
-        },
-        // ... and so on for ALL reviews that mention location (all 87 of them)
-        {
-          "reviewId": "mongoid_here_87",
-          "relevantText": "Great position near attractions",
-          "rating": 5
-        }
-      ]
+      "relatedReviews": ["mongoid_here_1", "mongoid_here_2", "mongoid_here_87"]
     }
   ],
   "issues": [
     {
-      "title": "Noise Insulation", 
+      "title": "Noise Insulation",
       "priority": "HIGH",
       "impact": "-0.9",
-      "mentions": 42,  // If you specify 42 mentions, you must include 42 related reviews
+      "mentions": 42,  // If you specify 42 mentions, you must include 42 related reviews Ids
       "quote": "Walls are thin, can hear everything from adjacent rooms",
       "details": "Major issue affecting guest sleep quality and satisfaction",
       "solution": {
         "title": "Comprehensive Sound Proofing",
-        "timeline": "3-4 months", 
+        "timeline": "3-4 months",
         "cost": "€€€",
         "roi": "180%",
         "steps": [
@@ -105,24 +88,7 @@ IMPORTANT: For each strength and issue, you MUST include ALL reviews that mentio
           "Replace door seals"
         ]
       },
-      "relatedReviews": [
-        {
-          "reviewId": "mongoid_here_1",
-          "relevantText": "Could hear everything through the walls",
-          "rating": 2
-        },
-        {
-          "reviewId": "mongoid_here_2",
-          "relevantText": "Very noisy at night",
-          "rating": 3
-        },
-        // ... and so on for ALL reviews that mention noise (all 42 of them)
-        {
-          "reviewId": "mongoid_here_42",
-          "relevantText": "Poor sound insulation between rooms",
-          "rating": 2
-        }
-      ]
+      "relatedReviews": ["mongoid_here_1", "mongoid_here_2", "mongoid_here_42"]
     }
   ],
   "quickWins": [
@@ -998,20 +964,15 @@ ${JSON.stringify(plan, null, 2)}`
             const { id, category, itemId } = req.params;
             const userId = req.userId;
 
-            // Trova l'analisi e popola le recensioni con i campi necessari
             const analysis = await Analysis.findOne({ 
                 _id: id, 
                 userId 
-            }).populate({
-                path: 'reviewIds',
-                select: 'content platform metadata response'
             });
 
             if (!analysis) {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
 
-            // Trova il gruppo target (strengths o issues)
             const targetGroup = category === 'strengths' 
                 ? analysis.analysis.strengths.find(s => s._id.toString() === itemId)
                 : analysis.analysis.issues.find(i => i._id.toString() === itemId);
@@ -1022,46 +983,19 @@ ${JSON.stringify(plan, null, 2)}`
                 });
             }
 
-            // Mappa le recensioni correlate usando gli ID MongoDB
-            const groupedReviews = targetGroup.relatedReviews?.length 
-                ? targetGroup.relatedReviews
-                    .map(related => {
-                        const review = analysis.reviewIds.find(
-                            r => r._id.toString() === related.reviewId?.toString()
-                        );
-                        
-                        if (!review) return null;
+            const reviews = await Review.find({
+                _id: { $in: targetGroup.relatedReviews }
+            });
 
-                        return {
-                            id: review._id,
-                            text: related.relevantText || review.content?.text || '',
-                            rating: related.rating || review.content?.rating || 0,
-                            date: review.metadata?.originalCreatedAt || review.createdAt,
-                            platform: review.platform || 'Unknown',
-                            author: review.content?.reviewerName || 'Anonymous',
-                            response: review.response
-                        };
-                    })
-                    .filter(Boolean)
-                : analysis.reviewIds
-                    .filter(review => {
-                        const reviewText = (review.content?.text || '').toLowerCase();
-                        const titleWords = targetGroup.title.toLowerCase()
-                            .split(/\s+/)
-                            .filter(word => word.length > 3);
-                        
-                        return titleWords.some(word => reviewText.includes(word)) || 
-                               reviewText.includes(targetGroup.title.toLowerCase());
-                    })
-                    .map(review => ({
-                        id: review._id,
-                        text: review.content?.text || '',
-                        rating: review.content?.rating || 0,
-                        date: review.metadata?.originalCreatedAt || review.createdAt,
-                        platform: review.platform || 'Unknown',
-                        author: review.content?.reviewerName || 'Anonymous',
-                        response: review.response
-                    }));
+            const groupedReviews = reviews.map(review => ({
+                id: review._id,
+                text: review.content?.text || '',
+                rating: review.content?.rating || 0,
+                date: review.metadata?.originalCreatedAt || review.createdAt,
+                platform: review.platform || 'Unknown',
+                author: review.content?.reviewerName || 'Anonymous',
+                response: review.response
+            }));
 
             return res.status(200).json({
                 title: targetGroup.title,

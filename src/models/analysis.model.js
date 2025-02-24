@@ -40,14 +40,7 @@ const analysisSchema = new mongoose.Schema({
       mentions: Number,
       quote: String,
       details: String,
-      relatedReviews: [{
-        reviewId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Review'
-        },
-        relevantText: String,
-        rating: Number
-      }],
+      relatedReviews: [String],
       marketingTips: [{
         action: String,
         cost: String,
@@ -61,14 +54,7 @@ const analysisSchema = new mongoose.Schema({
       mentions: Number,
       quote: String,
       details: String,
-      relatedReviews: [{
-        reviewId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Review'
-        },
-        relevantText: String,
-        rating: Number
-      }],
+      relatedReviews: [String],
       solution: {
         title: String,
         timeline: String,
