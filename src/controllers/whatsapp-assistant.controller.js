@@ -447,6 +447,8 @@ const whatsappAssistantController = {
                 ProfileName: req.body.ProfileName || 'Guest'
             };
 
+            console.log('Elaborazione messaggio WhatsApp da:', message.ProfileName);
+
             // Prima cerchiamo una conversazione attiva negli ultimi 30 giorni
             const thirtyDaysAgo = new Date();
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -499,10 +501,13 @@ const whatsappAssistantController = {
             }
 
             // Se non esisteva l'interazione, creala
+            let reviewScheduled = false;
             if (!interaction) {
+                console.log('CREAZIONE NUOVA INTERAZIONE:', message.From);
                 interaction = new WhatsappInteraction({
                     hotelId: assistant.hotelId._id,
                     phoneNumber: message.From,
+                    profileName: message.ProfileName, // Salva il nome del profilo
                     firstInteraction: new Date(),
                     dailyInteractions: [{
                         date: new Date(),
@@ -510,7 +515,111 @@ const whatsappAssistantController = {
                     }]
                 });
                 await interaction.save();
-                await scheduleReviewRequest(interaction, assistant);
+                
+                // Esegui direttamente qui la funzione di scheduling
+                console.log('TENTATIVO SCHEDULING RECENSIONE...');
+                
+                try {
+                    // Implementazione diretta dello scheduling qui
+                    const delayDays = assistant.reviewRequestDelay || 3;
+                    const scheduledDate = new Date();
+                    scheduledDate.setDate(scheduledDate.getDate() + delayDays);
+                    
+                    console.log('Scheduling recensione per:', {
+                        phoneNumber: interaction.phoneNumber,
+                        hotelName: assistant.hotelId.name,
+                        scheduledDate
+                    });
+                    
+                    // Verifica se la recensione è già stata programmata
+                    const treeMonthsAgo = new Date();
+                    treeMonthsAgo.setMonth(treeMonthsAgo.getMonth() - 3);
+                    
+                    const recentReviews = interaction.reviewRequests?.filter(
+                        review => new Date(review.requestedAt) > treeMonthsAgo
+                    ) || [];
+                    
+                    if (recentReviews.length === 0) {
+                        // Funzione per generare il messaggio in base alla lingua
+                        const getLanguageFromPhone = (phoneNumber) => {
+                            const COUNTRY_CODES = {
+                                '39': 'it',
+                                '44': 'en',
+                                '33': 'fr',
+                                '49': 'de',
+                                '34': 'es',
+                                '31': 'en',
+                                '351': 'en',
+                                '41': 'de',
+                                '43': 'de',
+                                '32': 'fr'
+                            };
+                            
+                            const cleanNumber = phoneNumber.replace('whatsapp:', '').replace('+', '');
+                            const matchingPrefix = Object.keys(COUNTRY_CODES)
+                                .sort((a, b) => b.length - a.length)
+                                .find(prefix => cleanNumber.startsWith(prefix));
+                            
+                            return matchingPrefix ? COUNTRY_CODES[matchingPrefix] : 'en';
+                        };
+                        
+                        const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
+                        
+                        const REVIEW_MESSAGES = {
+                            it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione su Google: {link}`,
+                            en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review on Google: {link}`,
+                            fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis sur Google: {link}`,
+                            de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung auf Google hinterlassen könnten: {link}`,
+                            es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña en Google: {link}`
+                        };
+                        
+                        const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
+                        const reviewMessage = messageTemplate(assistant.hotelId.name)
+                            .replace('{link}', assistant.reviewLink || 'https://g.page/r/your-google-review-link');
+                            
+                        console.log('Creazione messaggio programmato con Twilio:', reviewMessage);
+                        
+                        // Utilizza lo scheduling nativo di Twilio
+                        const twilioResponse = await client.messages.create({
+                            body: reviewMessage,
+                            from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                            to: interaction.phoneNumber,
+                            messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                            scheduleType: 'fixed',
+                            sendAt: scheduledDate.toISOString()
+                        });
+                        
+                        console.log('SUCCESSO! Messaggio programmato con Twilio SID:', twilioResponse.sid);
+                        
+                        // Aggiorna l'interazione con l'informazione sulla recensione programmata
+                        if (!interaction.reviewRequests) {
+                            interaction.reviewRequests = [];
+                        }
+                        
+                        interaction.reviewRequests.push({
+                            requestedAt: scheduledDate,
+                            messageId: twilioResponse.sid
+                        });
+                        
+                        interaction.reviewRequested = true;
+                        interaction.reviewScheduledFor = scheduledDate;
+                        await interaction.save();
+                        
+                        reviewScheduled = true;
+                        
+                        console.log('Aggiornato database con recensione programmata:', {
+                            interactionId: interaction._id,
+                            scheduledFor: scheduledDate
+                        });
+                    }
+                } catch (error) {
+                    console.error('ERRORE DURANTE LO SCHEDULING DELLA RECENSIONE:', error);
+                    console.error('Stack trace:', error.stack);
+                }
+            } else if (!interaction.profileName && message.ProfileName !== 'Guest') {
+                // Aggiorna il profilo se non era stato salvato prima
+                interaction.profileName = message.ProfileName;
+                // Salva più tardi dopo altri aggiornamenti
             }
 
             // Verifica limiti giornalieri
@@ -677,9 +786,14 @@ console.log('Hotel details:', {
                 messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
             });
 
+            if (reviewScheduled) {
+                console.log('RIEPILOGO: Recensione programmata con successo per', interaction.phoneNumber);
+            }
+            
             res.status(200).send({
                 success: true,
-                message: 'Message processed successfully'
+                message: 'Message processed successfully',
+                reviewScheduled
             });
 
         } catch (error) {
