@@ -731,6 +731,164 @@ console.log('Hotel details:', {
                 error: error.message
             });
         }
+    },
+
+    getAnalytics: async (req, res) => {
+        try {
+            const { hotelId } = req.params;
+            
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+
+            // Ottieni tutte le interazioni per questo hotel
+            const interactions = await WhatsappInteraction.find({ hotelId });
+            
+            // Calcola le metriche di base
+            const totalInteractions = interactions.length;
+            const totalMessages = interactions.reduce((sum, interaction) => 
+                sum + interaction.conversationHistory.length, 0);
+            
+            const userMessages = interactions.reduce((sum, interaction) => 
+                sum + interaction.conversationHistory.filter(msg => msg.role === 'user').length, 0);
+            
+            const assistantMessages = interactions.reduce((sum, interaction) => 
+                sum + interaction.conversationHistory.filter(msg => msg.role === 'assistant').length, 0);
+            
+            // Calcola il numero di recensioni inviate
+            const reviewsSent = interactions.reduce((sum, interaction) => 
+                sum + (interaction.reviewRequests ? interaction.reviewRequests.length : 0), 0);
+            
+            // Analisi messaggi per giorno negli ultimi 30 giorni
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            
+            const messagesPerDay = {};
+            
+            // Inizializza gli ultimi 30 giorni a zero
+            for (let i = 0; i < 30; i++) {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                const dateString = date.toISOString().split('T')[0];
+                messagesPerDay[dateString] = { user: 0, assistant: 0 };
+            }
+            
+            // Popola con i dati reali
+            interactions.forEach(interaction => {
+                interaction.conversationHistory.forEach(message => {
+                    if (new Date(message.timestamp) >= thirtyDaysAgo) {
+                        const dateString = new Date(message.timestamp).toISOString().split('T')[0];
+                        if (!messagesPerDay[dateString]) {
+                            messagesPerDay[dateString] = { user: 0, assistant: 0 };
+                        }
+                        messagesPerDay[dateString][message.role]++;
+                    }
+                });
+            });
+            
+            // Converti in array per il frontend
+            const messagesByDate = Object.keys(messagesPerDay).map(date => ({
+                date,
+                user: messagesPerDay[date].user,
+                assistant: messagesPerDay[date].assistant,
+                total: messagesPerDay[date].user + messagesPerDay[date].assistant
+            })).sort((a, b) => a.date.localeCompare(b.date));
+            
+            res.json({
+                totalInteractions,
+                totalMessages,
+                userMessages,
+                assistantMessages,
+                reviewsSent,
+                messagesByDate
+            });
+        } catch (error) {
+            console.error('Get analytics error:', error);
+            res.status(500).json({ 
+                message: 'Error fetching WhatsApp analytics',
+                error: error.message
+            });
+        }
+    },
+
+    generateSentimentAnalysis: async (req, res) => {
+        try {
+            const { hotelId } = req.params;
+            
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+
+            // Ottieni tutte le interazioni per questo hotel
+            const interactions = await WhatsappInteraction.find({ hotelId });
+            
+            // Estrai tutti i messaggi degli utenti
+            const userMessages = [];
+            interactions.forEach(interaction => {
+                interaction.conversationHistory.forEach(message => {
+                    if (message.role === 'user') {
+                        userMessages.push(message.content);
+                    }
+                });
+            });
+            
+            // Semplice analisi del sentiment (in un'implementazione reale, useresti un servizio AI)
+            // Questo è solo un esempio semplificato
+            const positiveWords = ['grazie', 'ottimo', 'eccellente', 'fantastico', 'perfetto', 'buono', 'piacevole', 'soddisfatto'];
+            const negativeWords = ['problema', 'male', 'terribile', 'pessimo', 'insoddisfatto', 'deluso', 'lamentela', 'errore'];
+            
+            let positive = 0;
+            let negative = 0;
+            let neutral = 0;
+            
+            userMessages.forEach(message => {
+                const lowerMessage = message.toLowerCase();
+                
+                let isPositive = false;
+                let isNegative = false;
+                
+                for (const word of positiveWords) {
+                    if (lowerMessage.includes(word)) {
+                        isPositive = true;
+                        break;
+                    }
+                }
+                
+                for (const word of negativeWords) {
+                    if (lowerMessage.includes(word)) {
+                        isNegative = true;
+                        break;
+                    }
+                }
+                
+                if (isPositive && !isNegative) {
+                    positive++;
+                } else if (isNegative && !isPositive) {
+                    negative++;
+                } else if (isPositive && isNegative) {
+                    // Se contiene sia parole positive che negative, consideriamo neutro
+                    neutral++;
+                } else {
+                    neutral++;
+                }
+            });
+            
+            res.json({
+                positive,
+                neutral,
+                negative
+            });
+        } catch (error) {
+            console.error('Generate sentiment analysis error:', error);
+            res.status(500).json({ 
+                message: 'Error generating sentiment analysis',
+                error: error.message
+            });
+        }
     }
 };
 

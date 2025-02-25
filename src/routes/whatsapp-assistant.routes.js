@@ -20,4 +20,8 @@ router.delete('/:hotelId/rules/:ruleId', whatsappAssistantController.deleteRule)
 
 router.get('/:hotelId/conversations', whatsappAssistantController.getConversations);
 
+router.get('/:hotelId/analytics', whatsappAssistantController.getAnalytics);
+
+router.post('/:hotelId/sentiment-analysis', whatsappAssistantController.generateSentimentAnalysis);
+
 module.exports = router; 
