@@ -54,7 +54,7 @@ const reviewController = {
                     const reviewText = typeof review === 'object' ? review.text : review;
 
                     const languageDetectionMessage = await anthropic.messages.create({
-                        model: "claude-3-5-sonnet-20241022",
+                        model: "claude-3-7-sonnet-20250219",
                         max_tokens: 50,
                         temperature: 0,
                         system: "You are a language detection expert. Respond only with the ISO language code.",
@@ -167,7 +167,7 @@ If the user asks for modifications to your previous response, adjust it accordin
 
             // Genera la risposta con Claude con gestione errori
             const response = await anthropic.messages.create({
-                model: "claude-3-5-sonnet-20241022",
+                model: "claude-3-7-sonnet-20250219",
                 max_tokens: 1000,
                 temperature: 0.7,
                 system: systemPrompt,
@@ -201,7 +201,7 @@ Format your response as a simple array of 3 strings, nothing else. For example:
 ["Address the breakfast complaint", "Highlight room cleanliness more", "Mention upcoming renovations"]`;
 
                     const suggestionsResponse = await anthropic.messages.create({
-                        model: "claude-3-5-sonnet-20241022",
+                        model: "claude-3-7-sonnet-20250219",
                         max_tokens: 150,
                         temperature: 0.7,
                         system: "You are a helpful assistant generating suggestions for improving hotel review responses.",

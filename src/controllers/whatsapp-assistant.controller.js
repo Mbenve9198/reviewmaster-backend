@@ -109,35 +109,55 @@ const getLanguageFromPhone = (phoneNumber) => {
 };
 
 const scheduleReviewRequest = async (interaction, assistant) => {
-    const delayDays = assistant.reviewRequestDelay || 3;
-    const scheduledDate = new Date();
-    scheduledDate.setDate(scheduledDate.getDate() + delayDays);
-
-    // Aggiorna l'interazione con la data programmata
-    interaction.reviewScheduledFor = scheduledDate;
-    await interaction.save();
-
-    // Schedula l'invio del messaggio
-    setTimeout(async () => {
-        try {
-            const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
-            const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
-            const reviewMessage = messageTemplate(assistant.hotelId.name)
-                .replace('{link}', assistant.reviewLink);
-
-            await client.messages.create({
-                body: reviewMessage,
-                from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
-                to: interaction.phoneNumber,
-                messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+    try {
+        // Verifica se una recensione è già stata schedulata per questa interazione
+        if (interaction.reviewScheduledFor || interaction.reviewRequested) {
+            console.log(`Recensione già schedulata per ${interaction.phoneNumber}`, {
+                scheduledFor: interaction.reviewScheduledFor,
+                alreadyRequested: interaction.reviewRequested
             });
-
-            interaction.reviewRequested = true;
-            await interaction.save();
-        } catch (error) {
-            console.error('Error sending review request:', error);
+            return null; // Non schedula nuovamente
         }
-    }, delayDays * 24 * 60 * 60 * 1000);
+        
+        const delayDays = assistant.reviewRequestDelay || 3;
+        const scheduledDate = new Date();
+        scheduledDate.setDate(scheduledDate.getDate() + delayDays);
+        
+        // Aggiorna l'interazione con la data programmata
+        interaction.reviewScheduledFor = scheduledDate;
+        await interaction.save();
+        
+        const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
+        const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
+        const reviewMessage = messageTemplate(assistant.hotelId.name)
+            .replace('{link}', assistant.reviewLink);
+            
+        // Utilizza lo scheduling nativo di Twilio
+        const message = await client.messages.create({
+            body: reviewMessage,
+            from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+            to: interaction.phoneNumber,
+            messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+            scheduleType: 'fixed',
+            sendAt: scheduledDate.toISOString()
+        });
+        
+        console.log(`Recensione programmata con successo:`, {
+            sid: message.sid,
+            phoneNumber: interaction.phoneNumber,
+            hotelId: assistant.hotelId._id,
+            scheduledTime: scheduledDate.toISOString()
+        });
+        
+        // Aggiorna il flag reviewRequested
+        interaction.reviewRequested = true;
+        await interaction.save();
+        
+        return message.sid;
+    } catch (error) {
+        console.error('Errore nello scheduling della recensione:', error);
+        throw error;
+    }
 };
 
 const whatsappAssistantController = {
@@ -533,11 +553,11 @@ const whatsappAssistantController = {
 
             const userLanguage = getLanguageFromPhone(message.From);
             
-            const systemPrompt = `You are ${hotel.name}'s personal WhatsApp concierge, having a natural, friendly conversation with ${message.ProfileName}. 
+            const systemPrompt = `You are ${hotel.name}'s personal WhatsApp Hotel concierge, having a natural, friendly conversation with ${message.ProfileName}. 
 Always respond in ${userLanguage.toUpperCase()}, maintaining a warm and personal tone.
 
 Remember:
-- You're having a casual chat with ${message.ProfileName}, like a helpful friend at the hotel
+- You're having a casual chat with ${message.ProfileName}, like a helpful concierge at the hotel
 - Keep responses conversational and natural, avoiding formal or robotic language
 - Show empathy and personality in your responses
 - Use natural conversation flow, like you would in a real chat
@@ -592,7 +612,7 @@ console.log('Hotel details:', {
 
             // Genera la risposta con Claude includendo lo storico
             const response = await anthropic.messages.create({
-                model: "claude-3-5-sonnet-20241022",
+                model: "claude-3-7-sonnet-20250219",
                 max_tokens: 500,
                 temperature: 0.7,
                 system: systemPrompt,
