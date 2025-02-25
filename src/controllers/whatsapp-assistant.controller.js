@@ -109,6 +109,16 @@ const getLanguageFromPhone = (phoneNumber) => {
 };
 
 const scheduleReviewRequest = async (interaction, assistant) => {
+    console.log('INIZIO SCHEDULING RECENSIONE:');
+    console.log('- Interaction ID:', interaction._id);
+    console.log('- Phone Number:', interaction.phoneNumber);
+    console.log('- Nome cliente:', interaction.profileName);
+    console.log('- Hotel ID:', assistant.hotelId._id);
+    console.log('- Configurazione assistente:', {
+        reviewRequestDelay: assistant.reviewRequestDelay,
+        reviewLink: assistant.reviewLink
+    });
+    
     try {
         // Verifica se una recensione è stata inviata negli ultimi 3 mesi
         const treeMonthsAgo = new Date();
@@ -172,7 +182,8 @@ const scheduleReviewRequest = async (interaction, assistant) => {
         
         return message.sid;
     } catch (error) {
-        console.error('Errore nello scheduling della recensione:', error);
+        console.error('ERRORE DETTAGLIATO NELLO SCHEDULING:', error);
+        console.error('Stack trace:', error.stack);
         throw error;
     }
 };
@@ -708,6 +719,10 @@ console.log('Hotel details:', {
                 error: error.message
             });
         }
+    },
+
+    scheduleReviewRequest: async (interaction, assistant) => {
+        // ... existing code for scheduling review ...
     }
 };
 
