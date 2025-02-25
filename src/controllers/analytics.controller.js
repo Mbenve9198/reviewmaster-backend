@@ -44,6 +44,7 @@ IMPORTANT: For each strength and issue, you MUST include ALL reviews that mentio
     "excellent": "45%",
     "average": "35%",
     "needsImprovement": "20%",
+    "summary": "Brief interpretative summary of the sentiment distribution, highlighting significant patterns and what they mean for the hotel's reputation (2-3 sentences).",
     "distribution": {
       "rating5": "30%",
       "rating4": "25%",

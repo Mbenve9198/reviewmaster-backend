@@ -26,6 +26,7 @@ const analysisSchema = new mongoose.Schema({
       excellent: String,
       average: String,
       needsImprovement: String,
+      summary: String,
       distribution: {
         rating5: String,
         rating4: String,
