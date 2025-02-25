@@ -3,7 +3,6 @@ const WhatsappInteraction = require('../models/whatsapp-interaction.model');
 const Hotel = require('../models/hotel.model');
 const twilio = require('twilio');
 const SentimentAnalysis = require('../models/sentiment-analysis.model');
-const ReviewLinkTracking = require('../models/review-link-tracking.model');
 const mongoose = require('mongoose');
 
 const client = twilio(
@@ -766,7 +765,7 @@ ${recentHistory.map(msg => msg.content).join('\n\n')}`
             if (!hotel) {
                 return res.status(404).json({ message: 'Hotel not found or unauthorized' });
             }
-
+            
             // Ottieni tutte le interazioni per questo hotel
             const interactions = await WhatsappInteraction.find({ hotelId });
             
@@ -802,18 +801,7 @@ ${recentHistory.map(msg => msg.content).join('\n\n')}`
                 reviewsClicked: 0 
             };
             
-            // Ottieni i dati di tracciamento dei link
-            const reviewLinkStats = await ReviewLinkTracking.aggregate([
-                { $match: { hotelId: mongoose.Types.ObjectId(hotelId) } },
-                { $group: {
-                    _id: null,
-                    totalSent: { $sum: 1 },
-                    totalClicked: { $sum: { $cond: ["$clicked", 1, 0] } }
-                }}
-            ]);
-            
-            const reviewsClicked = reviewLinkStats.length > 0 ? reviewLinkStats[0].totalClicked : 0;
-            const clickThroughRate = reviewsSent > 0 ? (reviewsClicked / reviewsSent) * 100 : 0;
+            const clickThroughRate = stats.reviewsRequested > 0 ? (stats.reviewsClicked / stats.reviewsRequested) * 100 : 0;
             
             // Analisi messaggi per giorno negli ultimi 30 giorni
             const thirtyDaysAgo = new Date();
@@ -857,9 +845,7 @@ ${recentHistory.map(msg => msg.content).join('\n\n')}`
                 assistantMessages,
                 reviewsSent: stats.reviewsRequested,
                 reviewsClicked: stats.reviewsClicked,
-                clickThroughRate: stats.reviewsRequested > 0 
-                    ? (stats.reviewsClicked / stats.reviewsRequested) * 100 
-                    : 0,
+                clickThroughRate,
                 messagesByDate
             });
         } catch (error) {
@@ -1048,7 +1034,7 @@ ${userMessages.join('\n\n')}`
             const trackingId = `wapp_${conversationId}_${Date.now()}`;
             
             // Salva il tracking ID nel database
-            const tracking = new ReviewLinkTracking({
+            const tracking = new WhatsappInteraction({
                 hotelId,
                 conversationId,
                 trackingId,
