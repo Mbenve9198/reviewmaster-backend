@@ -677,6 +677,15 @@ ${recentHistory.map(msg => msg.content).join('\n\n')}`
             let analysisResult;
             
             try {
+                // Aggiungi log per il debug
+                console.log('Claude response:', JSON.stringify(data));
+                
+                // Verifica che la risposta abbia la struttura attesa
+                if (!data || !data.content || !Array.isArray(data.content) || data.content.length === 0) {
+                    console.error('Unexpected Claude response structure:', data);
+                    throw new Error('Invalid response structure from Claude');
+                }
+                
                 const content = data.content[0].text;
                 
                 // Estrai il JSON dalla risposta
@@ -932,6 +941,15 @@ ${userMessages.join('\n\n')}`
             let analysisResult;
             
             try {
+                // Aggiungi log per il debug
+                console.log('Claude response:', JSON.stringify(data));
+                
+                // Verifica che la risposta abbia la struttura attesa
+                if (!data || !data.content || !Array.isArray(data.content) || data.content.length === 0) {
+                    console.error('Unexpected Claude response structure:', data);
+                    throw new Error('Invalid response structure from Claude');
+                }
+                
                 const content = data.content[0].text;
                 
                 // Estrai il JSON dalla risposta
