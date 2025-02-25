@@ -2,7 +2,6 @@ const WhatsAppAssistant = require('../models/whatsapp-assistant.model');
 const WhatsappInteraction = require('../models/whatsapp-interaction.model');
 const Hotel = require('../models/hotel.model');
 const twilio = require('twilio');
-const { Anthropic } = require('@anthropic/sdk');
 const SentimentAnalysis = require('../models/sentiment-analysis.model');
 const ReviewLinkTracking = require('../models/review-link-tracking.model');
 const mongoose = require('mongoose');
@@ -11,10 +10,6 @@ const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 // Mappa dei prefissi telefonici e relative lingue
 const COUNTRY_CODES = {
@@ -649,54 +644,80 @@ console.log('Hotel details:', {
 });
 
             // Genera la risposta con Claude includendo lo storico
-            const response = await anthropic.messages.create({
-                model: "claude-3-7-sonnet-20250219",
-                max_tokens: 500,
-                temperature: 0.7,
-                system: systemPrompt,
-                messages: [
-                    ...recentHistory,
-                    { 
-                        role: "user", 
-                        content: userQuery
-                    }
-                ]
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.ANTHROPIC_API_KEY,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: "claude-3-7-sonnet-20240307",
+                    max_tokens: 1000,
+                    messages: [
+                        {
+                            role: "user",
+                            content: `Analyze the sentiment of these user messages from hotel guests. Classify each message as positive, neutral, or negative. Then provide a count of each category and a brief summary of the overall sentiment and common themes.
+
+Return your analysis in this JSON format:
+{
+  "positive": number,
+  "neutral": number,
+  "negative": number,
+  "summary": "Your detailed analysis here"
+}
+
+Here are the messages:
+${recentHistory.map(msg => msg.content).join('\n\n')}`
+                        }
+                    ]
+                })
             });
 
-            if (!response?.content?.[0]?.text) {
-                throw new Error('Failed to generate response');
-            }
-
-            const aiResponse = response.content[0].text;
-
-            // Salva la risposta dell'assistente nello storico
-            interaction.conversationHistory.push({
-                role: 'assistant',
-                content: aiResponse,
-                timestamp: new Date()
-            });
-
-            // Salva l'interazione aggiornata
-            await interaction.save();
-
-            // Invia la risposta via WhatsApp
-            await client.messages.create({
-                body: aiResponse,
-                from: 'whatsapp:' + process.env.NEXT_PUBLIC_WHATSAPP_NUMBER,
-                to: message.From,
-                messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
-            });
-
-            if (reviewScheduled) {
-                console.log('RIEPILOGO: Recensione programmata con successo per', interaction.phoneNumber);
+            const data = await response.json();
+            let analysisResult;
+            
+            try {
+                const content = data.content[0].text;
+                
+                // Estrai il JSON dalla risposta
+                const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || 
+                                  content.match(/```\n([\s\S]*?)\n```/) || 
+                                  content.match(/{[\s\S]*?}/);
+                                  
+                const jsonString = jsonMatch ? jsonMatch[1] || jsonMatch[0] : content;
+                analysisResult = JSON.parse(jsonString);
+            } catch (error) {
+                console.error('Error parsing Claude response:', error);
+                // Fallback a un'analisi semplice
+                analysisResult = {
+                    positive: Math.floor(recentHistory.length * 0.4),
+                    neutral: Math.floor(recentHistory.length * 0.4),
+                    negative: Math.floor(recentHistory.length * 0.2),
+                    summary: "Unable to generate detailed analysis. Basic estimation provided."
+                };
             }
             
-            res.status(200).send({
-                success: true,
-                message: 'Message processed successfully',
-                reviewScheduled: reviewScheduled
+            // Salva i risultati nel database
+            const newAnalysis = new SentimentAnalysis({
+                hotelId,
+                positive: analysisResult.positive,
+                neutral: analysisResult.neutral,
+                negative: analysisResult.negative,
+                summary: analysisResult.summary,
+                timeRange: {
+                    from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Ultimi 30 giorni
+                    to: new Date()
+                }
             });
-
+            
+            await newAnalysis.save();
+            
+            // Aggiungi la data di creazione e il flag isCached alla risposta
+            analysisResult.createdAt = newAnalysis.createdAt;
+            analysisResult.isCached = false;
+            
+            res.json(analysisResult);
         } catch (error) {
             console.error('WhatsApp webhook error:', error);
             res.status(500).json({ 
@@ -886,10 +907,7 @@ console.log('Hotel details:', {
             interactions.forEach(interaction => {
                 interaction.conversationHistory.forEach(message => {
                     if (message.role === 'user') {
-                        userMessages.push({
-                            content: message.content,
-                            timestamp: message.timestamp
-                        });
+                        userMessages.push(message.content);
                     }
                 });
             });
@@ -905,53 +923,44 @@ console.log('Hotel details:', {
                 });
             }
             
-            // Prepara i messaggi per l'analisi
-            const messagesForAnalysis = userMessages
-                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-                .map(msg => msg.content)
-                .join("\n\n");
-            
-            // Crea il prompt per Claude
-            const prompt = `
-You are a sentiment analysis expert. Analyze the following WhatsApp messages from hotel guests and provide:
+            // Usa la stessa funzione che usi per il bot WhatsApp
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.ANTHROPIC_API_KEY,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: "claude-3-7-sonnet-20240307",
+                    max_tokens: 1000,
+                    messages: [
+                        {
+                            role: "user",
+                            content: `Analyze the sentiment of these user messages from hotel guests. Classify each message as positive, neutral, or negative. Then provide a count of each category and a brief summary of the overall sentiment and common themes.
 
-1. A numerical breakdown of sentiment:
-   - Number of positive messages
-   - Number of neutral messages
-   - Number of negative messages
-
-2. A brief summary (max 200 words) of the overall sentiment, key themes, and notable patterns in the conversations.
-
-Here are the messages to analyze:
-
-${messagesForAnalysis}
-
-Respond in JSON format like this:
+Return your analysis in this JSON format:
 {
   "positive": number,
   "neutral": number,
   "negative": number,
-  "summary": "Your analysis summary here"
+  "summary": "Your detailed analysis here"
 }
-`;
 
-            // Chiama Claude per l'analisi
-            const response = await anthropic.messages.create({
-                model: "claude-3-sonnet-20240229",
-                max_tokens: 1000,
-                temperature: 0,
-                system: "You are a sentiment analysis expert for hotel guest messages. Provide accurate, balanced analysis in JSON format only.",
-                messages: [
-                    { role: "user", content: prompt }
-                ]
+Here are the messages:
+${userMessages.join('\n\n')}`
+                        }
+                    ]
+                })
             });
             
-            // Estrai la risposta JSON
-            const content = response.content[0].text;
+            const data = await response.json();
             let analysisResult;
             
             try {
-                // Cerca di estrarre il JSON dalla risposta
+                const content = data.content[0].text;
+                
+                // Estrai il JSON dalla risposta
                 const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || 
                                   content.match(/```\n([\s\S]*?)\n```/) || 
                                   content.match(/{[\s\S]*?}/);
