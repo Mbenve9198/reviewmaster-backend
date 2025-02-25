@@ -20,6 +20,7 @@ const bookRoutes = require('./routes/book.routes');
 const checkCredits = require('./middleware/credits.middleware');
 const ruleRoutes = require('./routes/rule.routes');
 const whatsappAssistantRoutes = require('./routes/whatsapp-assistant.routes');
+const whatsappAssistantController = require('./controllers/whatsapp-assistant.controller');
 
 const app = express();
 
@@ -92,7 +93,12 @@ app.use('/api/analytics', authMiddleware, checkCredits, analyticsRoutes);
 app.use('/api/wallet', authMiddleware, walletRoutes);
 app.use('/api/books', authMiddleware, bookRoutes);
 app.use('/api/rules', authMiddleware, checkCredits, ruleRoutes);
+
+// WhatsApp Assistant routes - alcune route non richiedono autenticazione
 app.use('/api/whatsapp-assistant', whatsappAssistantRoutes);
+
+// Aggiungi una route specifica per il redirect che sia accessibile pubblicamente
+app.get('/api/redirect/review', whatsappAssistantController.handleReviewRedirect);
 
 // Stripe webhook route
 app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));

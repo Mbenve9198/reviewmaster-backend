@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const messageSchema = new mongoose.Schema({
     role: {
         type: String,
-        enum: ['user', 'assistant'],
+        enum: ['user', 'assistant', 'system'],
         required: true
     },
     content: {
@@ -13,6 +13,27 @@ const messageSchema = new mongoose.Schema({
     timestamp: {
         type: Date,
         default: Date.now
+    }
+});
+
+const reviewTrackingSchema = new mongoose.Schema({
+    trackingId: {
+        type: String,
+        unique: true
+    },
+    sentAt: {
+        type: Date
+    },
+    clicked: {
+        type: Boolean,
+        default: false
+    },
+    clickedAt: {
+        type: Date
+    },
+    clickCount: {
+        type: Number,
+        default: 0
     }
 });
 
@@ -67,10 +88,26 @@ const whatsappInteractionSchema = new mongoose.Schema({
         default: Date.now
     },
     // Aggiungiamo lo storico della conversazione
-    conversationHistory: [messageSchema]
+    conversationHistory: {
+        type: [messageSchema],
+        default: []
+    },
+    isActive: {
+        type: Boolean,
+        default: true
+    },
+    reviewTracking: {
+        type: reviewTrackingSchema,
+        default: null
+    }
+}, {
+    timestamps: true
 });
 
 // Indice composto per evitare duplicati
 whatsappInteractionSchema.index({ hotelId: 1, phoneNumber: 1 }, { unique: true });
+
+// Indice composto per ottimizzare le query per hotelId e phoneNumber
+whatsappInteractionSchema.index({ hotelId: 1, phoneNumber: 1 });
 
 module.exports = mongoose.model('WhatsappInteraction', whatsappInteractionSchema); 

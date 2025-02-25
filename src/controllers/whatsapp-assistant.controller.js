@@ -4,6 +4,8 @@ const Hotel = require('../models/hotel.model');
 const twilio = require('twilio');
 const { Anthropic } = require('@anthropic/sdk');
 const SentimentAnalysis = require('../models/sentiment-analysis.model');
+const ReviewLinkTracking = require('../models/review-link-tracking.model');
+const mongoose = require('mongoose');
 
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -31,11 +33,11 @@ const COUNTRY_CODES = {
 
 // Template messaggi multilingua per le recensioni
 const REVIEW_MESSAGES = {
-  it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione: ${assistant.reviewLink}`,
-  en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review: ${assistant.reviewLink}`,
-  fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis: ${assistant.reviewLink}`,
-  de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung hinterlassen könnten: ${assistant.reviewLink}`,
-  es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña: ${assistant.reviewLink}`
+  it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione: {{REVIEW_LINK}}`,
+  en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review: {{REVIEW_LINK}}`,
+  fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis: {{REVIEW_LINK}}`,
+  de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung hinterlassen könnten: {{REVIEW_LINK}}`,
+  es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña: {{REVIEW_LINK}}`
 };
 
 const RATE_LIMITS = {
@@ -762,6 +764,36 @@ console.log('Hotel details:', {
             const reviewsSent = interactions.reduce((sum, interaction) => 
                 sum + (interaction.reviewRequests ? interaction.reviewRequests.length : 0), 0);
             
+            // Calcola le statistiche sui link di recensione
+            const reviewStats = await WhatsappInteraction.aggregate([
+                { $match: { hotelId: mongoose.Types.ObjectId(hotelId) } },
+                { $group: {
+                    _id: null,
+                    totalInteractions: { $sum: 1 },
+                    reviewsRequested: { $sum: { $cond: ["$reviewRequested", 1, 0] } },
+                    reviewsClicked: { $sum: { $cond: [{ $and: ["$reviewTracking.clicked"] }, 1, 0] } }
+                }}
+            ]);
+            
+            const stats = reviewStats.length > 0 ? reviewStats[0] : { 
+                totalInteractions: 0, 
+                reviewsRequested: 0, 
+                reviewsClicked: 0 
+            };
+            
+            // Ottieni i dati di tracciamento dei link
+            const reviewLinkStats = await ReviewLinkTracking.aggregate([
+                { $match: { hotelId: mongoose.Types.ObjectId(hotelId) } },
+                { $group: {
+                    _id: null,
+                    totalSent: { $sum: 1 },
+                    totalClicked: { $sum: { $cond: ["$clicked", 1, 0] } }
+                }}
+            ]);
+            
+            const reviewsClicked = reviewLinkStats.length > 0 ? reviewLinkStats[0].totalClicked : 0;
+            const clickThroughRate = reviewsSent > 0 ? (reviewsClicked / reviewsSent) * 100 : 0;
+            
             // Analisi messaggi per giorno negli ultimi 30 giorni
             const thirtyDaysAgo = new Date();
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -802,7 +834,11 @@ console.log('Hotel details:', {
                 totalMessages,
                 userMessages,
                 assistantMessages,
-                reviewsSent,
+                reviewsSent: stats.reviewsRequested,
+                reviewsClicked: stats.reviewsClicked,
+                clickThroughRate: stats.reviewsRequested > 0 
+                    ? (stats.reviewsClicked / stats.reviewsRequested) * 100 
+                    : 0,
                 messagesByDate
             });
         } catch (error) {
@@ -985,6 +1021,93 @@ Respond in JSON format like this:
                 message: 'Error fetching sentiment analysis history',
                 error: error.message
             });
+        }
+    },
+
+    // Quando si genera un link per una recensione
+    generateReviewLink: async (req, res) => {
+        try {
+            const { hotelId, conversationId } = req.params;
+            
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+
+            const baseUrl = `https://www.google.com/maps/place/?q=place_id:${hotel.googlePlaceId}`;
+            const trackingId = `wapp_${conversationId}_${Date.now()}`;
+            
+            // Salva il tracking ID nel database
+            const tracking = new ReviewLinkTracking({
+                hotelId,
+                conversationId,
+                trackingId,
+                sentAt: new Date()
+            });
+            await tracking.save();
+            
+            // Reindirizza attraverso il nostro server prima di andare a Google
+            const reviewLink = `${process.env.FRONTEND_URL}/api/redirect/review?tid=${trackingId}&destination=${encodeURIComponent(baseUrl)}`;
+            
+            res.json({ reviewLink });
+        } catch (error) {
+            console.error('Generate review link error:', error);
+            res.status(500).json({ 
+                message: 'Error generating review link',
+                error: error.message
+            });
+        }
+    },
+
+    // Funzione per generare un link di recensione tracciabile
+    generateTrackableReviewLink: async (hotel, interaction) => {
+        const baseUrl = hotel.reviewLink || `https://www.google.com/maps/place/?q=place_id:${hotel.googlePlaceId}`;
+        const trackingId = `wapp_${interaction._id}_${Date.now()}`;
+        
+        // Aggiorna l'interazione con i dati di tracciamento
+        interaction.reviewRequested = true;
+        interaction.reviewTracking = {
+            trackingId,
+            sentAt: new Date(),
+            clicked: false,
+            clickCount: 0
+        };
+        
+        await interaction.save();
+        
+        // Crea un URL di redirect con il tracking ID
+        return `${process.env.FRONTEND_URL}/api/redirect/review?tid=${trackingId}&destination=${encodeURIComponent(baseUrl)}`;
+    },
+
+    handleReviewRedirect: async (req, res) => {
+        const { tid, destination } = req.query;
+        
+        if (!tid || !destination) {
+            return res.status(400).send('Missing parameters');
+        }
+        
+        try {
+            // Trova l'interazione con questo tracking ID
+            const interaction = await WhatsappInteraction.findOne({
+                'reviewTracking.trackingId': tid
+            });
+            
+            if (interaction) {
+                // Aggiorna i dati di tracciamento
+                interaction.reviewTracking.clicked = true;
+                interaction.reviewTracking.clickedAt = new Date();
+                interaction.reviewTracking.clickCount += 1;
+                
+                await interaction.save();
+            }
+            
+            // Reindirizza l'utente alla destinazione
+            res.redirect(destination);
+        } catch (error) {
+            console.error('Error tracking review click:', error);
+            // Reindirizza comunque in caso di errore
+            res.redirect(destination);
         }
     }
 };

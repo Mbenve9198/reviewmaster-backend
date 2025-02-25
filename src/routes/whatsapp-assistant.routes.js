@@ -6,6 +6,9 @@ const authMiddleware = require('../middleware/auth.middleware');
 // Webhook route (NO AUTH!)
 router.post('/webhook', whatsappAssistantController.handleWebhook);
 
+// Route per il redirect (senza autenticazione perché usata da utenti esterni)
+router.get('/redirect/review', whatsappAssistantController.handleReviewRedirect);
+
 // Rest of routes with auth
 router.use(authMiddleware);
 router.post('/', whatsappAssistantController.createAssistant);
