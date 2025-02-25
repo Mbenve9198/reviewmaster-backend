@@ -23,5 +23,6 @@ router.get('/:hotelId/conversations', whatsappAssistantController.getConversatio
 router.get('/:hotelId/analytics', whatsappAssistantController.getAnalytics);
 
 router.post('/:hotelId/sentiment-analysis', whatsappAssistantController.generateSentimentAnalysis);
+router.get('/:hotelId/sentiment-analysis', whatsappAssistantController.getSentimentAnalysisHistory);
 
 module.exports = router; 

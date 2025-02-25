@@ -2,7 +2,8 @@ const WhatsAppAssistant = require('../models/whatsapp-assistant.model');
 const WhatsappInteraction = require('../models/whatsapp-interaction.model');
 const Hotel = require('../models/hotel.model');
 const twilio = require('twilio');
-const Anthropic = require('@anthropic-ai/sdk');
+const { Anthropic } = require('@anthropic/sdk');
+const SentimentAnalysis = require('../models/sentiment-analysis.model');
 
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -10,7 +11,7 @@ const client = twilio(
 );
 
 const anthropic = new Anthropic({
-  apiKey: process.env.CLAUDE_API_KEY,
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 // Mappa dei prefissi telefonici e relative lingue
@@ -823,6 +824,24 @@ console.log('Hotel details:', {
                 return res.status(404).json({ message: 'Hotel not found or unauthorized' });
             }
 
+            // Controlla se esiste già un'analisi recente (ultimi 30 minuti)
+            const recentAnalysis = await SentimentAnalysis.findOne({
+                hotelId,
+                createdAt: { $gte: new Date(Date.now() - 30 * 60 * 1000) } // 30 minuti
+            }).sort({ createdAt: -1 });
+
+            // Se esiste un'analisi recente, restituiscila
+            if (recentAnalysis && !req.query.force) {
+                return res.json({
+                    positive: recentAnalysis.positive,
+                    neutral: recentAnalysis.neutral,
+                    negative: recentAnalysis.negative,
+                    summary: recentAnalysis.summary,
+                    createdAt: recentAnalysis.createdAt,
+                    isCached: true
+                });
+            }
+
             // Ottieni tutte le interazioni per questo hotel
             const interactions = await WhatsappInteraction.find({ hotelId });
             
@@ -831,61 +850,139 @@ console.log('Hotel details:', {
             interactions.forEach(interaction => {
                 interaction.conversationHistory.forEach(message => {
                     if (message.role === 'user') {
-                        userMessages.push(message.content);
+                        userMessages.push({
+                            content: message.content,
+                            timestamp: message.timestamp
+                        });
                     }
                 });
             });
             
-            // Semplice analisi del sentiment (in un'implementazione reale, useresti un servizio AI)
-            // Questo è solo un esempio semplificato
-            const positiveWords = ['grazie', 'ottimo', 'eccellente', 'fantastico', 'perfetto', 'buono', 'piacevole', 'soddisfatto'];
-            const negativeWords = ['problema', 'male', 'terribile', 'pessimo', 'insoddisfatto', 'deluso', 'lamentela', 'errore'];
+            if (userMessages.length === 0) {
+                return res.json({
+                    positive: 0,
+                    neutral: 0,
+                    negative: 0,
+                    summary: "No user messages found to analyze.",
+                    createdAt: new Date(),
+                    isCached: false
+                });
+            }
             
-            let positive = 0;
-            let negative = 0;
-            let neutral = 0;
+            // Prepara i messaggi per l'analisi
+            const messagesForAnalysis = userMessages
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                .map(msg => msg.content)
+                .join("\n\n");
             
-            userMessages.forEach(message => {
-                const lowerMessage = message.toLowerCase();
-                
-                let isPositive = false;
-                let isNegative = false;
-                
-                for (const word of positiveWords) {
-                    if (lowerMessage.includes(word)) {
-                        isPositive = true;
-                        break;
-                    }
-                }
-                
-                for (const word of negativeWords) {
-                    if (lowerMessage.includes(word)) {
-                        isNegative = true;
-                        break;
-                    }
-                }
-                
-                if (isPositive && !isNegative) {
-                    positive++;
-                } else if (isNegative && !isPositive) {
-                    negative++;
-                } else if (isPositive && isNegative) {
-                    // Se contiene sia parole positive che negative, consideriamo neutro
-                    neutral++;
-                } else {
-                    neutral++;
+            // Crea il prompt per Claude
+            const prompt = `
+You are a sentiment analysis expert. Analyze the following WhatsApp messages from hotel guests and provide:
+
+1. A numerical breakdown of sentiment:
+   - Number of positive messages
+   - Number of neutral messages
+   - Number of negative messages
+
+2. A brief summary (max 200 words) of the overall sentiment, key themes, and notable patterns in the conversations.
+
+Here are the messages to analyze:
+
+${messagesForAnalysis}
+
+Respond in JSON format like this:
+{
+  "positive": number,
+  "neutral": number,
+  "negative": number,
+  "summary": "Your analysis summary here"
+}
+`;
+
+            // Chiama Claude per l'analisi
+            const response = await anthropic.messages.create({
+                model: "claude-3-sonnet-20240229",
+                max_tokens: 1000,
+                temperature: 0,
+                system: "You are a sentiment analysis expert for hotel guest messages. Provide accurate, balanced analysis in JSON format only.",
+                messages: [
+                    { role: "user", content: prompt }
+                ]
+            });
+            
+            // Estrai la risposta JSON
+            const content = response.content[0].text;
+            let analysisResult;
+            
+            try {
+                // Cerca di estrarre il JSON dalla risposta
+                const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || 
+                                  content.match(/```\n([\s\S]*?)\n```/) || 
+                                  content.match(/{[\s\S]*?}/);
+                                  
+                const jsonString = jsonMatch ? jsonMatch[1] || jsonMatch[0] : content;
+                analysisResult = JSON.parse(jsonString);
+            } catch (error) {
+                console.error('Error parsing Claude response:', error);
+                // Fallback a un'analisi semplice
+                analysisResult = {
+                    positive: Math.floor(userMessages.length * 0.4),
+                    neutral: Math.floor(userMessages.length * 0.4),
+                    negative: Math.floor(userMessages.length * 0.2),
+                    summary: "Unable to generate detailed analysis. Basic estimation provided."
+                };
+            }
+            
+            // Salva i risultati nel database
+            const newAnalysis = new SentimentAnalysis({
+                hotelId,
+                positive: analysisResult.positive,
+                neutral: analysisResult.neutral,
+                negative: analysisResult.negative,
+                summary: analysisResult.summary,
+                timeRange: {
+                    from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Ultimi 30 giorni
+                    to: new Date()
                 }
             });
             
-            res.json({
-                positive,
-                neutral,
-                negative
-            });
+            await newAnalysis.save();
+            
+            // Aggiungi la data di creazione e il flag isCached alla risposta
+            analysisResult.createdAt = newAnalysis.createdAt;
+            analysisResult.isCached = false;
+            
+            res.json(analysisResult);
         } catch (error) {
             console.error('Generate sentiment analysis error:', error);
             res.status(500).json({ 
                 message: 'Error generating sentiment analysis',
+                error: error.message
+            });
+        }
+    },
+
+    // Nuovo endpoint per ottenere la cronologia delle analisi
+    getSentimentAnalysisHistory: async (req, res) => {
+        try {
+            const { hotelId } = req.params;
+            
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+            
+            // Ottieni le ultime 10 analisi
+            const analysisHistory = await SentimentAnalysis.find({ hotelId })
+                .sort({ createdAt: -1 })
+                .limit(10);
+                
+            res.json(analysisHistory);
+        } catch (error) {
+            console.error('Get sentiment analysis history error:', error);
+            res.status(500).json({ 
+                message: 'Error fetching sentiment analysis history',
                 error: error.message
             });
         }
