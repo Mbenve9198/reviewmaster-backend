@@ -30,65 +30,11 @@ const COUNTRY_CODES = {
 
 // Template messaggi multilingua per le recensioni
 const REVIEW_MESSAGES = {
-  it: (hotelName) => `Gentile ospite di ${hotelName},
-
-Grazie per aver scelto la nostra struttura per il suo soggiorno. La sua opinione è molto importante per noi e ci aiuterebbe a migliorare ulteriormente i nostri servizi.
-
-Le saremmo molto grati se potesse dedicare qualche minuto per condividere la sua esperienza:
-{link}
-
-La ringraziamo per il suo prezioso feedback e speriamo di poterla accogliere nuovamente.
-
-Cordiali saluti,
-Lo staff di ${hotelName}`,
-
-  en: (hotelName) => `Dear ${hotelName} guest,
-
-Thank you for choosing our hotel for your stay. Your opinion is very important to us and would help us further improve our services.
-
-We would be grateful if you could take a few minutes to share your experience:
-{link}
-
-Thank you for your valuable feedback and we hope to welcome you again.
-
-Best regards,
-The ${hotelName} team`,
-
-  fr: (hotelName) => `Cher client de ${hotelName},
-
-Nous vous remercions d'avoir choisi notre établissement pour votre séjour. Votre avis est très important pour nous et nous aidera à améliorer davantage nos services.
-
-Nous vous serions reconnaissants de prendre quelques minutes pour partager votre expérience :
-{link}
-
-Merci pour vos précieux commentaires et nous espérons vous accueillir à nouveau.
-
-Cordialement,
-L'équipe ${hotelName}`,
-
-  de: (hotelName) => `Sehr geehrter Gast von ${hotelName},
-
-Vielen Dank, dass Sie sich für unseren Hotel entschieden haben. Ihre Meinung ist uns sehr wichtig und hilft uns, unsere Dienstleistungen weiter zu verbessern.
-
-Wir wären Ihnen dankbar, wenn Sie sich einige Minuten Zeit nehmen könnten, um Ihre Erfahrung zu teilen:
-{link}
-
-Vielen Dank für Ihr wertvolles Feedback und wir hoffen, Sie wieder bei uns begrüßen zu dürfen.
-
-Mit freundlichen Grüßen,
-Das ${hotelName}-Team`,
-
-  es: (hotelName) => `Estimado huésped de ${hotelName},
-
-Gracias por elegir nuestro establecimiento para su estancia. Su opinión es muy importante para nosotros y nos ayudaría a mejorar aún más nuestros servicios.
-
-Le agradeceríamos que dedicara unos minutos a compartir su experiencia:
-{link}
-
-Gracias por sus valiosos comentarios y esperamos darle la bienvenida nuevamente.
-
-Saludos cordiales,
-El equipo de ${hotelName}`
+  it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione: ${assistant.reviewLink}`,
+  en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review: ${assistant.reviewLink}`,
+  fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis: ${assistant.reviewLink}`,
+  de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung hinterlassen könnten: ${assistant.reviewLink}`,
+  es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña: ${assistant.reviewLink}`
 };
 
 const RATE_LIMITS = {
@@ -106,86 +52,6 @@ const getLanguageFromPhone = (phoneNumber) => {
     .find(prefix => cleanNumber.startsWith(prefix));
 
   return matchingPrefix ? COUNTRY_CODES[matchingPrefix] : 'en'; // Default a inglese
-};
-
-const scheduleReviewRequest = async (interaction, assistant) => {
-    console.log('INIZIO SCHEDULING RECENSIONE:');
-    console.log('- Interaction ID:', interaction._id);
-    console.log('- Phone Number:', interaction.phoneNumber);
-    console.log('- Nome cliente:', interaction.profileName);
-    console.log('- Hotel ID:', assistant.hotelId._id);
-    console.log('- Configurazione assistente:', {
-        reviewRequestDelay: assistant.reviewRequestDelay,
-        reviewLink: assistant.reviewLink
-    });
-    
-    try {
-        // Verifica se una recensione è stata inviata negli ultimi 3 mesi
-        const treeMonthsAgo = new Date();
-        treeMonthsAgo.setMonth(treeMonthsAgo.getMonth() - 3);
-        
-        const recentReviews = interaction.reviewRequests?.filter(
-            review => new Date(review.requestedAt) > treeMonthsAgo
-        ) || [];
-        
-        if (recentReviews.length > 0) {
-            console.log(`Recensione già inviata negli ultimi 3 mesi per ${interaction.phoneNumber}`, {
-                ultimaRecensione: recentReviews[recentReviews.length - 1].requestedAt,
-                giorniPassati: Math.floor((new Date() - new Date(recentReviews[recentReviews.length - 1].requestedAt)) / (1000 * 60 * 60 * 24))
-            });
-            return null; // Non schedula nuovamente
-        }
-        
-        const delayDays = assistant.reviewRequestDelay || 3;
-        const scheduledDate = new Date();
-        scheduledDate.setDate(scheduledDate.getDate() + delayDays);
-        
-        // Aggiorna l'interazione con la data programmata (manteniamo per retrocompatibilità)
-        interaction.reviewScheduledFor = scheduledDate;
-        
-        const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
-        const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
-        const reviewMessage = messageTemplate(assistant.hotelId.name)
-            .replace('{link}', assistant.reviewLink);
-            
-        // Utilizza lo scheduling nativo di Twilio
-        const message = await client.messages.create({
-            body: reviewMessage,
-            from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
-            to: interaction.phoneNumber,
-            messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-            scheduleType: 'fixed',
-            sendAt: scheduledDate.toISOString()
-        });
-        
-        console.log(`Recensione programmata con successo:`, {
-            sid: message.sid,
-            phoneNumber: interaction.phoneNumber,
-            hotelId: assistant.hotelId._id,
-            scheduledTime: scheduledDate.toISOString()
-        });
-        
-        // Aggiungiamo una nuova entry nell'array delle richieste di recensione
-        if (!interaction.reviewRequests) {
-            interaction.reviewRequests = [];
-        }
-        
-        interaction.reviewRequests.push({
-            requestedAt: scheduledDate,
-            messageId: message.sid
-        });
-        
-        // Aggiorniamo anche il flag per retrocompatibilità
-        interaction.reviewRequested = true;
-        
-        await interaction.save();
-        
-        return message.sid;
-    } catch (error) {
-        console.error('ERRORE DETTAGLIATO NELLO SCHEDULING:', error);
-        console.error('Stack trace:', error.stack);
-        throw error;
-    }
 };
 
 const whatsappAssistantController = {
@@ -588,11 +454,11 @@ const whatsappAssistantController = {
                     console.log('Lingua utente rilevata:', userLanguage);
                     
                     const REVIEW_MESSAGES = {
-                        it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione su Google: ${assistant.reviewLink}`,
-                        en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review on Google: ${assistant.reviewLink}`,
-                        fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis sur Google: ${assistant.reviewLink}`,
-                        de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung auf Google hinterlassen könnten: ${assistant.reviewLink}`,
-                        es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña en Google: ${assistant.reviewLink}`
+                        it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione: ${assistant.reviewLink}`,
+                        en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review: ${assistant.reviewLink}`,
+                        fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis: ${assistant.reviewLink}`,
+                        de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung hinterlassen könnten: ${assistant.reviewLink}`,
+                        es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña: ${assistant.reviewLink}`
                     };
                     
                     const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
@@ -865,10 +731,6 @@ console.log('Hotel details:', {
                 error: error.message
             });
         }
-    },
-
-    scheduleReviewRequest: async (interaction, assistant) => {
-        // ... existing code for scheduling review ...
     }
 };
 
