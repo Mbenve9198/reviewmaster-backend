@@ -449,177 +449,209 @@ const whatsappAssistantController = {
 
             console.log('Elaborazione messaggio WhatsApp da:', message.ProfileName);
 
-            // Prima cerchiamo una conversazione attiva negli ultimi 30 giorni
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
+            // Cerca interazione esistente
             let interaction = await WhatsappInteraction.findOne({
-                phoneNumber: message.From,
-                lastInteraction: { $gte: thirtyDaysAgo }
+                phoneNumber: message.From
             }).populate({
                 path: 'hotelId',
-                select: 'name type description',
-                populate: {
-                    path: 'whatsappAssistant'
-                }
+                select: 'name type description'
             });
 
-            let assistant;
+            // Client Twilio
+            const twilioClient = twilio(
+                process.env.TWILIO_ACCOUNT_SID,
+                process.env.TWILIO_AUTH_TOKEN
+            );
 
-            if (interaction && interaction.hotelId?.whatsappAssistant?.isActive) {
-                // Se esiste una conversazione attiva, usa quell'assistente
-                assistant = interaction.hotelId.whatsappAssistant;
+            let assistant;
+            
+            // Trova assistente attivo
+            const activeAssistants = await WhatsAppAssistant.find({ 
+                isActive: true 
+            }).populate('hotelId');
+            
+            if (interaction) {
+                // Se esiste un'interazione, trova l'assistente corrispondente
+                assistant = activeAssistants.find(ast => 
+                    ast.hotelId._id.toString() === interaction.hotelId._id.toString()
+                );
+                
                 console.log('Found active conversation with assistant:', {
-                    assistantId: assistant._id,
-                    hotelName: interaction.hotelId.name,
-                    lastInteraction: interaction.lastInteraction
+                    assistantId: assistant?._id,
+                    hotelName: assistant?.hotelId?.name,
+                    lastInteraction: new Date()
                 });
             } else {
-                // Se non c'è una conversazione attiva, cerca il trigger name
-                const activeAssistants = await WhatsAppAssistant.find({ 
-                    isActive: true 
-                }).populate('hotelId');
-
-                assistant = activeAssistants.find(ast => 
-                    message.Body.toLowerCase().includes(ast.triggerName.toLowerCase())
-                );
-
-                console.log('Assistant search result:', {
-                    found: !!assistant,
-                    message: message.Body,
-                    matchedTrigger: assistant?.triggerName,
+                // Se non esiste un'interazione, cerca il primo assistente disponibile
+                assistant = activeAssistants[0];
+                console.log('Using first available assistant for new interaction:', {
                     assistantId: assistant?._id,
                     hotelName: assistant?.hotelId?.name
                 });
             }
 
             if (!assistant || !assistant.hotelId) {
+                console.log('Nessun assistente trovato!');
                 return res.status(200).send({
                     success: false,
                     message: 'No assistant found'
                 });
             }
 
-            // Se non esisteva l'interazione, creala
-            let reviewScheduled = false;
+            // Crea interazione se non esiste
             if (!interaction) {
                 console.log('CREAZIONE NUOVA INTERAZIONE:', message.From);
                 interaction = new WhatsappInteraction({
                     hotelId: assistant.hotelId._id,
                     phoneNumber: message.From,
-                    profileName: message.ProfileName, // Salva il nome del profilo
+                    profileName: message.ProfileName,
                     firstInteraction: new Date(),
                     dailyInteractions: [{
                         date: new Date(),
                         count: 1
-                    }]
+                    }],
+                    // Inizializza i campi per le recensioni
+                    reviewRequested: false,
+                    reviewScheduledFor: null,
+                    reviewRequests: []
                 });
                 await interaction.save();
-                
-                // Esegui direttamente qui la funzione di scheduling
-                console.log('TENTATIVO SCHEDULING RECENSIONE...');
-                
+                console.log('Interazione creata con ID:', interaction._id);
+            }
+            
+            // PARTE CRUCIALE: Controllo dello stato delle recensioni
+            console.log('=== VERIFICA STATO RECENSIONE ===');
+            console.log('- ReviewRequested:', interaction.reviewRequested);
+            console.log('- ReviewScheduledFor:', interaction.reviewScheduledFor);
+            console.log('- ReviewRequests:', interaction.reviewRequests?.length || 0);
+            
+            let reviewScheduled = false;
+            
+            // Verifica se una recensione è stata inviata negli ultimi 3 mesi
+            const treeMonthsAgo = new Date();
+            treeMonthsAgo.setMonth(treeMonthsAgo.getMonth() - 3);
+            
+            const recentReviews = interaction.reviewRequests?.filter(
+                review => new Date(review.requestedAt) > treeMonthsAgo
+            ) || [];
+            
+            if (recentReviews.length > 0) {
+                console.log('Recensione già inviata negli ultimi 3 mesi:', {
+                    dataUltimaRecensione: recentReviews[recentReviews.length - 1].requestedAt,
+                    giorniPassati: Math.floor((new Date() - new Date(recentReviews[recentReviews.length - 1].requestedAt)) / (1000 * 60 * 60 * 24))
+                });
+            }
+            
+            // Scheduliamo una recensione se:
+            // 1. Non ne abbiamo inviate negli ultimi 3 mesi
+            // 2. L'assistente ha un link per le recensioni configurato
+            if (recentReviews.length === 0 && assistant.reviewLink) {
                 try {
-                    // Implementazione diretta dello scheduling qui
+                    console.log('*** TENTATIVO DI SCHEDULING RECENSIONE ***');
+                    
                     const delayDays = assistant.reviewRequestDelay || 3;
                     const scheduledDate = new Date();
                     scheduledDate.setDate(scheduledDate.getDate() + delayDays);
                     
-                    console.log('Scheduling recensione per:', {
+                    console.log('DETTAGLI SCHEDULING:', {
                         phoneNumber: interaction.phoneNumber,
                         hotelName: assistant.hotelId.name,
-                        scheduledDate
+                        scheduledDate: scheduledDate.toISOString(),
+                        delayDays,
+                        reviewLink: assistant.reviewLink
                     });
                     
-                    // Verifica se la recensione è già stata programmata
-                    const treeMonthsAgo = new Date();
-                    treeMonthsAgo.setMonth(treeMonthsAgo.getMonth() - 3);
-                    
-                    const recentReviews = interaction.reviewRequests?.filter(
-                        review => new Date(review.requestedAt) > treeMonthsAgo
-                    ) || [];
-                    
-                    if (recentReviews.length === 0) {
-                        // Funzione per generare il messaggio in base alla lingua
-                        const getLanguageFromPhone = (phoneNumber) => {
-                            const COUNTRY_CODES = {
-                                '39': 'it',
-                                '44': 'en',
-                                '33': 'fr',
-                                '49': 'de',
-                                '34': 'es',
-                                '31': 'en',
-                                '351': 'en',
-                                '41': 'de',
-                                '43': 'de',
-                                '32': 'fr'
-                            };
-                            
-                            const cleanNumber = phoneNumber.replace('whatsapp:', '').replace('+', '');
-                            const matchingPrefix = Object.keys(COUNTRY_CODES)
-                                .sort((a, b) => b.length - a.length)
-                                .find(prefix => cleanNumber.startsWith(prefix));
-                            
-                            return matchingPrefix ? COUNTRY_CODES[matchingPrefix] : 'en';
+                    // Utility per ottenere la lingua dal numero di telefono
+                    const getLanguageFromPhone = (phoneNumber) => {
+                        const COUNTRY_CODES = {
+                            '39': 'it',
+                            '44': 'en',
+                            '33': 'fr',
+                            '49': 'de',
+                            '34': 'es',
+                            '31': 'en',
+                            '351': 'en',
+                            '41': 'de',
+                            '43': 'de',
+                            '32': 'fr'
                         };
                         
-                        const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
+                        const cleanNumber = phoneNumber.replace('whatsapp:', '').replace('+', '');
+                        const matchingPrefix = Object.keys(COUNTRY_CODES)
+                            .sort((a, b) => b.length - a.length)
+                            .find(prefix => cleanNumber.startsWith(prefix));
                         
-                        const REVIEW_MESSAGES = {
-                            it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione su Google: {link}`,
-                            en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review on Google: {link}`,
-                            fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis sur Google: {link}`,
-                            de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung auf Google hinterlassen könnten: {link}`,
-                            es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña en Google: {link}`
-                        };
+                        return matchingPrefix ? COUNTRY_CODES[matchingPrefix] : 'en';
+                    };
+                    
+                    const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
+                    console.log('Lingua utente rilevata:', userLanguage);
+                    
+                    const REVIEW_MESSAGES = {
+                        it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione su Google: ${assistant.reviewLink}`,
+                        en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review on Google: ${assistant.reviewLink}`,
+                        fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis sur Google: ${assistant.reviewLink}`,
+                        de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung auf Google hinterlassen könnten: ${assistant.reviewLink}`,
+                        es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña en Google: ${assistant.reviewLink}`
+                    };
+                    
+                    const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
+                    const reviewMessage = messageTemplate(assistant.hotelId.name);
                         
-                        const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
-                        const reviewMessage = messageTemplate(assistant.hotelId.name)
-                            .replace('{link}', assistant.reviewLink || 'https://g.page/r/your-google-review-link');
-                            
-                        console.log('Creazione messaggio programmato con Twilio:', reviewMessage);
-                        
-                        // Utilizza lo scheduling nativo di Twilio
-                        const twilioResponse = await client.messages.create({
-                            body: reviewMessage,
-                            from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
-                            to: interaction.phoneNumber,
-                            messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
-                            scheduleType: 'fixed',
-                            sendAt: scheduledDate.toISOString()
-                        });
-                        
-                        console.log('SUCCESSO! Messaggio programmato con Twilio SID:', twilioResponse.sid);
-                        
-                        // Aggiorna l'interazione con l'informazione sulla recensione programmata
-                        if (!interaction.reviewRequests) {
-                            interaction.reviewRequests = [];
-                        }
-                        
-                        interaction.reviewRequests.push({
-                            requestedAt: scheduledDate,
-                            messageId: twilioResponse.sid
-                        });
-                        
-                        interaction.reviewRequested = true;
-                        interaction.reviewScheduledFor = scheduledDate;
-                        await interaction.save();
-                        
-                        reviewScheduled = true;
-                        
-                        console.log('Aggiornato database con recensione programmata:', {
-                            interactionId: interaction._id,
-                            scheduledFor: scheduledDate
-                        });
+                    console.log('MESSAGGIO RECENSIONE:', reviewMessage);
+                    
+                    // Utilizza lo scheduling nativo di Twilio
+                    console.log('Chiamata a Twilio API per scheduling...');
+                    const twilioMessage = await twilioClient.messages.create({
+                        body: reviewMessage,
+                        from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                        to: interaction.phoneNumber,
+                        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                        scheduleType: 'fixed',
+                        sendAt: scheduledDate.toISOString()
+                    });
+                    
+                    console.log('SUCCESSO! Twilio response:', {
+                        sid: twilioMessage.sid,
+                        status: twilioMessage.status,
+                        dateCreated: twilioMessage.dateCreated
+                    });
+                    
+                    // Aggiorna l'interazione con la recensione programmata
+                    if (!interaction.reviewRequests) {
+                        interaction.reviewRequests = [];
                     }
+                    
+                    interaction.reviewRequests.push({
+                        requestedAt: scheduledDate,
+                        messageId: twilioMessage.sid
+                    });
+                    
+                    // Aggiorna anche i campi legacy per retrocompatibilità
+                    interaction.reviewRequested = true;
+                    interaction.reviewScheduledFor = scheduledDate;
+                    
+                    console.log('Aggiornamento database con info recensione...');
+                    await interaction.save();
+                    
+                    reviewScheduled = true;
+                    console.log('RECENSIONE SCHEDULATA CON SUCCESSO!');
                 } catch (error) {
-                    console.error('ERRORE DURANTE LO SCHEDULING DELLA RECENSIONE:', error);
+                    console.error('ERRORE SCHEDULING RECENSIONE:', error);
                     console.error('Stack trace:', error.stack);
+                    
+                    if (error.code) {
+                        console.error('Twilio error code:', error.code);
+                        console.error('Twilio error message:', error.message);
+                    }
                 }
-            } else if (!interaction.profileName && message.ProfileName !== 'Guest') {
-                // Aggiorna il profilo se non era stato salvato prima
-                interaction.profileName = message.ProfileName;
-                // Salva più tardi dopo altri aggiornamenti
+            } else {
+                // Log del motivo per cui non abbiamo schedulato una recensione
+                if (recentReviews.length > 0) {
+                    console.log('Non scheduliamo: recensione già inviata negli ultimi 3 mesi');
+                } else if (!assistant.reviewLink) {
+                    console.log('Non scheduliamo: assistente senza link per recensioni configurato');
+                }
             }
 
             // Verifica limiti giornalieri
@@ -793,7 +825,7 @@ console.log('Hotel details:', {
             res.status(200).send({
                 success: true,
                 message: 'Message processed successfully',
-                reviewScheduled
+                reviewScheduled: reviewScheduled
             });
 
         } catch (error) {
