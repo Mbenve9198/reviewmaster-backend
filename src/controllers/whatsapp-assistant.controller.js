@@ -110,11 +110,18 @@ const getLanguageFromPhone = (phoneNumber) => {
 
 const scheduleReviewRequest = async (interaction, assistant) => {
     try {
-        // Verifica se una recensione è già stata schedulata per questa interazione
-        if (interaction.reviewScheduledFor || interaction.reviewRequested) {
-            console.log(`Recensione già schedulata per ${interaction.phoneNumber}`, {
-                scheduledFor: interaction.reviewScheduledFor,
-                alreadyRequested: interaction.reviewRequested
+        // Verifica se una recensione è stata inviata negli ultimi 3 mesi
+        const treeMonthsAgo = new Date();
+        treeMonthsAgo.setMonth(treeMonthsAgo.getMonth() - 3);
+        
+        const recentReviews = interaction.reviewRequests?.filter(
+            review => new Date(review.requestedAt) > treeMonthsAgo
+        ) || [];
+        
+        if (recentReviews.length > 0) {
+            console.log(`Recensione già inviata negli ultimi 3 mesi per ${interaction.phoneNumber}`, {
+                ultimaRecensione: recentReviews[recentReviews.length - 1].requestedAt,
+                giorniPassati: Math.floor((new Date() - new Date(recentReviews[recentReviews.length - 1].requestedAt)) / (1000 * 60 * 60 * 24))
             });
             return null; // Non schedula nuovamente
         }
@@ -123,9 +130,8 @@ const scheduleReviewRequest = async (interaction, assistant) => {
         const scheduledDate = new Date();
         scheduledDate.setDate(scheduledDate.getDate() + delayDays);
         
-        // Aggiorna l'interazione con la data programmata
+        // Aggiorna l'interazione con la data programmata (manteniamo per retrocompatibilità)
         interaction.reviewScheduledFor = scheduledDate;
-        await interaction.save();
         
         const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
         const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
@@ -149,8 +155,19 @@ const scheduleReviewRequest = async (interaction, assistant) => {
             scheduledTime: scheduledDate.toISOString()
         });
         
-        // Aggiorna il flag reviewRequested
+        // Aggiungiamo una nuova entry nell'array delle richieste di recensione
+        if (!interaction.reviewRequests) {
+            interaction.reviewRequests = [];
+        }
+        
+        interaction.reviewRequests.push({
+            requestedAt: scheduledDate,
+            messageId: message.sid
+        });
+        
+        // Aggiorniamo anche il flag per retrocompatibilità
         interaction.reviewRequested = true;
+        
         await interaction.save();
         
         return message.sid;

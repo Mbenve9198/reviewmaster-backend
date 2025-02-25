@@ -38,6 +38,15 @@ const whatsappInteractionSchema = new mongoose.Schema({
         type: Date,
         default: null
     },
+    reviewRequests: [{
+        requestedAt: {
+            type: Date,
+            required: true
+        },
+        messageId: {
+            type: String
+        }
+    }],
     // Aggiungiamo campi per il rate limiting
     dailyInteractions: [{
         date: {
