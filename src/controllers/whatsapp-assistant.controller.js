@@ -651,7 +651,7 @@ console.log('Hotel details:', {
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
-                    model: "claude-3-7-sonnet-20240307",
+                    model: "claude-3-7-sonnet-20250219",
                     max_tokens: 1000,
                     messages: [
                         {
@@ -915,7 +915,7 @@ ${recentHistory.map(msg => msg.content).join('\n\n')}`
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
-                    model: "claude-3-7-sonnet-20240307",
+                    model: "claude-3-7-sonnet-20250219",
                     max_tokens: 1000,
                     messages: [
                         {
