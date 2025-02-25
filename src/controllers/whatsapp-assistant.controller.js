@@ -782,26 +782,14 @@ ${recentHistory.map(msg => msg.content).join('\n\n')}`
             
             // Calcola il numero di recensioni inviate
             const reviewsSent = interactions.reduce((sum, interaction) => 
-                sum + (interaction.reviewRequests ? interaction.reviewRequests.length : 0), 0);
+                sum + (interaction.reviewRequested ? 1 : 0), 0);
             
-            // Calcola le statistiche sui link di recensione
-            const reviewStats = await WhatsappInteraction.aggregate([
-                { $match: { hotelId: mongoose.Types.ObjectId(hotelId) } },
-                { $group: {
-                    _id: null,
-                    totalInteractions: { $sum: 1 },
-                    reviewsRequested: { $sum: { $cond: ["$reviewRequested", 1, 0] } },
-                    reviewsClicked: { $sum: { $cond: [{ $and: ["$reviewTracking.clicked"] }, 1, 0] } }
-                }}
-            ]);
+            // Calcola il numero di recensioni cliccate
+            const reviewsClicked = interactions.reduce((sum, interaction) => 
+                sum + (interaction.reviewTracking && interaction.reviewTracking.clicked ? 1 : 0), 0);
             
-            const stats = reviewStats.length > 0 ? reviewStats[0] : { 
-                totalInteractions: 0, 
-                reviewsRequested: 0, 
-                reviewsClicked: 0 
-            };
-            
-            const clickThroughRate = stats.reviewsRequested > 0 ? (stats.reviewsClicked / stats.reviewsRequested) * 100 : 0;
+            // Calcola il tasso di clic
+            const clickThroughRate = reviewsSent > 0 ? (reviewsClicked / reviewsSent) * 100 : 0;
             
             // Analisi messaggi per giorno negli ultimi 30 giorni
             const thirtyDaysAgo = new Date();
@@ -843,8 +831,8 @@ ${recentHistory.map(msg => msg.content).join('\n\n')}`
                 totalMessages,
                 userMessages,
                 assistantMessages,
-                reviewsSent: stats.reviewsRequested,
-                reviewsClicked: stats.reviewsClicked,
+                reviewsSent,
+                reviewsClicked,
                 clickThroughRate,
                 messagesByDate
             });
