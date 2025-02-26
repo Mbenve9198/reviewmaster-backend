@@ -647,7 +647,7 @@ console.log('Hotel details:', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-api-key': process.env.ANTHROPIC_API_KEY,
+                    'x-api-key': process.env.CLAUDE_API_KEY,
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
@@ -708,7 +708,7 @@ ${recentHistory.map(msg => msg.content).join('\n\n')}`
             
             // Salva i risultati nel database
             const newAnalysis = new SentimentAnalysis({
-                hotelId,
+                hotelId: assistant.hotelId._id,
                 positive: analysisResult.positive,
                 neutral: analysisResult.neutral,
                 negative: analysisResult.negative,
