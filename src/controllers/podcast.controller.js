@@ -141,16 +141,19 @@ const refineScriptWithClaude = async (initialScript, language) => {
                         role: "user",
                         content: `You are an expert podcast scriptwriter and voice actor coach. I have an initial script for a hotel analysis podcast in ${language}. 
                         
-Your task is to refine this script to make it sound completely natural for a spoken podcast. Focus on:
+Your task is to refine this script to make it sound completely natural for a spoken podcast, while KEEPING THE TOTAL LENGTH UNDER 10,000 CHARACTERS (this is a strict technical limitation).
 
+Focus on:
 1. Conversational language that sounds natural when read aloud
 2. Varied sentence structures and natural transitions
 3. Proper pacing, including pauses and emphasis (indicate these in the script)
 4. Natural interjections, hesitations, and speaking patterns that make audio content engaging
 5. Maintaining a professional but friendly tone suitable for a business podcast
-6. Preserving all the valuable insights while making the language flow better
+6. Preserving the most valuable insights while keeping the script concise
 
-The script will be used with an AI voice generator, so please include direction for tone, pacing, and emphasis where needed. Indicate pauses with (pause) and emphasis with *asterisks*.
+The script will be used with an AI voice generator that has a 10,000 character limit, so you MUST edit the content to fit within this limit while maintaining the most important information.
+
+Include direction for tone, pacing, and emphasis where needed. Indicate pauses with (pause) and emphasis with *asterisks*.
 
 Here is the initial script:
 
