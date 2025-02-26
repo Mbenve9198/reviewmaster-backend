@@ -725,14 +725,34 @@ ${recentHistory.map(msg => msg.content).join('\n\n')}`
             analysisResult.createdAt = newAnalysis.createdAt;
             analysisResult.isCached = false;
             
-            res.json(analysisResult);
+            // Dopo aver elaborato la richiesta e salvato l'analisi del sentiment
+            // Modificare la risposta per usare il formato corretto per Twilio
+            
+            // Invia una risposta TwiML vuota invece di JSON
+            res.set('Content-Type', 'text/xml');
+            res.send('<Response></Response>');
+            
+            // In alternativa se preferisci solo una risposta vuota:
+            // res.status(200).send();
+            
+            // IMPORTANTE: NON usare res.json() qui!
+            
+            // Per inviare un messaggio di risposta a WhatsApp, usa il client Twilio
+            try {
+                await client.messages.create({
+                    body: "Ciao! Grazie per il tuo messaggio. Ti risponderò al più presto.",
+                    from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                    to: message.From,
+                    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                });
+            } catch (twilioError) {
+                console.error('Errore invio messaggio Twilio:', twilioError);
+            }
         } catch (error) {
             console.error('WhatsApp webhook error:', error);
-            res.status(500).json({ 
-                success: false,
-                message: 'Error processing message',
-                error: error.message
-            });
+            // Anche in caso di errore, rispondi con un TwiML vuoto
+            res.set('Content-Type', 'text/xml');
+            res.send('<Response></Response>');
         }
     },
 
