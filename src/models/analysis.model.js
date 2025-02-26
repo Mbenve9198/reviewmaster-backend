@@ -112,7 +112,17 @@ const analysisSchema = new mongoose.Schema({
       sourceId: String,
       sourceType: String
     }
-  }]
+  }],
+  podcast: {
+    script: String,
+    language: {
+      type: String,
+      enum: ['English', 'Italiano'],
+      default: 'English'
+    },
+    createdAt: Date,
+    audioUrl: String  // Se decidiamo di salvare l'audio su cloud storage
+  }
 }, {
   timestamps: true,
   indexes: [
