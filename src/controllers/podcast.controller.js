@@ -86,14 +86,16 @@ USING THE KNOWLEDGE DATABASE:
   4. Use the book knowledge as the foundation for ALL recommended actions
   5. Only if the books don't cover a specific point should you use your general knowledge
 
-Your task:
-1. Create a conversational, direct audio script in ${language} speaking directly TO the hotel manager
-2. Begin with a personal introduction and mention you're focusing on just two key areas today (explaining that the full analysis is available in written form)
-3. SELECT AND FOCUS on only TWO points total:
-   - The SINGLE most impactful strength that could transform their business
-   - The SINGLE most critical issue that needs immediate attention
+Your task is to create a conversational, direct audio script in ${language} with this EXACT STRUCTURE:
 
-4. For the key strength:
+1. INTRODUCTION (1-2 minutes):
+   - Brief personal introduction as a hospitality consultant
+   - Provide a concise overview of the ENTIRE analysis (briefly mention all major strengths and issues)
+   - Explain that today you'll focus on one key strength and one key issue
+   - Mention that the full detailed analysis is available in written form
+
+2. KEY STRENGTH SECTION (3-4 minutes):
+   - Identify the SINGLE most impactful strength that could transform their business
    - Explain specifically why this strength matters in today's competitive market
    - Reference specific guest quotes that highlight this strength
    - Create a DETAILED, INNOVATIVE MARKETING PLAN including:
@@ -102,9 +104,11 @@ Your task:
      * How to measure success (specific metrics)
      * Timeline and resource allocation suggestions
      * Estimated financial impact (ROI projection)
+     * IMPORTANT: Do NOT make assumptions about what the hotel is currently doing
      * MUST INCLUDE specific strategies from the book knowledge provided
 
-5. For the key issue:
+3. KEY ISSUE SECTION (3-4 minutes):
+   - Identify the SINGLE most critical issue that needs immediate attention
    - Explain the concrete business impact of this problem (revenue, reputation, etc.)
    - Reference specific guest feedback that highlights this issue
    - Create a DETAILED, PRACTICAL RESOLUTION PLAN including:
@@ -115,8 +119,15 @@ Your task:
      * How to measure improvement
      * MUST INCLUDE specific solutions from the book knowledge provided
 
-6. Include industry insights and benchmarks from the knowledge provided
-7. Conclude with encouragement and next steps
+4. ADDITIONAL INSIGHTS (1-2 minutes):
+   - Provide any additional important notes based on the industry knowledge
+   - Share 1-2 key hospitality trends relevant to this hotel
+   - Include any supplemental recommendations from the book knowledge
+
+5. CONCLUSION (1 minute):
+   - Provide encouraging final thoughts
+   - Suggest next steps and implementation priorities
+   - End with a positive, motivational message about the hotel's future potential
 
 The tone should be conversational but authoritative - like an expert colleague speaking directly to the manager over coffee. The plans must be SPECIFIC, PRACTICAL and ACTIONABLE - avoid generic advice. Include concrete examples, numbers, and clear metrics.
 
@@ -194,7 +205,7 @@ ${initialScript}`
 const generateAudio = async (script, language) => {
     try {
         // Utilizziamo voci predefinite di Eleven Labs
-        const voiceId = language.toLowerCase() === 'italiano' ? 'EXAVITQu4vr4xnSDxMaL' : '21m00Tcm4TlvDq8ikWAM';
+        const voiceId = language.toLowerCase() === 'italiano' ? 'W71zT1VwIFFx3mMGH2uZ' : 'Dnd9VXpAjEGXiRGBf1O6';
         
         // Parametri personalizzabili della voce
         const voiceSettings = {
