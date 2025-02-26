@@ -980,6 +980,31 @@ ${userMessages.join('\n\n')}`
             res.status(500).json({ message: 'Internal server error' });
         }
     },
+
+    getSentimentAnalysisHistory: async (req, res) => {
+        try {
+            const { hotelId } = req.params;
+            
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+
+            // Recupera le ultime 10 analisi del sentiment
+            const analyses = await SentimentAnalysis.find({ hotelId })
+                .sort({ createdAt: -1 })
+                .limit(10);
+                
+            res.json(analyses);
+        } catch (error) {
+            console.error('Error fetching sentiment analysis history:', error);
+            res.status(500).json({ 
+                message: 'Error fetching sentiment analysis history',
+                error: error.message 
+            });
+        }
+    },
 };
 
 module.exports = whatsappAssistantController;
