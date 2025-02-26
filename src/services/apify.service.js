@@ -25,7 +25,7 @@ class ApifyService {
             const input = this._prepareInput(platform, url, config);
             
             const response = await axios.post(
-                `${APIFY_BASE_URL}/acts/${actorId}/runs`,
+                `${APIFY_BASE_URL}/v2/acts/${actorId}/runs`,
                 input,
                 {
                     headers: {
@@ -47,7 +47,7 @@ class ApifyService {
                 await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
                 
                 const statusResponse = await axios.get(
-                    `${APIFY_BASE_URL}/acts/${actorId}/runs/${runId}`,
+                    `${APIFY_BASE_URL}/v2/acts/${actorId}/runs/${runId}`,
                     {
                         headers: {
                             'Authorization': `Bearer ${this.token}`
@@ -258,7 +258,7 @@ class ApifyService {
         try {
             // Ottieni i dettagli dell'esecuzione
             const runResponse = await axios.get(
-                `${APIFY_BASE_URL}/acts/${actorId}/runs/${runId}`,
+                `${APIFY_BASE_URL}/v2/acts/${actorId}/runs/${runId}`,
                 {
                     headers: {
                         'Authorization': `Bearer ${this.token}`
@@ -266,9 +266,9 @@ class ApifyService {
                 }
             );
             
-            // Ottieni i log dell'esecuzione - Endpoint corretto
+            // Ottieni i log dell'esecuzione
             const logResponse = await axios.get(
-                `${APIFY_BASE_URL}/acts/${actorId}/runs/${runId}/log`,
+                `${APIFY_BASE_URL}/v2/acts/${actorId}/runs/${runId}/log`,
                 {
                     headers: {
                         'Authorization': `Bearer ${this.token}`
