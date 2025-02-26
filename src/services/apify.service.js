@@ -224,61 +224,22 @@ class ApifyService {
     _prepareInput(platform, url, config) {
         const input = this._getDefaultConfig(platform, config);
         
-        // Per Google Maps, dobbiamo assicurarci che l'URL sia formattato correttamente
+        // Per Google Maps, usiamo l'URL originale senza modifiche
         if (platform === 'google') {
-            // Estrai l'identificatore del luogo dall'URL
-            let placeId = null;
+            console.log(`Using original URL: ${url}`);
             
-            // Prova a estrarre il CID (Client ID) dall'URL se presente
-            const cidMatch = url.match(/[?&]cid=([^&]+)/);
-            if (cidMatch && cidMatch[1]) {
-                placeId = cidMatch[1];
-                console.log(`Extracted CID from URL: ${placeId}`);
-            }
+            // Usa l'URL originale senza modifiche
+            input.startUrls = [{
+                url: url,
+                method: "GET"
+            }];
             
-            // Prova a estrarre l'ID dal formato !1s0x....:0x....
-            const dataMatch = url.match(/!1s(0x[a-f0-9]+:0x[a-f0-9]+)/);
-            if (dataMatch && dataMatch[1]) {
-                placeId = dataMatch[1].split(':')[1];  // Prendi solo la parte dopo il :
-                console.log(`Extracted place ID from URL data: ${placeId}`);
-            }
-            
-            // Prova a estrarre l'ID dal formato !3m...!8m...!3s0x....:0x....
-            if (!placeId) {
-                const altDataMatch = url.match(/!3s(0x[a-f0-9]+:0x[a-f0-9]+)/);
-                if (altDataMatch && altDataMatch[1]) {
-                    placeId = altDataMatch[1].split(':')[1];
-                    console.log(`Extracted place ID from alternative URL data: ${placeId}`);
-                }
-            }
-            
-            // Se abbiamo un placeId, usiamo quello direttamente
-            if (placeId) {
-                // Formato corretto per l'URL con CID
-                input.startUrls = [{
-                    url: `https://www.google.com/maps?cid=${placeId}`,
-                    method: "GET"
-                }];
-                console.log(`Using CID URL: https://www.google.com/maps?cid=${placeId}`);
-            } else {
-                // Estrai il nome del luogo dall'URL
-                const placeNameMatch = url.match(/place\/([^/@]+)/);
-                if (placeNameMatch && placeNameMatch[1]) {
-                    const placeName = decodeURIComponent(placeNameMatch[1].replace(/\+/g, ' '));
-                    console.log(`Extracted place name: ${placeName}`);
-                    
-                    // Usa l'URL originale se contiene /maps/place/
-                    input.startUrls = [{ 
-                        url: url,
-                        method: "GET"
-                    }];
-                } else {
-                    // Fallback: usa l'URL completo
-                    input.startUrls = [{ 
-                        url: url,
-                        method: "GET"
-                    }];
-                }
+            // Aggiungi anche searchStrings come fallback
+            const placeNameMatch = url.match(/place\/([^/@]+)/);
+            if (placeNameMatch && placeNameMatch[1]) {
+                const placeName = decodeURIComponent(placeNameMatch[1].replace(/\+/g, ' '));
+                console.log(`Also adding search string: ${placeName}`);
+                input.searchStrings = [placeName];
             }
         } else {
             // Per altre piattaforme, usa l'URL così com'è
