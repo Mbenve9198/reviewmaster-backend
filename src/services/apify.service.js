@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const APIFY_BASE_URL = 'https://api.apify.com/v2';
+const APIFY_BASE_URL = 'https://api.apify.com';
 const ACTORS = {
     google: 'compass~google-maps-reviews-scraper',
     tripadvisor: 'maxcopell~tripadvisor-reviews',
@@ -93,17 +93,16 @@ class ApifyService {
             
             // Get dataset items
             const datasetResponse = await axios.get(
-                `${APIFY_BASE_URL}/acts/${actorId}/runs/${runId}/dataset/items`,
+                `${APIFY_BASE_URL}/v2/acts/${actorId}/runs/${runId}/dataset/items`,
                 {
                     headers: {
                         'Authorization': `Bearer ${this.token}`
-                    },
-                    params: {
-                        format: 'json',
-                        clean: 1
                     }
                 }
             );
+            
+            // Verifica il formato della risposta
+            console.log(`Got dataset response with status ${datasetResponse.status}`);
             
             const reviews = datasetResponse.data;
             console.log(`Retrieved ${reviews.length} reviews from Apify (requested ${config.maxReviews})`);
