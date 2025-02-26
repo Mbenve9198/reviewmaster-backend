@@ -61,7 +61,7 @@ const generateInitialScript = async (analysis, reviews, bookKnowledge, language)
             `"${r.content.text.substring(0, 200)}${r.content.text.length > 200 ? '...' : ''}" - Guest, ${r.content.rating}/${r.platform === 'booking' ? 10 : 5} stars`
         ).join('\n\n');
         
-        const prompt = `You are an expert podcast script writer for the hospitality industry with deep knowledge of hotel marketing and operations. Create a 15-minute podcast script about a hotel's performance based on guest reviews.
+        const prompt = `You are a hospitality industry consultant speaking directly to the manager of ${hotelMeta.hotelName}. Create a focused, actionable audio presentation that will inspire concrete improvements.
 
 INDUSTRY KNOWLEDGE:
 ${bookKnowledge}
@@ -71,42 +71,56 @@ Hotel: ${hotelMeta.hotelName}
 Reviews analyzed: ${analysis.reviewsAnalyzed}
 Average rating: ${hotelMeta.avgRating}
 
-Key strengths: ${strengths.map(s => s.title).join(', ')}
-Key issues: ${issues.map(i => i.title).join(', ')}
+All strengths: ${strengths.map(s => s.title).join(', ')}
+All issues: ${issues.map(i => i.title).join(', ')}
 
 GUEST QUOTES:
 ${reviewQuotes}
 
+USING THE KNOWLEDGE DATABASE:
+* The INDUSTRY KNOWLEDGE provided above from expert books is your PRIMARY SOURCE for creating actionable plans
+* DIRECT INSTRUCTIONS ON KNOWLEDGE USE:
+  1. Extract specific strategies, tactics, examples, statistics, and best practices from these books
+  2. Cite these sources when creating your marketing and resolution plans
+  3. Apply these expert insights directly to this hotel's specific situation
+  4. Use the book knowledge as the foundation for ALL recommended actions
+  5. Only if the books don't cover a specific point should you use your general knowledge
+
 Your task:
-1. Create a professional-sounding podcast script in ${language}
-2. Include an engaging introduction that mentions the hotel
-3. For EACH key strength:
-   - Explain why it's important in the hospitality industry
-   - Provide specific examples from guest reviews
-   - Develop a DETAILED MARKETING PLAN to leverage this strength, including:
-     * Specific marketing channels and content strategies
-     * Ways to highlight this strength in booking platforms
-     * How to use this strength to differentiate from competitors
-     * Estimated ROI and timeline for implementation
+1. Create a conversational, direct audio script in ${language} speaking directly TO the hotel manager
+2. Begin with a personal introduction and mention you're focusing on just two key areas today (explaining that the full analysis is available in written form)
+3. SELECT AND FOCUS on only TWO points total:
+   - The SINGLE most impactful strength that could transform their business
+   - The SINGLE most critical issue that needs immediate attention
 
-4. For EACH major issue:
-   - Explain its impact on guest satisfaction and business
-   - Provide specific examples from reviews
-   - Develop a DETAILED RESOLUTION PLAN, including:
-     * Root cause analysis of the problem
-     * Step-by-step actions to resolve the issue
-     * Timeline for implementation
-     * Required resources and investment
-     * How to measure success and follow up
+4. For the key strength:
+   - Explain specifically why this strength matters in today's competitive market
+   - Reference specific guest quotes that highlight this strength
+   - Create a DETAILED, INNOVATIVE MARKETING PLAN including:
+     * Exactly how to showcase this strength across specific channels
+     * Creative content ideas with examples
+     * How to measure success (specific metrics)
+     * Timeline and resource allocation suggestions
+     * Estimated financial impact (ROI projection)
+     * MUST INCLUDE specific strategies from the book knowledge provided
 
-5. Include short segments with quotes from actual guests
-6. Add industry insights based on the knowledge provided
-7. Conclude with a summary and actionable advice for the hotel
-8. Format as a complete script with clear speaker parts
+5. For the key issue:
+   - Explain the concrete business impact of this problem (revenue, reputation, etc.)
+   - Reference specific guest feedback that highlights this issue
+   - Create a DETAILED, PRACTICAL RESOLUTION PLAN including:
+     * Root cause analysis with industry context
+     * Step-by-step implementation strategy
+     * Budget considerations and resource requirements
+     * Timeline with key milestones
+     * How to measure improvement
+     * MUST INCLUDE specific solutions from the book knowledge provided
 
-The marketing and resolution plans should be PRACTICAL, SPECIFIC, and ACTIONABLE - avoid generic advice. Include concrete examples, numbers where appropriate (costs, timelines, expected results), and clear metrics for success. These plans should be immediately useful to a hotel manager in real-world situations.
+6. Include industry insights and benchmarks from the knowledge provided
+7. Conclude with encouragement and next steps
 
-The podcast should feel like a professional hospitality industry analysis, similar to what you might hear on a business podcast, but with immediately applicable business solutions.`;
+The tone should be conversational but authoritative - like an expert colleague speaking directly to the manager over coffee. The plans must be SPECIFIC, PRACTICAL and ACTIONABLE - avoid generic advice. Include concrete examples, numbers, and clear metrics.
+
+CRITICAL: Your most important job is to extract and apply the hospitality expertise from the book knowledge to create a uniquely valuable action plan that wouldn't be possible without these industry sources.`;
 
         const result = await model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -179,7 +193,20 @@ ${initialScript}`
 // Funzione per generare audio con Eleven Labs
 const generateAudio = async (script, language) => {
     try {
-        const voiceId = language.toLowerCase() === 'italiano' ? 'W71zT1VwIFFx3mMGH2uZ' : 'NZX3G5Vcbc9iwbdtIdDE';
+        // Utilizziamo voci predefinite di Eleven Labs
+        const voiceId = language.toLowerCase() === 'italiano' ? 'EXAVITQu4vr4xnSDxMaL' : '21m00Tcm4TlvDq8ikWAM';
+        
+        // Parametri personalizzabili della voce
+        const voiceSettings = {
+            stability: 0.5,           // Stabilità della voce (0.0-1.0): valori più alti = più stabile
+            similarity_boost: 0.75,   // Somiglianza con la voce originale (0.0-1.0)
+            style: 0.3,               // Espressività dello stile (0.0-1.0): valori più alti = più espressivo
+            use_speaker_boost: true,  // Migliora la qualità della voce
+            
+            // Parametri aggiuntivi per controllare la velocità
+            // Disponibili nei modelli più recenti di Eleven Labs
+            speaking_rate: 1.0        // Velocità di parlato: 1.0 = normale, <1 più lento, >1 più veloce
+        };
         
         const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
             method: 'POST',
@@ -190,10 +217,7 @@ const generateAudio = async (script, language) => {
             body: JSON.stringify({
                 text: script,
                 model_id: 'eleven_multilingual_v2',
-                voice_settings: {
-                    stability: 0.5,
-                    similarity_boost: 0.75
-                }
+                voice_settings: voiceSettings
             })
         });
         
