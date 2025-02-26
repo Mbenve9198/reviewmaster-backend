@@ -173,13 +173,86 @@ class ApifyService {
     }
 
     _handleApifyError(error) {
-        // Implement the logic to handle Apify-specific errors
-        return this._handleError(error);
+        // Estrai il messaggio di errore dalla risposta di Apify
+        if (error.response && error.response.data && error.response.data.error) {
+            const apiError = error.response.data.error;
+            
+            console.log("Detailed Apify error:", JSON.stringify(apiError, null, 2));
+            
+            // Errori specifici dell'API
+            switch (apiError.type) {
+                case 'invalid-input':
+                    if (apiError.message.includes('startUrls') && apiError.message.includes('valid URLs')) {
+                        return new Error('The provided URL is invalid or not supported by this platform. Please check the URL format and try again.');
+                    }
+                    return new Error(`Invalid input: ${apiError.message}`);
+                    
+                case 'rate-limit-exceeded':
+                    return new Error('Rate limit exceeded. Please try again later.');
+                    
+                default:
+                    return new Error(`Apify error: ${apiError.message || apiError.type}`);
+            }
+        }
+        
+        // Se l'errore è nell'oggetto error direttamente
+        if (error.data && error.data.error) {
+            const apiError = error.data.error;
+            return new Error(`Apify error: ${apiError.message || apiError.type || JSON.stringify(apiError)}`);
+        }
+        
+        // Errori di rete o altri errori
+        if (error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
+            return new Error('Connection to scraping service failed. Please try again later.');
+        }
+        
+        return new Error(error.message || 'Unknown error during scraping');
     }
 
     _prepareInput(platform, url, config) {
         const input = this._getDefaultConfig(platform, config);
-        input.url = url;
+        
+        // Per Google Maps, dobbiamo assicurarci che l'URL sia formattato correttamente
+        if (platform === 'google') {
+            // Estrai l'identificatore del luogo dall'URL
+            let placeId = null;
+            
+            // Prova a estrarre il CID (Client ID) dall'URL se presente
+            const cidMatch = url.match(/[?&]cid=([^&]+)/);
+            if (cidMatch && cidMatch[1]) {
+                placeId = cidMatch[1];
+                console.log(`Extracted CID from URL: ${placeId}`);
+            }
+            
+            // Se abbiamo un placeId, usiamo quello direttamente
+            if (placeId) {
+                input.startUrls = [{
+                    url: `https://www.google.com/maps/place/?cid=${placeId}`
+                }];
+            } else {
+                // Altrimenti, assicuriamoci che l'URL sia ben formattato
+                try {
+                    // Crea un oggetto URL per normalizzare l'URL
+                    const urlObj = new URL(url);
+                    
+                    // Assicurati che il percorso contenga "place"
+                    if (urlObj.pathname.includes('/place/')) {
+                        // Usa l'URL normalizzato
+                        input.startUrls = [{ url: urlObj.toString() }];
+                    } else {
+                        throw new Error("URL does not contain a valid Google Maps place path");
+                    }
+                } catch (error) {
+                    console.error("Error processing Google Maps URL:", error);
+                    // Fallback: usa l'URL così com'è
+                    input.startUrls = [{ url }];
+                }
+            }
+        } else {
+            // Per altre piattaforme, usa l'URL così com'è
+            input.startUrls = [{ url }];
+        }
+        
         return input;
     }
 }
