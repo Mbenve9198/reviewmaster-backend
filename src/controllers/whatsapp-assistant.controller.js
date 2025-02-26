@@ -927,4 +927,47 @@ ${userMessages.join('\n\n')}`
                 const content = data.content[0].text;
                 
                 // Estrai il JSON dalla risposta
-                const jsonMatch = content.match(/```json\n([\s\S]*?)\n```
+                const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/);
+                
+                if (jsonMatch) {
+                    analysisResult = JSON.parse(jsonMatch[1]);
+                } else {
+                    console.error('No valid JSON found in Claude response');
+                    throw new Error('Invalid response structure from Claude');
+                }
+            } catch (error) {
+                console.error('Error parsing Claude response:', error);
+                throw error;
+            }
+            
+            // Crea nuova analisi di sentimente
+            const sentimentAnalysis = new SentimentAnalysis({
+                hotelId,
+                positive: analysisResult.positive,
+                neutral: analysisResult.neutral,
+                negative: analysisResult.negative,
+                summary: analysisResult.summary,
+                createdAt: new Date()
+            });
+
+            await sentimentAnalysis.save();
+
+            res.json({
+                positive: analysisResult.positive,
+                neutral: analysisResult.neutral,
+                negative: analysisResult.negative,
+                summary: analysisResult.summary,
+                createdAt: sentimentAnalysis.createdAt,
+                isCached: false
+            });
+        } catch (error) {
+            console.error('Error generating sentiment analysis:', error);
+            res.status(500).json({ 
+                message: 'Error generating sentiment analysis',
+                error: error.message
+            });
+        }
+    },
+};
+
+module.exports = whatsappAssistantController;
