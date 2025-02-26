@@ -243,38 +243,37 @@ class ApifyService {
                 console.log(`Extracted place ID from URL data: ${placeId}`);
             }
             
+            // Prova a estrarre l'ID dal formato !3m...!8m...!3s0x....:0x....
+            if (!placeId) {
+                const altDataMatch = url.match(/!3s(0x[a-f0-9]+:0x[a-f0-9]+)/);
+                if (altDataMatch && altDataMatch[1]) {
+                    placeId = altDataMatch[1].split(':')[1];
+                    console.log(`Extracted place ID from alternative URL data: ${placeId}`);
+                }
+            }
+            
             // Se abbiamo un placeId, usiamo quello direttamente
             if (placeId) {
+                // Formato corretto per l'URL con CID
                 input.startUrls = [{
-                    url: `https://www.google.com/maps/place/?cid=${placeId}`,
+                    url: `https://www.google.com/maps?cid=${placeId}`,
                     method: "GET"
                 }];
+                console.log(`Using CID URL: https://www.google.com/maps?cid=${placeId}`);
             } else {
-                // Altrimenti, assicuriamoci che l'URL sia ben formattato
-                try {
-                    // Crea un oggetto URL per normalizzare l'URL
-                    const urlObj = new URL(url);
+                // Estrai il nome del luogo dall'URL
+                const placeNameMatch = url.match(/place\/([^/@]+)/);
+                if (placeNameMatch && placeNameMatch[1]) {
+                    const placeName = decodeURIComponent(placeNameMatch[1].replace(/\+/g, ' '));
+                    console.log(`Extracted place name: ${placeName}`);
                     
-                    // Assicurati che il percorso contenga "place"
-                    if (urlObj.pathname.includes('/place/')) {
-                        // Usa l'URL normalizzato
-                        input.startUrls = [{ 
-                            url: urlObj.toString(),
-                            method: "GET"
-                        }];
-                    } else {
-                        // Se non contiene "place", prova a estrarre il nome del luogo dall'URL
-                        const placeName = url.match(/maps\/([^\/]+)/);
-                        if (placeName && placeName[1]) {
-                            // Usa il nome come query di ricerca
-                            input.searchStrings = [decodeURIComponent(placeName[1].replace(/\+/g, ' '))];
-                        } else {
-                            throw new Error("URL does not contain a valid Google Maps place path");
-                        }
-                    }
-                } catch (error) {
-                    console.error("Error processing Google Maps URL:", error);
-                    // Fallback: usa l'URL così com'è
+                    // Usa l'URL originale se contiene /maps/place/
+                    input.startUrls = [{ 
+                        url: url,
+                        method: "GET"
+                    }];
+                } else {
+                    // Fallback: usa l'URL completo
                     input.startUrls = [{ 
                         url: url,
                         method: "GET"
@@ -288,6 +287,9 @@ class ApifyService {
                 method: "GET"
             }];
         }
+        
+        // Stampa l'input completo per debug
+        console.log(`Final input for ${platform}:`, JSON.stringify(input, null, 2));
         
         return input;
     }
