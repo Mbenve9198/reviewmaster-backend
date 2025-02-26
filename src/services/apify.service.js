@@ -304,9 +304,9 @@ class ApifyService {
                 }
             );
             
-            // Ottieni i log dell'esecuzione
+            // Ottieni i log dell'esecuzione - Endpoint corretto
             const logResponse = await axios.get(
-                `${APIFY_BASE_URL}/acts/${actorId}/runs/${runId}/log`,
+                `${APIFY_BASE_URL}/actor-runs/${runId}/log`,
                 {
                     headers: {
                         'Authorization': `Bearer ${this.token}`
