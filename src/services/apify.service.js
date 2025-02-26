@@ -91,28 +91,35 @@ class ApifyService {
                 throw new Error('Scraping timed out');
             }
             
-            // Get dataset items
-            const datasetResponse = await axios.get(
-                `${APIFY_BASE_URL}/v2/acts/${actorId}/runs/${runId}/dataset/items`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${this.token}`
+            // Prima di recuperare il dataset
+            console.log(`Attempting to get dataset with URL: ${APIFY_BASE_URL}/v2/actor-runs/${runId}/dataset/items`);
+
+            try {
+                const datasetResponse = await axios.get(
+                    `${APIFY_BASE_URL}/v2/actor-runs/${runId}/dataset/items`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${this.token}`
+                        }
                     }
+                );
+                
+                // Verifica il formato della risposta
+                console.log(`Got dataset response with status ${datasetResponse.status}`);
+                
+                const reviews = datasetResponse.data;
+                console.log(`Retrieved ${reviews.length} reviews from Apify (requested ${config.maxReviews})`);
+                
+                // Check if we got fewer reviews than requested
+                if (reviews.length < parseInt(config.maxReviews) && reviews.length > 0) {
+                    console.log(`Note: Received fewer reviews (${reviews.length}) than requested (${config.maxReviews}). This may be due to platform limitations.`);
                 }
-            );
-            
-            // Verifica il formato della risposta
-            console.log(`Got dataset response with status ${datasetResponse.status}`);
-            
-            const reviews = datasetResponse.data;
-            console.log(`Retrieved ${reviews.length} reviews from Apify (requested ${config.maxReviews})`);
-            
-            // Check if we got fewer reviews than requested
-            if (reviews.length < parseInt(config.maxReviews) && reviews.length > 0) {
-                console.log(`Note: Received fewer reviews (${reviews.length}) than requested (${config.maxReviews}). This may be due to platform limitations.`);
+                
+                return reviews;
+            } catch (datasetError) {
+                console.error('Dataset fetch error details:', datasetError.response?.data || datasetError.message);
+                throw new Error(`Failed to fetch dataset: ${datasetError.message}`);
             }
-            
-            return reviews;
         } catch (error) {
             console.error('Apify scraper error:', error.response?.data || error.message);
             throw this._handleApifyError(error);
