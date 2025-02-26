@@ -62,7 +62,26 @@ class ApifyService {
                     isComplete = true;
                 } else if (status === 'FAILED' || status === 'ABORTED' || status === 'TIMED-OUT') {
                     console.error(`Apify run ${runId} ended with status: ${status}`);
-                    throw new Error(`Scraping failed with status: ${status}`);
+                    
+                    // Ottieni i dettagli dell'esecuzione fallita
+                    const runDetails = await this._getRunDetails(actorId, runId);
+                    console.error(`Apify run ${runId} details:`, JSON.stringify(runDetails.details, null, 2));
+                    console.error(`Apify run ${runId} logs:`, runDetails.logs);
+                    
+                    // Analizza i log per identificare problemi comuni
+                    const logs = runDetails.logs || '';
+                    
+                    if (logs.includes('captcha') || logs.includes('CAPTCHA')) {
+                        throw new Error(`Scraping failed: CAPTCHA detected. The platform may be blocking automated access.`);
+                    } else if (logs.includes('blocked') || logs.includes('rate limit')) {
+                        throw new Error(`Scraping failed: Access blocked or rate limited by the platform.`);
+                    } else if (logs.includes('not found') || logs.includes('404')) {
+                        throw new Error(`Scraping failed: The requested page or resource was not found.`);
+                    } else if (logs.includes('invalid URL') || logs.includes('malformed URL')) {
+                        throw new Error(`Scraping failed: The URL provided is invalid or malformed.`);
+                    } else {
+                        throw new Error(`Scraping failed with status: ${status}. Check logs for details.`);
+                    }
                 }
                 
                 console.log(`Apify run status (attempt ${attempts}/${maxAttempts}): ${status}`);
@@ -113,8 +132,9 @@ class ApifyService {
                     maxImages: 0,
                     maxCrawledPlaces: 1,
                     reviewsSort: 'newest',
+                    reviewsOrigin: 'google',
                     ...(startDate && { reviewsStartDate: startDate }),
-                    startUrls: [{ url: config.url }]
+                    startUrls: []
                 };
             case 'tripadvisor':
                 return {
@@ -126,7 +146,7 @@ class ApifyService {
                     reviewsLanguages: ['ALL_REVIEW_LANGUAGES'],
                     reviewRatings: ['ALL_REVIEW_RATINGS'],
                     ...(startDate && { lastReviewDate: startDate }),
-                    startUrls: [{ url: config.url }]
+                    startUrls: []
                 };
             case 'booking':
                 return {
@@ -134,16 +154,13 @@ class ApifyService {
                     reviewScores: ['ALL'],
                     sortReviewsBy: 'f_recent_desc',
                     ...(startDate && { cutoffDate: startDate }),
-                    startUrls: [{ 
-                        url: config.url,
-                        method: 'GET'
-                    }]
+                    startUrls: []
                 };
             default:
                 return {
                     maxReviews: config.maxReviews === 'all' ? null : parseInt(config.maxReviews),
                     personalData: true,
-                    startUrls: [{ url: config.url }]
+                    startUrls: []
                 };
         }
     }
@@ -219,17 +236,18 @@ class ApifyService {
                 console.log(`Extracted CID from URL: ${placeId}`);
             }
             
-            // Prova a estrarre l'ID dal formato @lat,lng,zoom/data=!...!...!...
-            const dataMatch = url.match(/:0x[a-f0-9]+/);
-            if (dataMatch && dataMatch[0]) {
-                placeId = dataMatch[0].substring(1); // Rimuovi il ":"
+            // Prova a estrarre l'ID dal formato !1s0x....:0x....
+            const dataMatch = url.match(/!1s(0x[a-f0-9]+:0x[a-f0-9]+)/);
+            if (dataMatch && dataMatch[1]) {
+                placeId = dataMatch[1].split(':')[1];  // Prendi solo la parte dopo il :
                 console.log(`Extracted place ID from URL data: ${placeId}`);
             }
             
             // Se abbiamo un placeId, usiamo quello direttamente
             if (placeId) {
                 input.startUrls = [{
-                    url: `https://www.google.com/maps/place/?cid=${placeId}`
+                    url: `https://www.google.com/maps/place/?cid=${placeId}`,
+                    method: "GET"
                 }];
             } else {
                 // Altrimenti, assicuriamoci che l'URL sia ben formattato
@@ -240,22 +258,73 @@ class ApifyService {
                     // Assicurati che il percorso contenga "place"
                     if (urlObj.pathname.includes('/place/')) {
                         // Usa l'URL normalizzato
-                        input.startUrls = [{ url: urlObj.toString() }];
+                        input.startUrls = [{ 
+                            url: urlObj.toString(),
+                            method: "GET"
+                        }];
                     } else {
-                        throw new Error("URL does not contain a valid Google Maps place path");
+                        // Se non contiene "place", prova a estrarre il nome del luogo dall'URL
+                        const placeName = url.match(/maps\/([^\/]+)/);
+                        if (placeName && placeName[1]) {
+                            // Usa il nome come query di ricerca
+                            input.searchStrings = [decodeURIComponent(placeName[1].replace(/\+/g, ' '))];
+                        } else {
+                            throw new Error("URL does not contain a valid Google Maps place path");
+                        }
                     }
                 } catch (error) {
                     console.error("Error processing Google Maps URL:", error);
                     // Fallback: usa l'URL così com'è
-                    input.startUrls = [{ url }];
+                    input.startUrls = [{ 
+                        url: url,
+                        method: "GET"
+                    }];
                 }
             }
         } else {
             // Per altre piattaforme, usa l'URL così com'è
-            input.startUrls = [{ url }];
+            input.startUrls = [{ 
+                url: url,
+                method: "GET"
+            }];
         }
         
         return input;
+    }
+
+    async _getRunDetails(actorId, runId) {
+        try {
+            // Ottieni i dettagli dell'esecuzione
+            const runResponse = await axios.get(
+                `${APIFY_BASE_URL}/acts/${actorId}/runs/${runId}`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.token}`
+                    }
+                }
+            );
+            
+            // Ottieni i log dell'esecuzione
+            const logResponse = await axios.get(
+                `${APIFY_BASE_URL}/acts/${actorId}/runs/${runId}/log`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.token}`
+                    }
+                }
+            );
+            
+            return {
+                details: runResponse.data.data,
+                logs: logResponse.data
+            };
+        } catch (error) {
+            console.error('Error getting run details:', error.message);
+            return {
+                details: null,
+                logs: 'Could not retrieve logs'
+            };
+        }
     }
 }
 
