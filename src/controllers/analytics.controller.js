@@ -543,7 +543,7 @@ const analyticsController = {
                             temperature: 0.1,
                             topP: 0.1,
                             topK: 1,
-                            maxOutputTokens: 10000
+                            maxOutputTokens: 40000
                         }
                     });
                     
