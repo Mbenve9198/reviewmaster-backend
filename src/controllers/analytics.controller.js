@@ -31,7 +31,7 @@ const generateInitialPrompt = (hotel, reviews, platforms, avgRating) => {
 
 You are an expert hospitality industry analyst. Analyze the reviews and return a JSON object with this exact structure.
 
-IMPORTANT: For each strength and issue, you MUST include ALL reviews that mention that topic. If you say there are 35 mentions of small rooms, then relatedReviews should contain exactly 35 reviews with their IDs. Do not skip any relevant reviews.
+IMPORTANT: For each strength and issue, calculate the TOTAL number of reviews that mention it and put this TOTAL COUNT in the "mentions" field. However, in the "relatedReviews" array, include ONLY THE TOP 50 MOST REPRESENTATIVE review IDs - this means the most clear examples that demonstrate this strength or issue.
 
 {
   "meta": {
@@ -115,12 +115,11 @@ Guidelines:
 3. Calculate realistic costs and ROI estimates based on industry standards
 4. Prioritize based on mention frequency and impact
 5. Focus on actionable insights that align with industry best practices
-6. Count and include the actual number of times each strength and issue is mentioned in the reviews
+6. Ensure "mentions" field accurately reflects the TOTAL COUNT of reviews mentioning each strength/issue
 7. Ensure all recommendations follow established hospitality management principles
-8. For each strength and issue, you MUST include ALL reviews that mention that topic in relatedReviews
+8. For each strength and issue, include ONLY UP TO 50 MOST REPRESENTATIVE review IDs in the relatedReviews array
 9. Use the MongoDB ObjectId from the reviews array as the reviewId in relatedReviews
-10. The number of relatedReviews MUST match exactly the number of mentions you specify
-11. Do not skip any relevant reviews - if you say there are N mentions, include all N reviews
+10. The "mentions" value should be the ACTUAL TOTAL COUNT of reviews mentioning this topic, even if you only include 50 IDs
 
 Review data (with IDs) for analysis: ${JSON.stringify(reviewsForAnalysis, null, 2)}`;
 };
