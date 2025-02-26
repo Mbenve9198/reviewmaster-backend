@@ -139,23 +139,22 @@ const refineScriptWithClaude = async (initialScript, language) => {
                 messages: [
                     {
                         role: "user",
-                        content: `You are an expert podcast scriptwriter and voice actor coach. I have an initial script for a hotel analysis podcast in ${language}. 
-                        
-Your task is to refine this script to make it sound completely natural for a spoken podcast, while KEEPING THE TOTAL LENGTH UNDER 10,000 CHARACTERS (this is a strict technical limitation).
+                        content: `You are an expert in creating natural spoken audio content for hotels. I have an initial script about a hotel analysis in ${language}. 
 
-Focus on:
-1. Conversational language that sounds natural when read aloud
-2. Varied sentence structures and natural transitions
-3. Proper pacing, including pauses and emphasis (indicate these in the script)
-4. Natural interjections, hesitations, and speaking patterns that make audio content engaging
-5. Maintaining a professional but friendly tone suitable for a business podcast
-6. Preserving the most valuable insights while keeping the script concise
+Your task is to rewrite this as pure spoken content that will be directly converted to audio. KEEP THE TOTAL LENGTH UNDER 10,000 CHARACTERS (strict technical limitation).
 
-The script will be used with an AI voice generator that has a 10,000 character limit, so you MUST edit the content to fit within this limit while maintaining the most important information.
+Guidelines:
+1. Output ONLY the actual words to be spoken - no directions, annotations, or formatting
+2. No stage directions like "(pause)" or "*emphasis*" 
+3. No speaker labels or formatting elements
+4. Write in a natural, conversational tone as if someone is speaking informally
+5. Remove all technical language that wouldn't sound natural in speech
+6. Keep the most valuable insights while being concise
+7. Maintain a warm, professional tone suitable for hoteliers
 
-Include direction for tone, pacing, and emphasis where needed. Indicate pauses with (pause) and emphasis with *asterisks*.
+The text will be fed directly into a text-to-speech system with a 10,000 character limit. The output must be ready for direct audio conversion with no editing needed.
 
-Here is the initial script:
+Here is the initial script to rewrite:
 
 ${initialScript}`
                     }
