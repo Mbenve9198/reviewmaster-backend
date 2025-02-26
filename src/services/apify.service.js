@@ -14,21 +14,95 @@ class ApifyService {
 
     async runScraper(platform, url, config) {
         const actorId = ACTORS[platform];
-        if (!actorId) throw new Error(`Unsupported platform: ${platform}`);
-
-        const endpoint = `${APIFY_BASE_URL}/${actorId}/run-sync-get-dataset-items`;
         
-        const input = this._getDefaultConfig(platform, { ...config, url });
-
+        if (!actorId) {
+            throw new Error(`Unsupported platform: ${platform}`);
+        }
+        
         try {
-            const response = await axios.post(endpoint, input, {
-                params: { token: this.token },
-                headers: { 'Content-Type': 'application/json' }
-            });
-
-            return response.data;
+            console.log(`Starting Apify scraper for ${platform} with config:`, config);
+            
+            const input = this._prepareInput(platform, url, config);
+            
+            const response = await axios.post(
+                `${APIFY_BASE_URL}/${actorId}/runs`,
+                {
+                    ...input,
+                    timeout: 300, // 5 minutes timeout
+                    memory: 4096, // 4GB memory
+                    build: 'latest'
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.token}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+            
+            const runId = response.data.data.id;
+            console.log(`Apify run started with ID: ${runId}`);
+            
+            // Poll for completion
+            let isComplete = false;
+            let attempts = 0;
+            const maxAttempts = 60; // 5 minutes with 5-second intervals
+            
+            while (!isComplete && attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+                
+                const statusResponse = await axios.get(
+                    `${APIFY_BASE_URL}/${actorId}/runs/${runId}`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${this.token}`
+                        }
+                    }
+                );
+                
+                const status = statusResponse.data.data.status;
+                attempts++;
+                
+                if (status === 'SUCCEEDED') {
+                    isComplete = true;
+                } else if (status === 'FAILED' || status === 'ABORTED' || status === 'TIMED-OUT') {
+                    console.error(`Apify run ${runId} ended with status: ${status}`);
+                    throw new Error(`Scraping failed with status: ${status}`);
+                }
+                
+                console.log(`Apify run status (attempt ${attempts}/${maxAttempts}): ${status}`);
+            }
+            
+            if (!isComplete) {
+                throw new Error('Scraping timed out');
+            }
+            
+            // Get dataset items
+            const datasetResponse = await axios.get(
+                `${APIFY_BASE_URL}/${actorId}/runs/${runId}/dataset/items`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.token}`
+                    },
+                    params: {
+                        format: 'json',
+                        clean: 1
+                    }
+                }
+            );
+            
+            const reviews = datasetResponse.data;
+            console.log(`Retrieved ${reviews.length} reviews from Apify (requested ${config.maxReviews})`);
+            
+            // Check if we got fewer reviews than requested
+            if (reviews.length < parseInt(config.maxReviews) && reviews.length > 0) {
+                console.log(`Note: Received fewer reviews (${reviews.length}) than requested (${config.maxReviews}). This may be due to platform limitations.`);
+            }
+            
+            return reviews;
         } catch (error) {
-            throw this._handleError(error);
+            console.error('Apify scraper error:', error.response?.data || error.message);
+            throw this._handleApifyError(error);
         }
     }
 
@@ -96,6 +170,17 @@ class ApifyService {
             }
         }
         return error;
+    }
+
+    _handleApifyError(error) {
+        // Implement the logic to handle Apify-specific errors
+        return this._handleError(error);
+    }
+
+    _prepareInput(platform, url, config) {
+        const input = this._getDefaultConfig(platform, config);
+        input.url = url;
+        return input;
     }
 }
 
