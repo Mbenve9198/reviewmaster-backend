@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const APIFY_BASE_URL = 'https://api.apify.com/v2/acts';
+const APIFY_BASE_URL = 'https://api.apify.com/v2';
 const ACTORS = {
     google: 'compass~google-maps-reviews-scraper',
     tripadvisor: 'maxcopell~tripadvisor-reviews',
@@ -25,13 +25,8 @@ class ApifyService {
             const input = this._prepareInput(platform, url, config);
             
             const response = await axios.post(
-                `${APIFY_BASE_URL}/${actorId}/runs`,
-                {
-                    ...input,
-                    timeout: 300, // 5 minutes timeout
-                    memory: 4096, // 4GB memory
-                    build: 'latest'
-                },
+                `${APIFY_BASE_URL}/acts/${actorId}/runs`,
+                input,
                 {
                     headers: {
                         'Authorization': `Bearer ${this.token}`,
@@ -52,7 +47,7 @@ class ApifyService {
                 await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
                 
                 const statusResponse = await axios.get(
-                    `${APIFY_BASE_URL}/${actorId}/runs/${runId}`,
+                    `${APIFY_BASE_URL}/acts/${actorId}/runs/${runId}`,
                     {
                         headers: {
                             'Authorization': `Bearer ${this.token}`
@@ -79,7 +74,7 @@ class ApifyService {
             
             // Get dataset items
             const datasetResponse = await axios.get(
-                `${APIFY_BASE_URL}/${actorId}/runs/${runId}/dataset/items`,
+                `${APIFY_BASE_URL}/acts/${actorId}/runs/${runId}/dataset/items`,
                 {
                     headers: {
                         'Authorization': `Bearer ${this.token}`
@@ -222,6 +217,13 @@ class ApifyService {
             if (cidMatch && cidMatch[1]) {
                 placeId = cidMatch[1];
                 console.log(`Extracted CID from URL: ${placeId}`);
+            }
+            
+            // Prova a estrarre l'ID dal formato @lat,lng,zoom/data=!...!...!...
+            const dataMatch = url.match(/:0x[a-f0-9]+/);
+            if (dataMatch && dataMatch[0]) {
+                placeId = dataMatch[0].substring(1); // Rimuovi il ":"
+                console.log(`Extracted place ID from URL data: ${placeId}`);
             }
             
             // Se abbiamo un placeId, usiamo quello direttamente
