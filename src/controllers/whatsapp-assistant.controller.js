@@ -968,6 +968,18 @@ ${userMessages.join('\n\n')}`
             });
         }
     },
+
+    handleReviewRedirect: async (req, res) => {
+        try {
+            // Implementazione temporanea di base
+            const { id } = req.query;
+            // Reindirizza a una pagina predefinita o restituisci un messaggio
+            res.send("Review redirect functionality will be implemented soon");
+        } catch (error) {
+            console.error('Error in handleReviewRedirect:', error);
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    },
 };
 
 module.exports = whatsappAssistantController;
