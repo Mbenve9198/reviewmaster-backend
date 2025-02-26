@@ -1,7 +1,7 @@
 const fetch = require('node-fetch');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Analysis = require('../models/analysis.model');
-const Book = require('../models/book.model');
+const { Book } = require('../models/book.model');
 const Review = require('../models/review.model');
 const WhatsappInteraction = require('../models/whatsapp-interaction.model');
 
@@ -10,25 +10,40 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Funzione per recuperare le conoscenze dai libri
 const getRelevantBookKnowledge = async (reviews) => {
-    // Estraiamo le parole chiave più significative dalle recensioni
-    const reviewText = reviews.map(r => r.content?.text || '').join(' ');
-    const keywords = reviewText
-        .toLowerCase()
-        .split(/\W+/)
-        .filter(word => word.length > 3)
-        .filter(word => !['this', 'that', 'with', 'from', 'have', 'were'].includes(word));
+    try {
+        // Estraiamo le parole chiave più significative dalle recensioni
+        const reviewText = reviews.map(r => r.content?.text || '').join(' ');
+        const keywords = reviewText
+            .toLowerCase()
+            .split(/\W+/)
+            .filter(word => word.length > 3)
+            .filter(word => !['this', 'that', 'with', 'from', 'have', 'were'].includes(word));
 
-    // Cerca nei libri usando text search di MongoDB
-    const relevantBooks = await Book.find(
-        { $text: { $search: keywords.join(' ') } },
-        { score: { $meta: "textScore" } }
-    )
-    .sort({ score: { $meta: "textScore" } })
-    .limit(5);  // prendiamo i 5 libri più rilevanti
+        // Controlliamo se il modello Book è definito correttamente
+        if (!Book || typeof Book.find !== 'function') {
+            console.error('Book model is not properly defined or imported');
+            return "No relevant book knowledge found.";
+        }
 
-    return relevantBooks.map(book => 
-        `From "${book.title}" by ${book.author}:\n${book.content}`
-    ).join('\n\n');
+        // Cerca nei libri usando text search di MongoDB
+        const relevantBooks = await Book.find(
+            { $text: { $search: keywords.join(' ') } },
+            { score: { $meta: "textScore" } }
+        )
+        .sort({ score: { $meta: "textScore" } })
+        .limit(5);  // prendiamo i 5 libri più rilevanti
+
+        if (!relevantBooks || relevantBooks.length === 0) {
+            return "No relevant book knowledge found.";
+        }
+
+        return relevantBooks.map(book => 
+            `From "${book.title}" by ${book.author}:\n${book.content}`
+        ).join('\n\n');
+    } catch (error) {
+        console.error('Error retrieving book knowledge:', error);
+        return "Error retrieving book knowledge.";
+    }
 };
 
 // Funzione per generare lo script iniziale con Gemini
