@@ -160,6 +160,8 @@ REMEMBER: Return ONLY a JSON object with exactly this structure. The response.te
   }
 }
 
+IMPORTANT NOTE ABOUT RULE VALUES: For the "value" field in text-based conditions, use ONLY ONE CONCEPTUAL TOPIC instead of multiple keywords. The AI will interpret the semantic meaning of the topic without needing to match specific keywords. For example, use ["breakfast"] instead of ["colazione", "breakfast", "caffè"].
+
 Example of a good guideline (not a template):
 "When guests mention breakfast quality issues, address their specific concerns, explain our quality control process, highlight our fresh ingredients policy, mention any recent or planned improvements, and invite them to try our breakfast during their next stay. If they mentioned specific items, acknowledge those specifically."
 
