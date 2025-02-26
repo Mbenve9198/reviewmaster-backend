@@ -575,7 +575,6 @@ const whatsappAssistantController = {
             });
 
             // Prepara il contesto della conversazione per Claude
-            // Prendiamo gli ultimi 10 messaggi per mantenere il contesto rilevante
             const recentHistory = interaction.conversationHistory
                 .slice(-10)
                 .map(msg => ({
@@ -642,6 +641,13 @@ console.log('Hotel details:', {
     description: interaction?.hotelId?.description
 });
 
+            // Aggiungi il messaggio utente corrente alla cronologia
+            interaction.conversationHistory.push({
+                role: 'user',
+                content: message.Body,
+                timestamp: new Date()
+            });
+
             // Genera la risposta con Claude includendo lo storico
             const response = await fetch('https://api.anthropic.com/v1/messages', {
                 method: 'POST',
@@ -653,94 +659,40 @@ console.log('Hotel details:', {
                 body: JSON.stringify({
                     model: "claude-3-7-sonnet-20250219",
                     max_tokens: 1000,
-                    messages: [
-                        {
-                            role: "user",
-                            content: `Analyze the sentiment of these user messages from hotel guests. Classify each message as positive, neutral, or negative. Then provide a count of each category and a brief summary of the overall sentiment and common themes.
-
-Return your analysis in this JSON format:
-{
-  "positive": number,
-  "neutral": number,
-  "negative": number,
-  "summary": "Your detailed analysis here"
-}
-
-Here are the messages:
-${recentHistory.map(msg => msg.content).join('\n\n')}`
-                        }
-                    ]
+                    system: systemPrompt, // Usa il prompt di sistema conversazionale
+                    messages: recentHistory.concat([{
+                        role: 'user',
+                        content: message.Body
+                    }])
                 })
             });
 
             const data = await response.json();
-            let analysisResult;
-            
-            try {
-                // Aggiungi log per il debug
-                console.log('Claude response:', JSON.stringify(data));
-                
-                // Verifica che la risposta abbia la struttura attesa
-                if (!data || !data.content || !Array.isArray(data.content) || data.content.length === 0) {
-                    console.error('Unexpected Claude response structure:', data);
-                    throw new Error('Invalid response structure from Claude');
-                }
-                
-                const content = data.content[0].text;
-                
-                // Estrai il JSON dalla risposta
-                const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || 
-                                  content.match(/```\n([\s\S]*?)\n```/) || 
-                                  content.match(/{[\s\S]*?}/);
-                                  
-                const jsonString = jsonMatch ? jsonMatch[1] || jsonMatch[0] : content;
-                analysisResult = JSON.parse(jsonString);
-            } catch (error) {
-                console.error('Error parsing Claude response:', error);
-                // Fallback a un'analisi semplice
-                analysisResult = {
-                    positive: Math.floor(recentHistory.length * 0.4),
-                    neutral: Math.floor(recentHistory.length * 0.4),
-                    negative: Math.floor(recentHistory.length * 0.2),
-                    summary: "Unable to generate detailed analysis. Basic estimation provided."
-                };
+            console.log('Claude response:', JSON.stringify(data));
+
+            // Estrai la risposta TESTUALE di Claude, non un'analisi di sentiment
+            let assistantResponse = "Mi dispiace, non riesco a rispondere in questo momento.";
+
+            if (data && data.content && Array.isArray(data.content) && data.content.length > 0) {
+                assistantResponse = data.content[0].text;
             }
-            
-            // Salva i risultati nel database
-            const newAnalysis = new SentimentAnalysis({
-                hotelId: assistant.hotelId._id,
-                positive: analysisResult.positive,
-                neutral: analysisResult.neutral,
-                negative: analysisResult.negative,
-                summary: analysisResult.summary,
-                timeRange: {
-                    from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Ultimi 30 giorni
-                    to: new Date()
-                }
+
+            // Salva la risposta nella cronologia
+            interaction.conversationHistory.push({
+                role: 'assistant',
+                content: assistantResponse,
+                timestamp: new Date()
             });
-            
-            await newAnalysis.save();
-            
-            // Aggiungi la data di creazione e il flag isCached alla risposta
-            analysisResult.createdAt = newAnalysis.createdAt;
-            analysisResult.isCached = false;
-            
-            // Dopo aver elaborato la richiesta e salvato l'analisi del sentiment
-            // Modificare la risposta per usare il formato corretto per Twilio
-            
-            // Invia una risposta TwiML vuota invece di JSON
+            await interaction.save();
+
+            // Invia una risposta TwiML vuota
             res.set('Content-Type', 'text/xml');
             res.send('<Response></Response>');
-            
-            // In alternativa se preferisci solo una risposta vuota:
-            // res.status(200).send();
-            
-            // IMPORTANTE: NON usare res.json() qui!
-            
-            // Per inviare un messaggio di risposta a WhatsApp, usa il client Twilio
+
+            // Invia la risposta conversazionale via Twilio
             try {
                 await client.messages.create({
-                    body: "Ciao! Grazie per il tuo messaggio. Ti risponderò al più presto.",
+                    body: assistantResponse,
                     from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
                     to: message.From,
                     messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
