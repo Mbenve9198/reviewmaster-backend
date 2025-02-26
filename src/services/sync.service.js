@@ -14,7 +14,7 @@ class SyncService {
             console.log(`Starting sync for integration ${integration._id} (${integration.platform})`);
             
             // Configura le opzioni di sincronizzazione
-            const config = this._prepareSyncConfig(integration, options);
+            const config = await this._prepareSyncConfig(integration, options);
             
             // Esegui lo scraper
             const reviews = await apifyService.runScraper(
@@ -79,7 +79,7 @@ class SyncService {
         }
     }
     
-    _prepareSyncConfig(integration, options) {
+    async _prepareSyncConfig(integration, options) {
         const config = {
             language: integration.syncConfig.language || 'en',
             maxReviews: integration.syncConfig.maxReviews || '100'
@@ -87,17 +87,15 @@ class SyncService {
         
         // Se abbiamo un'ultima recensione, usiamo la sua data come punto di partenza
         if (options.incrementalSync !== false) {
-            return Review.findOne({
+            const lastReview = await Review.findOne({
                 hotelId: integration.hotelId,
                 platform: integration.platform
             })
-            .sort({ 'metadata.originalCreatedAt': -1 })
-            .then(lastReview => {
-                if (lastReview && lastReview.metadata?.originalCreatedAt) {
-                    config.startDate = lastReview.metadata.originalCreatedAt;
-                }
-                return config;
-            });
+            .sort({ 'metadata.originalCreatedAt': -1 });
+            
+            if (lastReview && lastReview.metadata?.originalCreatedAt) {
+                config.startDate = lastReview.metadata.originalCreatedAt;
+            }
         }
         
         return config;
@@ -150,17 +148,40 @@ class SyncService {
                     break;
 
                 case 'tripadvisor':
+                    // Fix for TripAdvisor reviewer image - extract the URL from the object if needed
+                    let reviewerImageUrl = null;
+                    if (reviewData.userImage) {
+                        if (typeof reviewData.userImage === 'string') {
+                            reviewerImageUrl = reviewData.userImage;
+                        } else if (reviewData.userImage.image) {
+                            reviewerImageUrl = reviewData.userImage.image;
+                        }
+                    } else if (reviewData.user?.avatar) {
+                        if (typeof reviewData.user.avatar === 'string') {
+                            reviewerImageUrl = reviewData.user.avatar;
+                        } else if (reviewData.user.avatar.image) {
+                            reviewerImageUrl = reviewData.user.avatar.image;
+                        }
+                    }
+                    
                     mappedData = {
                         externalId: reviewData.id || reviewData.reviewId,
                         text: reviewData.text || reviewData.review || 'No text provided',
-                        rating: reviewData.rating || reviewData.bubbles / 10 || 5,
+                        rating: reviewData.rating || (reviewData.bubbles ? reviewData.bubbles / 10 : 5),
                         reviewerName: reviewData.userName || reviewData.user?.username || 'Anonymous',
-                        reviewerImage: reviewData.userImage || reviewData.user?.avatar,
+                        reviewerImage: reviewerImageUrl,
                         language: reviewData.language || 'en',
-                        images: (reviewData.photos || []).map(photo => ({
-                            url: photo.image || photo.url || photo,
-                            caption: photo.caption || ''
-                        })),
+                        images: (reviewData.photos || []).map(photo => {
+                            // Handle both string and object photo formats
+                            const photoUrl = typeof photo === 'string' ? photo : 
+                                            (photo.image || photo.url || '');
+                            const photoCaption = typeof photo === 'object' ? (photo.caption || '') : '';
+                            
+                            return {
+                                url: photoUrl,
+                                caption: photoCaption
+                            };
+                        }),
                         likes: reviewData.helpfulVotes || 0,
                         originalUrl: reviewData.url || reviewData.reviewUrl,
                         date: reviewData.publishedDate || reviewData.date
