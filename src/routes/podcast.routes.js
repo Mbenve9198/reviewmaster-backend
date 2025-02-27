@@ -12,4 +12,7 @@ router.post('/generate', podcastController.generatePodcast);
 // Route per ottenere lo script del podcast
 router.get('/:analysisId', podcastController.getPodcastScript);
 
+// Route per ottenere l'audio del podcast
+router.get('/:analysisId/audio', podcastController.getPodcastAudio);
+
 module.exports = router; 

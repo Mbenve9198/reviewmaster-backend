@@ -1,3 +1,5 @@
+const mongoose = require('mongoose');
+const { GridFSBucket } = require('mongodb');
 const fetch = require('node-fetch');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Analysis = require('../models/analysis.model');
@@ -246,6 +248,66 @@ const generateAudio = async (script, language) => {
     }
 };
 
+// Funzione per salvare il file audio in GridFS
+const saveAudioToGridFS = async (audioBuffer, filename) => {
+    try {
+        const db = mongoose.connection.db;
+        const bucket = new GridFSBucket(db, { bucketName: 'podcasts' });
+        
+        // Crea un ID univoco per il file
+        const fileId = new mongoose.Types.ObjectId();
+        
+        // Crea uno stream di scrittura
+        const uploadStream = bucket.openUploadStreamWithId(
+            fileId,
+            filename,
+            { contentType: 'audio/mpeg' }
+        );
+        
+        // Converti il buffer in uno stream e scrivi in GridFS
+        const stream = require('stream');
+        const bufferStream = new stream.PassThrough();
+        bufferStream.end(Buffer.from(audioBuffer));
+        
+        // Restituisci una promessa che si risolve quando il file è stato salvato
+        return new Promise((resolve, reject) => {
+            bufferStream.pipe(uploadStream)
+                .on('error', (error) => reject(error))
+                .on('finish', () => resolve(fileId.toString()));
+        });
+    } catch (error) {
+        console.error('Error saving audio to GridFS:', error);
+        throw error;
+    }
+};
+
+// Funzione per recuperare il file audio da GridFS
+const getAudioFromGridFS = async (fileId) => {
+    try {
+        const db = mongoose.connection.db;
+        const bucket = new GridFSBucket(db, { bucketName: 'podcasts' });
+        
+        // Converte l'ID da stringa a ObjectId se necessario
+        const objectId = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+        
+        // Crea uno stream di lettura
+        const downloadStream = bucket.openDownloadStream(objectId);
+        
+        // Raccogli tutti i dati del file in un buffer
+        return new Promise((resolve, reject) => {
+            const chunks = [];
+            downloadStream
+                .on('data', (chunk) => chunks.push(chunk))
+                .on('error', (error) => reject(error))
+                .on('end', () => resolve(Buffer.concat(chunks)))
+                .on('close', () => resolve(Buffer.concat(chunks)));
+        });
+    } catch (error) {
+        console.error('Error retrieving audio from GridFS:', error);
+        throw error;
+    }
+};
+
 const podcastController = {
     generatePodcast: async (req, res) => {
         try {
@@ -262,6 +324,30 @@ const podcastController = {
                 return res.status(404).json({ message: 'Analysis not found' });
             }
             
+            // Se è già stato generato un podcast in questa lingua e ha un audioUrl
+            if (analysis.podcast && 
+                analysis.podcast.script && 
+                analysis.podcast.language === language && 
+                analysis.podcast.audioUrl) {
+                try {
+                    // Recupera l'audio da GridFS
+                    const audioBuffer = await getAudioFromGridFS(analysis.podcast.audioUrl);
+                    
+                    // Imposta gli header per il download
+                    res.setHeader('Content-Type', 'audio/mpeg');
+                    res.setHeader('Content-Disposition', `attachment; filename="hotel-analysis-podcast-${Date.now()}.mp3"`);
+                    
+                    // Invia il buffer audio come risposta
+                    return res.send(audioBuffer);
+                } catch (error) {
+                    console.error('Error retrieving existing audio, generating new one:', error);
+                    // Se c'è un errore nel recupero dell'audio, ne generiamo uno nuovo
+                }
+            }
+            
+            // Se arriviamo qui, dobbiamo generare un nuovo podcast
+            // O perché non esiste o perché non siamo riusciti a recuperarlo
+
             // Recupera le recensioni associate
             const reviews = await Review.find({ 
                 _id: { $in: analysis.reviewIds }
@@ -284,24 +370,26 @@ const podcastController = {
             // Genera audio con Eleven Labs
             const audioBuffer = await generateAudio(refinedScript, language);
             
+            // Salva l'audio in GridFS
+            const filename = `podcast-${analysisId}-${Date.now()}.mp3`;
+            const fileId = await saveAudioToGridFS(audioBuffer, filename);
+            
             // Salva il podcast nel database associandolo all'analisi
             analysis.podcast = {
                 script: refinedScript,
                 language,
-                createdAt: new Date()
+                createdAt: new Date(),
+                audioUrl: fileId  // Salviamo l'ID del file GridFS
             };
             
             await analysis.save();
             
-            // Converti ArrayBuffer in Buffer per inviarlo come risposta
-            const buffer = Buffer.from(audioBuffer);
-            
             // Imposta gli header per il download
             res.setHeader('Content-Type', 'audio/mpeg');
-            res.setHeader('Content-Disposition', `attachment; filename="hotel-analysis-podcast-${Date.now()}.mp3"`);
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
             
             // Invia il buffer audio come risposta
-            return res.send(buffer);
+            return res.send(Buffer.from(audioBuffer));
             
         } catch (error) {
             console.error('Error generating podcast:', error);
@@ -327,7 +415,8 @@ const podcastController = {
                 return res.status(200).json({ 
                     script: analysis.podcast.script,
                     language: analysis.podcast.language,
-                    createdAt: analysis.podcast.createdAt
+                    createdAt: analysis.podcast.createdAt,
+                    hasAudio: !!analysis.podcast.audioUrl  // Flag per indicare se l'audio è disponibile
                 });
             }
             
@@ -337,6 +426,42 @@ const podcastController = {
             console.error('Error fetching podcast script:', error);
             return res.status(500).json({ 
                 message: 'Error fetching podcast script', 
+                error: error.message 
+            });
+        }
+    },
+    
+    // Nuovo endpoint per ottenere solo l'audio
+    getPodcastAudio: async (req, res) => {
+        try {
+            const { analysisId } = req.params;
+            
+            const analysis = await Analysis.findById(analysisId);
+            if (!analysis || !analysis.podcast || !analysis.podcast.audioUrl) {
+                return res.status(404).json({ message: 'Podcast audio not found' });
+            }
+            
+            try {
+                // Recupera l'audio da GridFS
+                const audioBuffer = await getAudioFromGridFS(analysis.podcast.audioUrl);
+                
+                // Imposta gli header per il download
+                res.setHeader('Content-Type', 'audio/mpeg');
+                res.setHeader('Content-Disposition', `attachment; filename="hotel-analysis-podcast-${Date.now()}.mp3"`);
+                
+                // Invia il buffer audio come risposta
+                return res.send(audioBuffer);
+            } catch (error) {
+                console.error('Error retrieving audio from GridFS:', error);
+                return res.status(500).json({ 
+                    message: 'Error retrieving podcast audio', 
+                    error: error.message 
+                });
+            }
+        } catch (error) {
+            console.error('Error fetching podcast audio:', error);
+            return res.status(500).json({ 
+                message: 'Error fetching podcast audio', 
                 error: error.message 
             });
         }
