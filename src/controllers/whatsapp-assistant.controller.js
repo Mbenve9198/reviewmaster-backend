@@ -585,7 +585,10 @@ const whatsappAssistantController = {
             const userLanguage = getLanguageFromPhone(message.From);
             
             const systemPrompt = `You are ${hotel.name}'s personal WhatsApp Hotel concierge, having a natural, friendly conversation with ${message.ProfileName}. 
-Always respond in ${userLanguage.toUpperCase()}, maintaining a warm and personal tone.
+First, determine the language the user is writing in by analyzing their message "${message.Body}".
+Respond in THE SAME LANGUAGE the user is using, regardless of their phone number's country code.
+Only use ${userLanguage.toUpperCase()} as a fallback if you cannot clearly determine the language from their message.
+Maintain a warm and personal tone.
 
 Remember:
 - You're having a casual chat with ${message.ProfileName}, like a helpful concierge at the hotel
