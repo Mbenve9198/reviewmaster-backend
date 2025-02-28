@@ -549,11 +549,28 @@ const analyticsController = {
                     const response = await result.response;
                     let text = response.text();
                     
-                    // Pulizia della risposta prima del parsing
+                    // Miglioramento del pre-processing del JSON prima del parsing
                     text = text.replace(/```json\s*|\s*```/g, '').trim();
-                    console.log('Cleaned Gemini response:', text); // Log per debug
                     
-                    analysis = JSON.parse(text);
+                    // Verifica che il testo inizia con { e finisce con }
+                    if (!text.startsWith('{') || !text.endsWith('}')) {
+                        console.warn('Risposta JSON malformata, tentativo di correzione...');
+                        // Trova la prima { e l'ultima }
+                        const startIdx = text.indexOf('{');
+                        const endIdx = text.lastIndexOf('}');
+                        if (startIdx >= 0 && endIdx > startIdx) {
+                            text = text.substring(startIdx, endIdx + 1);
+                        }
+                    }
+                    
+                    try {
+                        analysis = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('Errore di parsing JSON:', parseError);
+                        // Fallback a un metodo più semplice di analisi se possibile
+                        throw new Error('Impossibile elaborare la risposta del modello: ' + parseError.message);
+                    }
+                    
                     provider = 'gemini';
                 }
 
