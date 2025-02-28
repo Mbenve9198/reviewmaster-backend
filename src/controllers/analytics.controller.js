@@ -417,6 +417,75 @@ Please respond to the last user message, incorporating relevant industry experti
     }
 };
 
+const runAnalysisWithValidation = async (model, systemPrompt) => {
+    // Prima chiamata con Gemini
+    const initialResponse = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+        generationConfig: {
+            temperature: 0.1,
+            topP: 0.1,
+            topK: 1,
+            maxOutputTokens: 80000
+        }
+    });
+    
+    let text = initialResponse.response.text();
+    
+    // Pulizia base del testo
+    text = text.replace(/```json\s*|\s*```/g, '').trim();
+    
+    // Tentativo di parsing del JSON
+    try {
+        return JSON.parse(text);
+    } catch (parseError) {
+        console.warn('Malformed JSON response, attempting correction with Claude...');
+        
+        // Inizializza il client Claude come nel controller review
+        const anthropic = new Anthropic({
+            apiKey: process.env.CLAUDE_API_KEY,
+        });
+        
+        // Prompt specifico per la correzione del JSON in inglese
+        const fixPrompt = `You are a JSON expert. You have been provided with a malformed JSON that needs to be fixed.
+
+IMPORTANT: You must preserve ALL fields and the complete structure of the original JSON. DO NOT synthesize, DO NOT omit fields, DO NOT modify the structure.
+
+The JSON contains syntax errors, but the structure and data are correct. Common errors include:
+- Missing commas between array elements or properties
+- Excess commas at the end of arrays or objects
+- Unbalanced brackets
+- String escaping problems
+- Invalid values (e.g., undefined)
+
+Return ONLY the corrected JSON, without explanations, comments, or other text. The JSON must be valid and parsable by JSON.parse().
+
+Here is the JSON to fix:
+${text}`;
+
+        try {
+            // Chiamata a Claude 3.7 per correzione
+            const fixResult = await anthropic.messages.create({
+                model: "claude-3-7-sonnet-20250219",
+                max_tokens: 40000,
+                temperature: 0,
+                system: "You are a JSON expert. Fix the syntax errors in the provided JSON without changing the structure or content. Return ONLY the corrected JSON. DO NOT add explanations or comments.",
+                messages: [{ role: "user", content: fixPrompt }]
+            });
+            
+            // Estrai il testo corretto dalla risposta
+            const fixedText = fixResult.content[0].text;
+            console.log('JSON corrected with Claude 3.7');
+            
+            // Pulizia e parsing finale
+            const cleanedText = fixedText.replace(/```json\s*|\s*```/g, '').trim();
+            return JSON.parse(cleanedText);
+        } catch (claudeError) {
+            console.error('Error during Claude fix:', claudeError);
+            throw new Error('Unable to process model response: ' + parseError.message);
+        }
+    }
+};
+
 const analyticsController = {
     analyzeReviews: async (req, res) => {
         try {
@@ -536,41 +605,7 @@ const analyticsController = {
                     provider = 'gemini';
                     console.log('Received follow-up response from Gemini');
                 } else {
-                    const result = await model.generateContent({
-                        contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
-                        generationConfig: {
-                            temperature: 0.1,
-                            topP: 0.1,
-                            topK: 1,
-                            maxOutputTokens: 40000
-                        }
-                    });
-                    
-                    const response = await result.response;
-                    let text = response.text();
-                    
-                    // Miglioramento del pre-processing del JSON prima del parsing
-                    text = text.replace(/```json\s*|\s*```/g, '').trim();
-                    
-                    // Verifica che il testo inizia con { e finisce con }
-                    if (!text.startsWith('{') || !text.endsWith('}')) {
-                        console.warn('Risposta JSON malformata, tentativo di correzione...');
-                        // Trova la prima { e l'ultima }
-                        const startIdx = text.indexOf('{');
-                        const endIdx = text.lastIndexOf('}');
-                        if (startIdx >= 0 && endIdx > startIdx) {
-                            text = text.substring(startIdx, endIdx + 1);
-                        }
-                    }
-                    
-                    try {
-                        analysis = JSON.parse(text);
-                    } catch (parseError) {
-                        console.error('Errore di parsing JSON:', parseError);
-                        // Fallback a un metodo più semplice di analisi se possibile
-                        throw new Error('Impossibile elaborare la risposta del modello: ' + parseError.message);
-                    }
-                    
+                    analysis = await runAnalysisWithValidation(model, systemPrompt);
                     provider = 'gemini';
                 }
 
