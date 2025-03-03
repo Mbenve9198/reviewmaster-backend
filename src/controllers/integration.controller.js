@@ -17,7 +17,7 @@ const integrationController = {
 
             // Validazione URL per piattaforma
             if (platform === 'google') {
-                if (!url.match(/^https:\/\/(www\.)?google\.com\/maps\/place\/.*/)) {
+                if (!url.match(/^https:\/\/(www\.)?google\.com\/maps\/place\//)) {
                     return res.status(400).json({
                         message: 'Invalid Google Maps URL format'
                     });
