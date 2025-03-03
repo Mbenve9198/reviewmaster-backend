@@ -15,27 +15,6 @@ const integrationController = {
                 return res.status(400).json({ message: 'Missing required fields' });
             }
 
-            // Validazione URL per piattaforma
-            if (platform === 'google') {
-                if (!url.match(/^https:\/\/(www\.)?google\.com\/maps\/place\//)) {
-                    return res.status(400).json({
-                        message: 'Invalid Google Maps URL format'
-                    });
-                }
-            } else if (platform === 'booking') {
-                if (!url.match(/^https:\/\/www\.booking\.com\/hotel\/[a-z]{2}\/.*\.[a-z]{2}\.html$/)) {
-                    return res.status(400).json({
-                        message: 'Invalid Booking.com URL format'
-                    });
-                }
-            } else if (platform === 'tripadvisor') {
-                if (!url.match(/^https:\/\/(www\.)?tripadvisor\.[a-z]+\/Hotel_Review-.*\.html$/)) {
-                    return res.status(400).json({
-                        message: 'Invalid TripAdvisor URL format'
-                    });
-                }
-            }
-
             const hotel = await Hotel.findOne({ _id: hotelId, userId });
             if (!hotel) {
                 return res.status(404).json({ message: 'Hotel not found' });
