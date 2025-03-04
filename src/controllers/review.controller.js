@@ -9,7 +9,7 @@ const reviewController = {
         try {
             console.log('Request body:', req.body);
             
-            const { hotelId, review, responseSettings, previousMessages, generateSuggestions } = req.body;
+            const { hotelId, review, responseSettings, previousMessages, generateSuggestions, isNewManualReview } = req.body;
             const userId = req.userId;
 
             // Validazione input
@@ -221,8 +221,8 @@ Format your response as a simple array of 3 strings, nothing else. For example:
                 }
             }
 
-            // Salva la recensione solo alla prima richiesta
-            if (!previousMessages) {
+            // Salva la recensione solo se è una nuova recensione manuale e non ci sono messaggi precedenti
+            if (!previousMessages && isNewManualReview === true) {
                 // Salva la recensione nel database
                 const reviewDoc = new Review({
                     hotelId,
