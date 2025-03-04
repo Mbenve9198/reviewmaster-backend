@@ -22,13 +22,12 @@ const reviewController = {
                 userId,
                 hotelId,
                 review: typeof review === 'object' ? review.text : review,
-                responseSettings,
-                previousMessages: previousMessages ? previousMessages.length : 0
+                responseSettings
             });
             
             // Controlla se abbiamo una richiesta identica recente
             const cachedRequest = requestCache.get(requestKey);
-            if (cachedRequest && Date.now() - cachedRequest.timestamp < 5000) { // 5 secondi
+            if (cachedRequest && Date.now() - cachedRequest.timestamp < 10000) { // 10 secondi
                 console.log('Duplicate request detected, ignoring...');
                 return res.status(429).json({ 
                     message: 'Too many similar requests. Please wait a moment before trying again.',
