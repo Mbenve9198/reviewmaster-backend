@@ -222,16 +222,19 @@ Format your response as a simple array of 3 strings, nothing else. For example:
             }
 
             // Salva la recensione solo se è una nuova recensione manuale e non ci sono messaggi precedenti
-            if (!previousMessages && isNewManualReview === true) {
+            if ((!previousMessages || previousMessages.length === 0) && isNewManualReview === true) {
                 // Salva la recensione nel database
                 const reviewDoc = new Review({
                     hotelId,
                     platform: 'manual',
                     content: {
-                        text: review.text,
+                        text: typeof review === 'object' ? review.text : review,
                         language: detectedLanguage,
-                        rating: 5,
+                        rating: typeof review === 'object' && review.rating ? review.rating : 5,
                         reviewerName: reviewerName
+                    },
+                    metadata: {
+                        originalCreatedAt: new Date()
                     },
                     response: {
                         text: aiResponse,
