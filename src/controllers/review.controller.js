@@ -2,7 +2,12 @@ const Review = require('../models/review.model');
 const User = require('../models/user.model');
 const Hotel = require('../models/hotel.model');
 const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
 const Rule = require('../models/rule.model');
+
+// Aggiungi un sistema di deduplicazione delle richieste
+const requestCache = new Map();
+const CACHE_TTL = 60000; // 1 minuto in millisecondi
 
 const reviewController = {
     generateResponse: async (req, res) => {
@@ -11,7 +16,36 @@ const reviewController = {
             
             const { hotelId, review, responseSettings, previousMessages, generateSuggestions, isNewManualReview } = req.body;
             const userId = req.userId;
-
+            
+            // Crea una chiave unica per questa richiesta
+            const requestKey = JSON.stringify({
+                userId,
+                hotelId,
+                review: typeof review === 'object' ? review.text : review,
+                responseSettings,
+                previousMessages: previousMessages ? previousMessages.length : 0
+            });
+            
+            // Controlla se abbiamo una richiesta identica recente
+            const cachedRequest = requestCache.get(requestKey);
+            if (cachedRequest && Date.now() - cachedRequest.timestamp < 5000) { // 5 secondi
+                console.log('Duplicate request detected, ignoring...');
+                return res.status(429).json({ 
+                    message: 'Too many similar requests. Please wait a moment before trying again.',
+                    type: 'DUPLICATE_REQUEST'
+                });
+            }
+            
+            // Memorizza questa richiesta nel cache
+            requestCache.set(requestKey, { 
+                timestamp: Date.now() 
+            });
+            
+            // Pulisci periodicamente il cache
+            setTimeout(() => {
+                requestCache.delete(requestKey);
+            }, CACHE_TTL);
+            
             // Validazione input
             if (!hotelId || !review) {
                 return res.status(400).json({ 
@@ -39,9 +73,13 @@ const reviewController = {
                 return res.status(404).json({ message: 'Hotel not found' });
             }
 
-            // Inizializza il client Claude
+            // Inizializza i client AI
             const anthropic = new Anthropic({
                 apiKey: process.env.CLAUDE_API_KEY,
+            });
+            
+            const openai = new OpenAI({
+                apiKey: process.env.OPENAI_API_KEY,
             });
 
             // Ottieni il nome del recensore: controlla se è presente review.name oppure review.reviewerName
@@ -52,22 +90,44 @@ const reviewController = {
             if (!previousMessages) {
                 try {
                     const reviewText = typeof review === 'object' ? review.text : review;
-
-                    const languageDetectionMessage = await anthropic.messages.create({
-                        model: "claude-3-7-sonnet-20250219",
-                        max_tokens: 50,
-                        temperature: 0,
-                        system: "You are a language detection expert. Respond only with the ISO language code.",
-                        messages: [{ role: "user", content: reviewText }]
-                    });
                     
-                    if (languageDetectionMessage?.content?.[0]?.text) {
-                        detectedLanguage = languageDetectionMessage.content[0].text.trim();
-                    } else {
-                        detectedLanguage = 'en'; // fallback to English
+                    // Prova prima con Claude
+                    try {
+                        const languageDetectionMessage = await anthropic.messages.create({
+                            model: "claude-3-7-sonnet-20250219",
+                            max_tokens: 50,
+                            temperature: 0,
+                            system: "You are a language detection expert. Respond only with the ISO language code.",
+                            messages: [{ role: "user", content: reviewText }]
+                        });
+                        
+                        if (languageDetectionMessage?.content?.[0]?.text) {
+                            detectedLanguage = languageDetectionMessage.content[0].text.trim();
+                        } else {
+                            detectedLanguage = 'en'; // fallback to English
+                        }
+                    } catch (claudeError) {
+                        console.log('Claude language detection failed, trying OpenAI:', claudeError.message);
+                        
+                        // Fallback a OpenAI per il rilevamento della lingua
+                        const openaiLanguageDetection = await openai.chat.completions.create({
+                            model: "gpt-4.5-preview-2025-02-27",
+                            messages: [
+                                { role: "system", content: "You are a language detection expert. Respond only with the ISO language code." },
+                                { role: "user", content: reviewText }
+                            ],
+                            max_tokens: 50,
+                            temperature: 0
+                        });
+                        
+                        if (openaiLanguageDetection?.choices?.[0]?.message?.content) {
+                            detectedLanguage = openaiLanguageDetection.choices[0].message.content.trim();
+                        } else {
+                            detectedLanguage = 'en'; // fallback to English
+                        }
                     }
                 } catch (error) {
-                    console.error('Language detection error:', error);
+                    console.error('Language detection error with both providers:', error);
                     detectedLanguage = 'en'; // fallback to English
                 }
             }
@@ -151,7 +211,7 @@ If the user asks for modifications to your previous response, adjust it accordin
                     .filter(msg => msg && msg.sender)
                     .map(msg => ({
                         role: msg.sender === "ai" ? "assistant" : "user",
-                        content: msg.content || ''
+                        content: msg.sender === "ai" ? msg.content || '' : msg.content || ''
                     }));
                 
                 messages.unshift({
@@ -165,23 +225,61 @@ If the user asks for modifications to your previous response, adjust it accordin
                 }];
             }
 
-            // Genera la risposta con Claude con gestione errori
-            const response = await anthropic.messages.create({
-                model: "claude-3-7-sonnet-20250219",
-                max_tokens: 1000,
-                temperature: 0.7,
-                system: systemPrompt,
-                messages: messages
-            }).catch(error => {
-                console.error('Claude API error:', error);
-                throw new Error('Failed to generate response from AI');
-            });
+            // Funzione per generare risposta con Claude e fallback a OpenAI
+            const generateAIResponse = async () => {
+                try {
+                    // Prima prova con Claude
+                    console.log('Attempting to generate response with Claude...');
+                    const claudeResponse = await anthropic.messages.create({
+                        model: "claude-3-7-sonnet-20250219",
+                        max_tokens: 1000,
+                        temperature: 0.7,
+                        system: systemPrompt,
+                        messages: messages
+                    });
+                    
+                    console.log('Generated response with Claude successfully');
+                    return {
+                        text: claudeResponse?.content?.[0]?.text || 'We apologize, but we could not generate a response at this time.',
+                        provider: 'claude'
+                    };
+                } catch (claudeError) {
+                    // Se Claude fallisce, prova con OpenAI
+                    console.log('Claude API error, falling back to OpenAI:', claudeError.message);
+                    
+                    try {
+                        // Converti i messaggi nel formato OpenAI
+                        const openaiMessages = [
+                            { role: "system", content: systemPrompt },
+                            ...messages.map(msg => ({
+                                role: msg.role,
+                                content: msg.content
+                            }))
+                        ];
+                        
+                        const openaiResponse = await openai.chat.completions.create({
+                            model: "gpt-4.5-preview-2025-02-27",
+                            messages: openaiMessages,
+                            max_tokens: 1000,
+                            temperature: 0.7
+                        });
+                        
+                        console.log('Generated response with OpenAI successfully');
+                        return {
+                            text: openaiResponse?.choices?.[0]?.message?.content || 'We apologize, but we could not generate a response at this time.',
+                            provider: 'openai'
+                        };
+                    } catch (openaiError) {
+                        console.error('OpenAI API error:', openaiError);
+                        throw new Error('Failed to generate response from both AI providers');
+                    }
+                }
+            };
 
-            let aiResponse = 'We apologize, but we could not generate a response at this time.';
-            if (response?.content?.[0]?.text) {
-                aiResponse = response.content[0].text;
-                console.log('Generated response successfully');
-            }
+            // Genera la risposta con fallback
+            const aiResponseResult = await generateAIResponse();
+            const aiResponse = aiResponseResult.text;
+            const provider = aiResponseResult.provider;
 
             // Se richiesti, genera suggerimenti basati sulla recensione
             let suggestions = [];
@@ -200,24 +298,49 @@ Consider:
 Format your response as a simple array of 3 strings, nothing else. For example:
 ["Address the breakfast complaint", "Highlight room cleanliness more", "Mention upcoming renovations"]`;
 
-                    const suggestionsResponse = await anthropic.messages.create({
-                        model: "claude-3-7-sonnet-20250219",
-                        max_tokens: 150,
-                        temperature: 0.7,
-                        system: "You are a helpful assistant generating suggestions for improving hotel review responses.",
-                        messages: [{ role: "user", content: suggestionsPrompt }]
-                    });
+                    // Prova prima con Claude per i suggerimenti
+                    try {
+                        const suggestionsResponse = await anthropic.messages.create({
+                            model: "claude-3-7-sonnet-20250219",
+                            max_tokens: 150,
+                            temperature: 0.7,
+                            system: "You are a helpful assistant generating suggestions for improving hotel review responses.",
+                            messages: [{ role: "user", content: suggestionsPrompt }]
+                        });
 
-                    if (suggestionsResponse?.content?.[0]?.text) {
-                        try {
-                            suggestions = JSON.parse(suggestionsResponse.content[0].text);
-                        } catch (e) {
-                            console.error('Error parsing suggestions:', e);
-                            suggestions = [];
+                        if (suggestionsResponse?.content?.[0]?.text) {
+                            try {
+                                suggestions = JSON.parse(suggestionsResponse.content[0].text);
+                            } catch (e) {
+                                console.error('Error parsing Claude suggestions:', e);
+                                suggestions = [];
+                            }
+                        }
+                    } catch (claudeSuggestionsError) {
+                        // Fallback a OpenAI per i suggerimenti
+                        console.log('Claude suggestions failed, trying OpenAI:', claudeSuggestionsError.message);
+                        
+                        const openaiSuggestionsResponse = await openai.chat.completions.create({
+                            model: "gpt-4.5-preview-2025-02-27",
+                            messages: [
+                                { role: "system", content: "You are a helpful assistant generating suggestions for improving hotel review responses." },
+                                { role: "user", content: suggestionsPrompt }
+                            ],
+                            max_tokens: 150,
+                            temperature: 0.7
+                        });
+                        
+                        if (openaiSuggestionsResponse?.choices?.[0]?.message?.content) {
+                            try {
+                                suggestions = JSON.parse(openaiSuggestionsResponse.choices[0].message.content);
+                            } catch (e) {
+                                console.error('Error parsing OpenAI suggestions:', e);
+                                suggestions = [];
+                            }
                         }
                     }
                 } catch (error) {
-                    console.error('Error generating suggestions:', error);
+                    console.error('Error generating suggestions with both providers:', error);
                 }
             }
 
@@ -276,7 +399,8 @@ Format your response as a simple array of 3 strings, nothing else. For example:
                 response: aiResponse,
                 detectedLanguage,
                 creditsRemaining: totalCreditsAvailable - creditCost,
-                suggestions
+                suggestions,
+                provider // Aggiungiamo il provider utilizzato nella risposta
             });
 
         } catch (error) {
