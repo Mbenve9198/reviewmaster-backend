@@ -12,10 +12,10 @@ const CACHE_TTL = 60000; // 1 minuto in millisecondi
 const reviewController = {
     generateResponse: async (req, res) => {
         try {
-            console.log('Request body:', req.body);
-            
             const { hotelId, review, responseSettings, previousMessages, generateSuggestions, isNewManualReview } = req.body;
             const userId = req.userId;
+            
+            console.log('Request body:', req.body);
             
             // Crea una chiave unica per questa richiesta
             const requestKey = JSON.stringify({
@@ -25,19 +25,23 @@ const reviewController = {
                 responseSettings
             });
             
-            // Controlla se abbiamo una richiesta identica recente
+            // Controllo ottimizzato con lock per evitare race condition
             const cachedRequest = requestCache.get(requestKey);
-            if (cachedRequest && Date.now() - cachedRequest.timestamp < 10000) { // 10 secondi
-                console.log('Duplicate request detected, ignoring...');
-                return res.status(429).json({ 
-                    message: 'Too many similar requests. Please wait a moment before trying again.',
-                    type: 'DUPLICATE_REQUEST'
-                });
+            if (cachedRequest) {
+                const timeSinceLastRequest = Date.now() - cachedRequest.timestamp;
+                if (timeSinceLastRequest < 10000) { // 10 secondi
+                    console.log('Duplicate request detected, ignoring...');
+                    return res.status(429).json({ 
+                        message: 'Too many similar requests. Please wait a moment before trying again.',
+                        type: 'DUPLICATE_REQUEST'
+                    });
+                }
             }
             
-            // Memorizza questa richiesta nel cache
+            // Memorizza questa richiesta nel cache PRIMA di procedere
             requestCache.set(requestKey, { 
-                timestamp: Date.now() 
+                timestamp: Date.now(),
+                processing: true // Indica che stiamo elaborando questa richiesta
             });
             
             // Pulisci periodicamente il cache
@@ -229,7 +233,9 @@ If the user asks for modifications to your previous response, adjust it accordin
                 try {
                     // Prima prova con Claude
                     console.log('Attempting to generate response with Claude...');
-                    const claudeResponse = await anthropic.messages.create({
+                    
+                    // Imposta un timeout più breve per Claude in caso di sovraccarico
+                    const claudePromise = anthropic.messages.create({
                         model: "claude-3-7-sonnet-20250219",
                         max_tokens: 1000,
                         temperature: 0.7,
@@ -237,13 +243,21 @@ If the user asks for modifications to your previous response, adjust it accordin
                         messages: messages
                     });
                     
+                    // Utilizziamo un timeout di 5 secondi per rilevare rapidamente se Claude è sovraccarico
+                    const timeoutPromise = new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error('Claude timeout after 5s')), 5000);
+                    });
+                    
+                    // Race tra la risposta di Claude e il timeout
+                    const claudeResponse = await Promise.race([claudePromise, timeoutPromise]);
+                    
                     console.log('Generated response with Claude successfully');
                     return {
                         text: claudeResponse?.content?.[0]?.text || 'We apologize, but we could not generate a response at this time.',
                         provider: 'claude'
                     };
                 } catch (claudeError) {
-                    // Se Claude fallisce, prova con OpenAI
+                    // Se Claude fallisce, prova subito con OpenAI
                     console.log('Claude API error, falling back to OpenAI:', claudeError.message);
                     
                     try {
