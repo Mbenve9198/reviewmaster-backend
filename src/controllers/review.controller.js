@@ -181,10 +181,8 @@ ${lengthInstruction}
 ${rulesInstructions}
 
 When responding, please follow these guidelines:
-- For a "professional" style, use a formal and respectful tone. Address the reviewer using "Gentile [Name]" if a name is provided, and use formal language throughout the response.
-  For example: "Gentile ${reviewerName}, la ringraziamo per aver condiviso il suo feedback. Siamo lieti che abbia apprezzato il nostro servizio e speriamo di poterLa accogliere nuovamente nel nostro hotel."
-- For a "friendly" style, use an informal, warm, and conversational tone. Address the reviewer by their first name if available, or use a casual greeting such as "Ciao [Name]". 
-  For example: "Ciao ${reviewerName}, grazie per averci lasciato il tuo commento! Siamo contenti che il tuo soggiorno sia stato piacevole e non vediamo l'ora di riaverti presto qui!"
+- For a "professional" style, use a formal and respectful tone appropriate for the detected language. Address the reviewer by their name if provided, using formal conventions of the detected language.
+- For a "friendly" style, use an informal, warm, and conversational tone appropriate for the detected language. Address the reviewer by their first name if available, using casual greeting conventions of the detected language.
 
 Use the following hotel information in your response when relevant:
 - Hotel Name: ${hotel.name}
