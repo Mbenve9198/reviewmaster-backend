@@ -250,10 +250,7 @@ If the user asks for modifications to your previous response, adjust it accordin
                         // Converti i messaggi nel formato OpenAI
                         const openaiMessages = [
                             { role: "system", content: systemPrompt },
-                            ...messages.map(msg => ({
-                                role: msg.role,
-                                content: msg.content
-                            }))
+                            ...messages
                         ];
                         
                         const openaiResponse = await openai.chat.completions.create({
