@@ -13,19 +13,30 @@ router.post('/login', (req, res) => authController.login(req, res));
 router.get('/profile', authMiddleware, (req, res) => authController.getProfile(req, res));
 
 router.post('/verify-email', verificationController.verifyEmail);
-router.post('/resend-verification', authMiddleware, async (req, res) => {
+
+// Route per il reinvio dell'email di verifica (non richiede autenticazione)
+router.post('/resend-verification', async (req, res) => {
     try {
-        const user = await User.findById(req.userId);
+        const { email } = req.body;
+        
+        if (!email) {
+            return res.status(400).json({ message: 'Email is required' });
+        }
+        
+        // Trova l'utente tramite email
+        const user = await User.findOne({ email });
+        
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            // Per motivi di sicurezza, non riveliamo che l'utente non esiste
+            return res.json({ message: 'If an account exists with this email, a verification link has been sent.' });
         }
         
         if (user.isVerified) {
-            return res.status(400).json({ message: 'Email already verified' });
+            return res.json({ message: 'If an account exists with this email, a verification link has been sent.' });
         }
         
         await verificationController.sendVerificationEmail(user);
-        res.json({ message: 'Verification email sent' });
+        res.json({ message: 'If an account exists with this email, a verification link has been sent.' });
     } catch (error) {
         console.error('Resend verification error:', error);
         res.status(500).json({ message: 'Error sending verification email' });
