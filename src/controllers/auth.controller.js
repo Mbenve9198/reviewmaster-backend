@@ -9,12 +9,41 @@ const resetPasswordEmailTemplate = require('../templates/reset-password-email');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// Funzione per inviare email di notifica agli amministratori
+const sendAdminNotificationEmail = async (user) => {
+    try {
+        await resend.emails.send({
+            from: 'Replai <noreply@replai.app>',
+            to: ['marco@midachat.com', 'federico@midachat.com'],
+            subject: 'New User Registration on Replai',
+            html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px;">
+                    <h2>New User Registration</h2>
+                    <p>A new user has registered on Replai:</p>
+                    <ul>
+                        <li><strong>Email:</strong> ${user.email}</li>
+                        <li><strong>Name:</strong> ${user.name}</li>
+                        <li><strong>Company:</strong> ${user.companyName || 'Not provided'}</li>
+                        <li><strong>Phone:</strong> ${user.phoneNumber || 'Not provided'}</li>
+                        <li><strong>Registration Time:</strong> ${new Date().toISOString()}</li>
+                    </ul>
+                    <p>You might want to reach out to welcome them to the platform.</p>
+                </div>
+            `
+        });
+        console.log('Admin notification email sent successfully');
+    } catch (error) {
+        console.error('Error sending admin notification email:', error);
+        // Non interrompiamo il flusso di registrazione se la notifica fallisce
+    }
+};
+
 const authController = {
     // Registrazione nuovo utente
     register: async (req, res) => {
         try {
-            const { email, password, name } = req.body;
-            console.log('Registering user:', { email, name });
+            const { email, password, name, phoneNumber, companyName } = req.body;
+            console.log('Registering user:', { email, name, companyName });
 
             // Verifica se l'utente esiste già
             const existingUser = await User.findOne({ email });
@@ -30,6 +59,8 @@ const authController = {
                 email,
                 password: hashedPassword,
                 name,
+                phoneNumber,
+                companyName,
                 isVerified: false,
                 subscription: {
                     plan: 'trial',
@@ -46,6 +77,9 @@ const authController = {
 
             // Invia email di verifica
             await verificationController.sendVerificationEmail(user);
+            
+            // Invia email di notifica agli amministratori
+            await sendAdminNotificationEmail(user);
 
             // Restituisci solo un messaggio di successo, senza token
             res.status(201).json({

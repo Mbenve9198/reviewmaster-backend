@@ -16,6 +16,14 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    phoneNumber: {
+        type: String,
+        trim: true
+    },
+    companyName: {
+        type: String,
+        trim: true
+    },
     wallet: {
         credits: {
             type: Number,
