@@ -60,7 +60,9 @@ const corsOptions = {
         'http://localhost:3000',
         'http://localhost:3001',
         'https://replai.app',
-        'https://www.replai.app'
+        'https://www.replai.app',
+        'https://reviewmaster-frontend-75touh5ri-marco-midachatcoms-projects.vercel.app',
+        'https://reviewmaster-frontend.vercel.app'
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
