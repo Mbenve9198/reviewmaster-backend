@@ -715,20 +715,43 @@ console.log('Hotel details:', {
             const data = await response.json();
             console.log('Claude response:', JSON.stringify(data));
 
-            // Estrai la risposta TESTUALE di Claude, non un'analisi di sentiment
-            let assistantResponse = "Mi dispiace, non riesco a rispondere in questo momento.";
+            // Estrai la risposta TESTUALE di Claude con gestione più robusta
+            let assistantResponse = "I'm sorry, I can't respond at the moment.";
 
-            if (data && data.content && Array.isArray(data.content) && data.content.length > 0) {
-                assistantResponse = data.content[0].text;
+            try {
+                // Verifica prima la struttura della risposta
+                if (data && data.content && Array.isArray(data.content)) {
+                    // Cerca il primo elemento di tipo 'text'
+                    const textContent = data.content.find(item => item.type === 'text' && item.text);
+                    
+                    if (textContent && textContent.text && textContent.text.trim() !== '') {
+                        assistantResponse = textContent.text;
+                    } else {
+                        // Log dettagliato per debugging
+                        console.log('No valid text content found in Claude response:', data.content);
+                    }
+                } else {
+                    // Log dettagliato per debugging
+                    console.log('Unexpected Claude response structure:', data);
+                }
+            } catch (parseError) {
+                console.error('Error parsing Claude response:', parseError);
             }
 
-            // Salva la risposta nella cronologia
-            interaction.conversationHistory.push({
-                role: 'assistant',
-                content: assistantResponse,
-                timestamp: new Date()
-            });
-            await interaction.save();
+            // Verifica che assistantResponse non sia vuoto prima di salvarlo
+            if (assistantResponse && assistantResponse.trim() !== '') {
+                // Salva la risposta nella cronologia
+                interaction.conversationHistory.push({
+                    role: 'assistant',
+                    content: assistantResponse,
+                    timestamp: new Date()
+                });
+                await interaction.save();
+            } else {
+                console.error('Empty assistant response, not saving to conversation history');
+                // Utilizziamo un messaggio di fallback generico
+                assistantResponse = "I apologize, but I couldn't process your request. Please try again later.";
+            }
 
             // Invia una risposta TwiML vuota
             res.set('Content-Type', 'text/xml');
