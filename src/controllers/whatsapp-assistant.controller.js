@@ -312,6 +312,25 @@ const whatsappAssistantController = {
 
             console.log('Elaborazione messaggio WhatsApp da:', message.ProfileName);
 
+            // Client Twilio
+            const twilioClient = twilio(
+                process.env.TWILIO_ACCOUNT_SID,
+                process.env.TWILIO_AUTH_TOKEN
+            );
+
+            // Find all active assistants
+            const activeAssistants = await WhatsAppAssistant.find({ 
+                isActive: true 
+            }).populate('hotelId');
+            
+            if (activeAssistants.length === 0) {
+                console.log('No active assistants found');
+                return res.status(200).send({
+                    success: false,
+                    message: 'No active assistants found'
+                });
+            }
+
             // Cerca interazione esistente
             let interaction = await WhatsappInteraction.findOne({
                 phoneNumber: message.From
@@ -319,45 +338,63 @@ const whatsappAssistantController = {
                 path: 'hotelId',
                 select: 'name type description'
             });
-
-            // Client Twilio
-            const twilioClient = twilio(
-                process.env.TWILIO_ACCOUNT_SID,
-                process.env.TWILIO_AUTH_TOKEN
+            
+            let assistant = null;
+            let isNewConversation = false;
+            
+            // Check if user wants to switch hotels by using a trigger word
+            const triggerWordMatch = activeAssistants.find(ast => 
+                message.Body.toLowerCase().includes(ast.triggerName.toLowerCase())
             );
-
-            let assistant;
             
-            // Trova assistente attivo
-            const activeAssistants = await WhatsAppAssistant.find({ 
-                isActive: true 
-            }).populate('hotelId');
-            
-            if (interaction) {
-                // Se esiste un'interazione, trova l'assistente corrispondente
+            if (triggerWordMatch) {
+                console.log('Trigger word detected:', triggerWordMatch.triggerName);
+                
+                // User is using a trigger word - either new conversation or switching hotels
+                if (interaction && interaction.hotelId._id.toString() !== triggerWordMatch.hotelId._id.toString()) {
+                    console.log('User switching from hotel', interaction.hotelId.name, 'to', triggerWordMatch.hotelId.name);
+                    // Update the existing interaction to point to the new hotel
+                    interaction.hotelId = triggerWordMatch.hotelId._id;
+                    await interaction.save();
+                }
+                
+                assistant = triggerWordMatch;
+                isNewConversation = true;
+            } else if (interaction) {
+                // Existing conversation, find the corresponding assistant
                 assistant = activeAssistants.find(ast => 
                     ast.hotelId._id.toString() === interaction.hotelId._id.toString()
                 );
                 
-                console.log('Found active conversation with assistant:', {
+                console.log('Continuing conversation with assistant:', {
                     assistantId: assistant?._id,
                     hotelName: assistant?.hotelId?.name,
                     lastInteraction: new Date()
                 });
             } else {
-                // Se non esiste un'interazione, cerca il primo assistente disponibile
-                assistant = activeAssistants[0];
-                console.log('Using first available assistant for new interaction:', {
-                    assistantId: assistant?._id,
-                    hotelName: assistant?.hotelId?.name
+                // New user, no trigger word - don't respond
+                console.log('New user without trigger word, not responding');
+                
+                // Send polite response explaining they need to use a trigger word
+                const noTriggerResponse = "Welcome! To start a conversation with one of our hotels, please use their specific keyword. For example: 'HotelName help'";
+                
+                await twilioClient.messages.create({
+                    body: noTriggerResponse,
+                    from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                    to: message.From,
+                    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
                 });
+                
+                // Return empty TwiML response
+                res.set('Content-Type', 'text/xml');
+                return res.send('<Response></Response>');
             }
 
             if (!assistant || !assistant.hotelId) {
-                console.log('Nessun assistente trovato!');
+                console.log('No assistant found for this hotel!');
                 return res.status(200).send({
                     success: false,
-                    message: 'No assistant found'
+                    message: 'No assistant found for this hotel'
                 });
             }
 
@@ -373,6 +410,7 @@ const whatsappAssistantController = {
                         date: new Date(),
                         count: 1
                     }],
+                    conversationHistory: [], // Initialize empty conversation history
                     // Inizializza i campi per le recensioni
                     reviewRequested: false,
                     reviewScheduledFor: null,
@@ -565,7 +603,9 @@ const whatsappAssistantController = {
             const hotel = assistant.hotelId;
 
             // Rimuovi il trigger name dal messaggio per l'elaborazione
-            const userQuery = message.Body.replace(assistant.triggerName, '').trim();
+            const userQuery = isNewConversation 
+                ? message.Body.replace(assistant.triggerName, '').trim()
+                : message.Body.trim();
 
             // Aggiungi il messaggio dell'utente allo storico
             interaction.conversationHistory.push({
