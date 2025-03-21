@@ -686,13 +686,6 @@ console.log('Hotel details:', {
     description: interaction?.hotelId?.description
 });
 
-            // Aggiungi il messaggio utente corrente alla cronologia
-            interaction.conversationHistory.push({
-                role: 'user',
-                content: message.Body,
-                timestamp: new Date()
-            });
-
             // Genera la risposta con Claude includendo lo storico
             const response = await fetch('https://api.anthropic.com/v1/messages', {
                 method: 'POST',
@@ -707,7 +700,7 @@ console.log('Hotel details:', {
                     system: systemPrompt, // Usa il prompt di sistema conversazionale
                     messages: recentHistory.concat([{
                         role: 'user',
-                        content: message.Body
+                        content: userQuery
                     }])
                 })
             });
@@ -770,6 +763,26 @@ console.log('Hotel details:', {
             }
         } catch (error) {
             console.error('WhatsApp webhook error:', error);
+            
+            // Add more detailed logging for validation errors
+            if (error.name === 'ValidationError') {
+                console.error('Validation error details:');
+                for (let field in error.errors) {
+                    console.error(`- Field: ${field}`);
+                    console.error(`  Message: ${error.errors[field].message}`);
+                    console.error(`  Value: ${JSON.stringify(error.errors[field].value)}`);
+                    console.error(`  Kind: ${error.errors[field].kind}`);
+                }
+                
+                // Log interaction state if available
+                if (interaction) {
+                    console.error('Interaction state:');
+                    console.error(`- ID: ${interaction._id}`);
+                    console.error(`- Phone: ${interaction.phoneNumber}`);
+                    console.error(`- History Count: ${interaction.conversationHistory?.length || 0}`);
+                }
+            }
+            
             // Anche in caso di errore, rispondi con un TwiML vuoto
             res.set('Content-Type', 'text/xml');
             res.send('<Response></Response>');
