@@ -301,6 +301,10 @@ const whatsappAssistantController = {
     },
 
     handleWebhook: async (req, res) => {
+        // Declare interaction at function scope so it's available in catch block
+        let interaction = null;
+        let assistant = null;
+        
         try {
             console.log('Raw request body:', req.body);
 
@@ -332,14 +336,13 @@ const whatsappAssistantController = {
             }
 
             // Cerca interazione esistente
-            let interaction = await WhatsappInteraction.findOne({
+            interaction = await WhatsappInteraction.findOne({
                 phoneNumber: message.From
             }).populate({
                 path: 'hotelId',
                 select: 'name type description'
             });
             
-            let assistant = null;
             let isNewConversation = false;
             
             // Check if user wants to switch hotels by using a trigger word
@@ -356,6 +359,20 @@ const whatsappAssistantController = {
                     // Update the existing interaction to point to the new hotel
                     interaction.hotelId = triggerWordMatch.hotelId._id;
                     await interaction.save();
+                    
+                    // IMPORTANTE: Ricarica l'interazione con i dettagli popolati dell'hotel dopo il cambio
+                    interaction = await WhatsappInteraction.findOne({
+                        phoneNumber: message.From
+                    }).populate({
+                        path: 'hotelId',
+                        select: 'name type description'
+                    });
+                    
+                    console.log('After hotel switch, populated details:', {
+                        hotelId: interaction.hotelId._id,
+                        hotelName: interaction.hotelId.name,
+                        hotelType: interaction.hotelId.type
+                    });
                 }
                 
                 assistant = triggerWordMatch;
@@ -417,6 +434,15 @@ const whatsappAssistantController = {
                     reviewRequests: []
                 });
                 await interaction.save();
+                
+                // IMPORTANTE: Ricarica l'interazione con i dettagli popolati dell'hotel
+                interaction = await WhatsappInteraction.findOne({
+                    phoneNumber: message.From
+                }).populate({
+                    path: 'hotelId',
+                    select: 'name type description'
+                });
+                
                 console.log('Interazione creata con ID:', interaction._id);
             }
             
@@ -600,29 +626,66 @@ const whatsappAssistantController = {
             interaction.lastInteraction = new Date();
             await interaction.save();
 
-            const hotel = assistant.hotelId;
+            // Assicuriamoci di usare i dati dell'hotel dall'interazione, non dall'assistente
+            const hotel = interaction.hotelId;
 
             // Rimuovi il trigger name dal messaggio per l'elaborazione
             const userQuery = isNewConversation 
                 ? message.Body.replace(assistant.triggerName, '').trim()
                 : message.Body.trim();
 
+            // IMPORTANTE: Pulisci la cronologia della conversazione rimuovendo messaggi con contenuto vuoto
+            if (interaction.conversationHistory && interaction.conversationHistory.length > 0) {
+                interaction.conversationHistory = interaction.conversationHistory.filter(msg => 
+                    msg && msg.content && msg.content.trim() !== ''
+                );
+                await interaction.save();
+                console.log(`Cleaned conversation history - removed empty messages. New length: ${interaction.conversationHistory.length}`);
+            }
+
             // Aggiungi il messaggio dell'utente allo storico
-            interaction.conversationHistory.push({
-                role: 'user',
-                content: userQuery,
-                timestamp: new Date()
-            });
+            if (userQuery && userQuery.trim() !== '') {
+                interaction.conversationHistory.push({
+                    role: 'user',
+                    content: userQuery,
+                    timestamp: new Date()
+                });
+                await interaction.save();
+            } else {
+                console.log('Skipping empty user message');
+            }
 
             // Prepara il contesto della conversazione per Claude
             const recentHistory = interaction.conversationHistory
                 .slice(-10)
+                .filter(msg => msg && msg.content && msg.content.trim() !== '') // Filtra di nuovo per sicurezza
                 .map(msg => ({
                     role: msg.role,
                     content: msg.content
                 }));
 
             const userLanguage = getLanguageFromPhone(message.From);
+            
+            if (!interaction.hotelId || !interaction.hotelId.name) {
+                console.error('CRITICAL ERROR: Hotel details not found or not populated correctly');
+                console.error('Interaction hotel data:', {
+                    hasHotelId: !!interaction.hotelId,
+                    hotelIdType: typeof interaction.hotelId,
+                    hotelIdValue: interaction.hotelId,
+                    hotelName: interaction.hotelId?.name
+                });
+                
+                // Invia un messaggio di errore generico e termina
+                await twilioClient.messages.create({
+                    body: "I'm sorry, there was a system error. Please try again later.",
+                    from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                    to: message.From,
+                    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                });
+                
+                res.set('Content-Type', 'text/xml');
+                return res.send('<Response></Response>');
+            }
             
             const systemPrompt = `You are ${hotel.name}'s personal WhatsApp Hotel concierge, having a natural, friendly conversation with ${message.ProfileName}. 
 First, determine the language the user is writing in by analyzing their message "${message.Body}".
@@ -774,13 +837,30 @@ console.log('Hotel details:', {
                     console.error(`  Kind: ${error.errors[field].kind}`);
                 }
                 
-                // Log interaction state if available
+                // Log interaction state if available - now this variable is in scope
                 if (interaction) {
                     console.error('Interaction state:');
                     console.error(`- ID: ${interaction._id}`);
                     console.error(`- Phone: ${interaction.phoneNumber}`);
                     console.error(`- History Count: ${interaction.conversationHistory?.length || 0}`);
                 }
+            }
+            
+            // Try to send a fallback message in case of error
+            try {
+                if (message && message.From) {
+                    await twilio(
+                        process.env.TWILIO_ACCOUNT_SID,
+                        process.env.TWILIO_AUTH_TOKEN
+                    ).messages.create({
+                        body: "I apologize, but I couldn't process your message. Please try again later.",
+                        from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                        to: message.From,
+                        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                    });
+                }
+            } catch (twilioError) {
+                console.error('Failed to send error message:', twilioError);
             }
             
             // Anche in caso di errore, rispondi con un TwiML vuoto
