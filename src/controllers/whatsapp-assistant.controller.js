@@ -375,6 +375,7 @@ const whatsappAssistantController = {
                     });
                 }
                 
+                // Usa questo assistente per rilevare l'inizio della conversazione o il cambio di hotel
                 assistant = triggerWordMatch;
                 isNewConversation = true;
             } else if (interaction) {
@@ -446,6 +447,41 @@ const whatsappAssistantController = {
                 console.log('Interazione creata con ID:', interaction._id);
             }
             
+            // Dopo l'aggiornamento o la creazione dell'interazione, assicuriamoci di usare l'assistente CORRETTO
+            // per l'hotel associato all'interazione, non quello del trigger word
+            if (assistant && interaction && interaction.hotelId) {
+                // Trova l'assistente corretto basato sull'hotelId dell'interazione
+                const correctAssistant = activeAssistants.find(ast => 
+                    ast.hotelId._id.toString() === interaction.hotelId._id.toString()
+                );
+                
+                if (correctAssistant) {
+                    // Se l'assistente del trigger è diverso dall'assistente dell'hotel corrente, utilizza quello corretto
+                    if (assistant._id.toString() !== correctAssistant._id.toString()) {
+                        console.log('Switching from trigger assistant to correct hotel assistant:', {
+                            fromAssistantId: assistant._id,
+                            toAssistantId: correctAssistant._id,
+                            fromHotelName: assistant.hotelId.name,
+                            toHotelName: correctAssistant.hotelId.name
+                        });
+                        assistant = correctAssistant;
+                    }
+                }
+            }
+            
+            // Verifica e log delle regole dell'assistente
+            console.log('Final assistant rules:', {
+                assistantId: assistant?._id,
+                hotelName: assistant?.hotelId?.name,
+                hasRules: !!assistant?.rules,
+                rulesCount: assistant?.rules?.length || 0,
+                activeRules: assistant?.rules?.filter(rule => rule.isActive)?.length || 0,
+                rules: assistant?.rules?.filter(rule => rule.isActive)?.map(rule => ({
+                    topic: rule.isCustom ? rule.customTopic : rule.topic,
+                    response: rule.response
+                }))
+            });
+
             // PARTE CRUCIALE: Controllo dello stato delle recensioni
             console.log('=== VERIFICA STATO RECENSIONE ===');
             console.log('- ReviewRequested:', interaction.reviewRequested);
