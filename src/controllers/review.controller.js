@@ -189,7 +189,12 @@ Use the following hotel information in your response when relevant:
 - Hotel Type: ${hotel.type}
 - Hotel Description: ${hotel.description}
 
-IMPORTANT: You must respond in ${detectedLanguage}. The response should follow the linguistic and cultural norms appropriate for a ${detectedLanguage}-speaking audience.
+CRITICAL INSTRUCTION: You MUST respond ONLY in the reviewer's language, which has been detected as "${detectedLanguage}". 
+Do NOT use English or any other language unless "${detectedLanguage}" is English.
+The entire response must be written in "${detectedLanguage}", following proper linguistic and cultural conventions, 
+formality levels, and grammatical structures specific to "${detectedLanguage}"-speaking cultures.
+
+BACKUP INSTRUCTION: If the detected language code "${detectedLanguage}" appears incorrect or doesn't match the language of the review, IGNORE the detected language and simply respond in the SAME LANGUAGE as the review text itself. Analyze the review text to determine its language and use that language for your response.
 
 If the review has limited or no text content, create a polite response based on:
 - The rating (if available)
