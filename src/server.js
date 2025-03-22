@@ -117,14 +117,14 @@ app.use('/api/whatsapp-assistant', whatsappAssistantRoutes);
 // Aggiungi una route specifica per il redirect che sia accessibile pubblicamente
 app.get('/api/redirect/review', whatsappAssistantController.handleReviewRedirect);
 
-// Stripe webhook route
-app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));
-
 // Registra le rotte dell'API
 app.use('/api/stripe', stripeRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/webhook', webhookRoutes);
 app.use('/api/credit-settings', creditSettingsRoutes);
+
+// Stripe webhook route - deve rimanere separata per gestire il body raw
+app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {
