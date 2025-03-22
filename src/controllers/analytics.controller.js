@@ -563,6 +563,7 @@ const analyticsController = {
             let provider;
             let suggestions = [];
             let suggestionsMessage;
+            let responseHasBeenSent = false; // Flag per tenere traccia se la risposta è stata inviata
 
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
@@ -708,31 +709,44 @@ const analyticsController = {
                     };
 
                     // Consuma i crediti attraverso il servizio centralizzato
-                    const creditsConsumed = await creditService.consumeCredits(
-                        hotelId, 
-                        'review_analysis', 
-                        savedAnalysis._id.toString(), 
-                        `Reviews analysis - ${savedAnalysis.title}`
-                    );
+                    // MODIFICA: Gestire il caso in cui il consumo di crediti fallisce
+                    try {
+                        const creditsConsumed = await creditService.consumeCredits(
+                            hotelId, 
+                            'review_analysis', 
+                            savedAnalysis._id.toString(), 
+                            `Reviews analysis - ${savedAnalysis.title}`
+                        );
 
-                    if (!creditsConsumed) {
-                        return res.status(403).json({ 
-                            message: 'Failed to consume credits. Please try again later.',
-                            type: 'CREDIT_ERROR'
+                        if (!creditsConsumed) {
+                            // Se non è possibile consumare crediti, rispondere con errore e uscire
+                            return res.status(403).json({ 
+                                message: 'Failed to consume credits. Please try again later.',
+                                type: 'CREDIT_ERROR'
+                            });
+                        }
+
+                        // Aggiorna lo stato dei crediti dopo il consumo
+                        const updatedCreditStatus = await creditService.checkCredits(hotelId);
+                        
+                        // MODIFICA: Imposta il flag che la risposta è stata inviata
+                        responseHasBeenSent = true;
+                        res.status(201).json({
+                            analysis: savedAnalysis,
+                            analysisText: analysis,
+                            suggestions: followUpSuggestions,
+                            creditsUsed: creditCost,
+                            creditsRemaining: updatedCreditStatus.credits,
+                            provider
+                        });
+                    } catch (creditError) {
+                        // In caso di errore, log e risposta di errore
+                        console.error('Credit consumption error:', creditError);
+                        return res.status(500).json({
+                            message: 'Error processing credits',
+                            type: 'CREDIT_PROCESSING_ERROR'
                         });
                     }
-
-                    // Aggiorna lo stato dei crediti dopo il consumo
-                    const updatedCreditStatus = await creditService.checkCredits(hotelId);
-                    
-                    res.status(201).json({
-                        analysis: savedAnalysis,
-                        analysisText: analysis,
-                        suggestions: followUpSuggestions,
-                        creditsUsed: creditCost,
-                        creditsRemaining: updatedCreditStatus.credits,
-                        provider
-                    });
                 }
 
                 if (!req.body.previousMessages && analysis.strengths && analysis.issues) {
@@ -759,19 +773,25 @@ const analyticsController = {
                 throw new Error('Error in analysis');
             }
 
-            return res.status(200).json({
-                _id: analysis._id,
-                analysis,
-                provider,
-                suggestions: analysis.followUpSuggestions || [],
-                suggestionsMessage
-            });
+            // MODIFICA: Invia la risposta solo se non è già stata inviata
+            if (!responseHasBeenSent) {
+                return res.status(200).json({
+                    _id: analysis._id,
+                    analysis,
+                    provider,
+                    suggestions: analysis.followUpSuggestions || [],
+                    suggestionsMessage
+                });
+            }
         } catch (error) {
             console.error('Error in analyzeReviews:', error);
-            return res.status(500).json({ 
-                message: 'Error in analyzeReviews',
-                details: error.message 
-            });
+            // MODIFICA: Aggiungi un controllo per evitare di inviare una risposta se la connessione è già chiusa
+            if (!res.headersSent) {
+                return res.status(500).json({ 
+                    message: 'Error in analyzeReviews',
+                    details: error.message 
+                });
+            }
         }
     },
 

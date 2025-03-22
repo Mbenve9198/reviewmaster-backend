@@ -285,102 +285,6 @@ If the user asks for modifications to your previous response, adjust it accordin
                 }
             };
 
-            // Genera la risposta con fallback
-            const aiResponseResult = await generateAIResponse();
-            const aiResponse = aiResponseResult.text;
-            const provider = aiResponseResult.provider;
-
-            // Se richiesti, genera suggerimenti basati sulla recensione
-            let suggestions = [];
-            if (generateSuggestions && !previousMessages) {
-                try {
-                    const suggestionsPrompt = `Based on this review: "${review.text}"
-
-Generate 3 relevant suggestions for improving the response. Each suggestion should be a short question or request (max 6 words).
-
-Consider:
-- Specific points mentioned in the review
-- The rating (${review.rating})
-- Areas for improvement
-- Positive aspects to emphasize
-
-Format your response as a simple array of 3 strings, nothing else. For example:
-["Address the breakfast complaint", "Highlight room cleanliness more", "Mention upcoming renovations"]`;
-
-                    // Prova prima con Claude per i suggerimenti
-                    try {
-                        const suggestionsResponse = await anthropic.messages.create({
-                            model: "claude-3-7-sonnet-20250219",
-                            max_tokens: 150,
-                            temperature: 0.7,
-                            system: "You are a helpful assistant generating suggestions for improving hotel review responses.",
-                            messages: [{ role: "user", content: suggestionsPrompt }]
-                        });
-
-                        if (suggestionsResponse?.content?.[0]?.text) {
-                            try {
-                                suggestions = JSON.parse(suggestionsResponse.content[0].text);
-                            } catch (e) {
-                                console.error('Error parsing Claude suggestions:', e);
-                                suggestions = [];
-                            }
-                        }
-                    } catch (claudeSuggestionsError) {
-                        // Fallback a OpenAI per i suggerimenti
-                        console.log('Claude suggestions failed, trying OpenAI:', claudeSuggestionsError.message);
-                        
-                        const openaiSuggestionsResponse = await openai.chat.completions.create({
-                            model: "gpt-4.5-preview-2025-02-27",
-                            messages: [
-                                { role: "system", content: "You are a helpful assistant generating suggestions for improving hotel review responses." },
-                                { role: "user", content: suggestionsPrompt }
-                            ],
-                            max_tokens: 150,
-                            temperature: 0.7
-                        });
-                        
-                        if (openaiSuggestionsResponse?.choices?.[0]?.message?.content) {
-                            try {
-                                suggestions = JSON.parse(openaiSuggestionsResponse.choices[0].message.content);
-                            } catch (e) {
-                                console.error('Error parsing OpenAI suggestions:', e);
-                                suggestions = [];
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error generating suggestions with both providers:', error);
-                }
-            }
-
-            // Salva la recensione solo se è una nuova recensione manuale e non ci sono messaggi precedenti
-            if ((!previousMessages || previousMessages.length === 0) && isNewManualReview === true) {
-                // Salva la recensione nel database
-                const reviewDoc = new Review({
-                    hotelId,
-                    platform: 'manual',
-                    content: {
-                        text: typeof review === 'object' ? review.text : review,
-                        language: detectedLanguage,
-                        rating: typeof review === 'object' && review.rating ? review.rating : 5,
-                        reviewerName: reviewerName
-                    },
-                    metadata: {
-                        originalCreatedAt: new Date()
-                    },
-                    response: {
-                        text: aiResponse,
-                        createdAt: new Date(),
-                        settings: responseSettings || {
-                            style: 'professional',
-                            length: 'medium'
-                        }
-                    }
-                });
-
-                await reviewDoc.save();
-            }
-
             // Decrementa i crediti in base al tipo di richiesta
             const creditCost = previousMessages ? 1 : 2;  // 2 crediti per prima risposta, 1 per follow-up
 
@@ -393,32 +297,136 @@ Format your response as a simple array of 3 strings, nothing else. For example:
                 });
             }
 
-            // Consuma i crediti attraverso il servizio centralizzato
-            const creditsConsumed = await creditService.consumeCredits(
-                hotelId, 
-                'review_response', 
-                previousMessages ? null : reviewId, 
-                `AI response to ${previousMessages ? 'follow-up' : 'review'}`
-            );
+            // Variabile per tenere traccia dello stato della risposta
+            let responseHasBeenSent = false;
+            let aiResponse;
+            let suggestions = [];
 
-            if (!creditsConsumed) {
-                return res.status(403).json({ 
-                    message: 'Failed to consume credits. Please try again later.',
-                    type: 'CREDIT_ERROR'
+            try {
+                // Consuma i crediti attraverso il servizio centralizzato
+                const creditsConsumed = await creditService.consumeCredits(
+                    hotelId, 
+                    'review_response', 
+                    previousMessages ? null : reviewId, 
+                    `AI response to ${previousMessages ? 'follow-up' : 'review'}`
+                );
+
+                if (!creditsConsumed) {
+                    return res.status(403).json({ 
+                        message: 'Failed to consume credits. Please try again later.',
+                        type: 'CREDIT_ERROR'
+                    });
+                }
+
+                // Genera la risposta AI
+                const aiResponseObj = await generateAIResponse();
+                aiResponse = aiResponseObj.text;
+
+                // Genera suggerimenti se richiesto
+                if (generateSuggestions && !previousMessages) {
+                    try {
+                        const suggestionsPrompt = `Based on this review: "${review.text}"
+
+Generate 3 relevant suggestions for improving the response. Each suggestion should be a short question or request (max 6 words).
+
+Consider:
+- Specific points mentioned in the review
+- The rating (${review.rating})
+- Areas for improvement
+- Positive aspects to emphasize
+
+Format your response as a simple array of 3 strings, nothing else. For example:
+["Address the breakfast complaint", "Highlight room cleanliness more", "Mention upcoming renovations"]`;
+
+                        // Prova prima con Claude per i suggerimenti
+                        try {
+                            const suggestionsResponse = await anthropic.messages.create({
+                                model: "claude-3-7-sonnet-20250219",
+                                max_tokens: 150,
+                                temperature: 0.7,
+                                system: "You are a helpful assistant generating suggestions for improving hotel review responses.",
+                                messages: [{ role: "user", content: suggestionsPrompt }]
+                            });
+
+                            if (suggestionsResponse?.content?.[0]?.text) {
+                                try {
+                                    suggestions = JSON.parse(suggestionsResponse.content[0].text);
+                                } catch (e) {
+                                    console.error('Error parsing Claude suggestions:', e);
+                                    suggestions = [];
+                                }
+                            }
+                        } catch (claudeSuggestionsError) {
+                            // Fallback a OpenAI per i suggerimenti
+                            console.log('Claude suggestions failed, trying OpenAI:', claudeSuggestionsError.message);
+                            
+                            const openaiSuggestionsResponse = await openai.chat.completions.create({
+                                model: "gpt-4.5-preview-2025-02-27",
+                                messages: [
+                                    { role: "system", content: "You are a helpful assistant generating suggestions for improving hotel review responses." },
+                                    { role: "user", content: suggestionsPrompt }
+                                ],
+                                max_tokens: 150,
+                                temperature: 0.7
+                            });
+                            
+                            if (openaiSuggestionsResponse?.choices?.[0]?.message?.content) {
+                                try {
+                                    suggestions = JSON.parse(openaiSuggestionsResponse.choices[0].message.content);
+                                } catch (e) {
+                                    console.error('Error parsing OpenAI suggestions:', e);
+                                    suggestions = [];
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error generating suggestions with both providers:', error);
+                    }
+                }
+
+                // Salva la recensione solo se è una nuova recensione manuale e non ci sono messaggi precedenti
+                if ((!previousMessages || previousMessages.length === 0) && isNewManualReview === true) {
+                    // Salva la recensione nel database
+                    const reviewDoc = new Review({
+                        hotelId,
+                        platform: 'manual',
+                        content: {
+                            text: typeof review === 'object' ? review.text : review,
+                            language: detectedLanguage,
+                            rating: typeof review === 'object' && review.rating ? review.rating : 5,
+                            reviewerName: reviewerName
+                        },
+                        metadata: {
+                            originalCreatedAt: new Date()
+                        },
+                        response: {
+                            text: aiResponse,
+                            createdAt: new Date(),
+                            settings: responseSettings || {
+                                style: 'professional',
+                                length: 'medium'
+                            }
+                        }
+                    });
+
+                    await reviewDoc.save();
+                }
+
+                // Invia la risposta al client
+                responseHasBeenSent = true;
+                res.json({
+                    content: aiResponse,
+                    suggestions
                 });
+            } catch (error) {
+                console.error('Error processing credits or generating AI response:', error);
+                if (!responseHasBeenSent) {
+                    return res.status(500).json({
+                        message: 'Error processing credits or generating AI response',
+                        error: error.message
+                    });
+                }
             }
-
-            // Aggiorna lo stato dei crediti dopo il consumo
-            const updatedCreditStatus = await creditService.checkCredits(hotelId);
-
-            res.json({ 
-                response: aiResponse,
-                detectedLanguage,
-                creditsRemaining: updatedCreditStatus.credits,
-                suggestions,
-                provider // Aggiungiamo il provider utilizzato nella risposta
-            });
-
         } catch (error) {
             console.error('Generate response error:', error);
             res.status(500).json({ 

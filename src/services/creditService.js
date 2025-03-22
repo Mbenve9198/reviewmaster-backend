@@ -230,11 +230,24 @@ const consumeCredits = async (hotelId, operationType, interactionId, description
 
     console.log(`Addebito crediti completato con successo per l'utente ${user._id}`);
 
-    // Verifica se è necessario un top-up automatico
-    await checkAndTriggerAutoTopUp(hotelId, user._id, session);
-
+    // Conferma la transazione di crediti prima
     await session.commitTransaction();
     session.endSession();
+
+    // MODIFICA: Gestisci l'auto top-up in modo completamente asincrono
+    // Questo garantisce che l'operazione principale non sia influenzata da eventuali errori dell'auto top-up
+    try {
+      // Avvia il controllo dell'auto top-up in background, senza attenderne il completamento
+      checkAndTriggerAutoTopUp(hotelId, user._id)
+        .catch(error => {
+          // Log dell'errore senza interrompere il flusso principale
+          console.error('Auto top-up background error:', error.message);
+        });
+    } catch (autoTopUpError) {
+      // In caso di errori, li registriamo senza impattare l'operazione principale
+      console.error('Error scheduling auto top-up check:', autoTopUpError);
+    }
+
     return true;
   } catch (error) {
     await session.abortTransaction();
@@ -251,18 +264,25 @@ const consumeCredits = async (hotelId, operationType, interactionId, description
  * @param {mongoose.ClientSession} [session] - Sessione Mongoose esistente (opzionale)
  */
 const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null) => {
-  const session = existingSession || await mongoose.startSession();
-  if (!existingSession) {
-    session.startTransaction();
-  }
-
+  // Se viene passata una sessione esistente, usala, altrimenti crea una nuova sessione
+  let session;
+  let ownSession = false;
+  
   try {
+    if (existingSession) {
+      session = existingSession;
+    } else {
+      session = await mongoose.startSession();
+      session.startTransaction();
+      ownSession = true;
+    }
+
     // Usa solo le impostazioni utente per il top-up automatico
     const userCreditSettings = await UserCreditSettings.findOne({ userId }).session(session);
     
     // Se l'utente non ha impostazioni o non ha attivato l'auto top-up, esci
     if (!userCreditSettings || !userCreditSettings.autoTopUp) {
-      if (!existingSession) {
+      if (ownSession) {
         await session.abortTransaction();
         session.endSession();
       }
@@ -281,7 +301,7 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
     // Verifica se il saldo è sotto la soglia minima
     if (availableCredits >= userCreditSettings.minimumThreshold) {
       // Il saldo è sufficiente, non serve top-up
-      if (!existingSession) {
+      if (ownSession) {
         await session.abortTransaction();
         session.endSession();
       }
@@ -293,7 +313,7 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
     const now = new Date();
     if (lastAutoTopUp && (now.getTime() - lastAutoTopUp.getTime() < 24 * 60 * 60 * 1000)) {
       // Top-up effettuato nelle ultime 24 ore, salta
-      if (!existingSession) {
+      if (ownSession) {
         await session.abortTransaction();
         session.endSession();
       }
@@ -309,7 +329,7 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
     // Verifica che l'utente abbia un ID cliente Stripe
     if (!user.stripeCustomerId) {
       console.error('User does not have a Stripe customer ID for auto top-up');
-      if (!existingSession) {
+      if (ownSession) {
         await session.abortTransaction();
         session.endSession();
       }
@@ -327,7 +347,7 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
       
       if (!defaultPaymentMethod) {
         console.error('User does not have a default payment method for auto top-up');
-        if (!existingSession) {
+        if (ownSession) {
           await session.abortTransaction();
           session.endSession();
         }
@@ -382,19 +402,21 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
       console.log(`Auto top-up initiated for user ${userId}, amount: ${topUpAmount} credits`);
     } catch (stripeError) {
       console.error('Auto top-up payment failed:', stripeError);
-      // Non facciamo fallire la transazione principale in caso di errore del top-up
+      // Registra soltanto l'errore senza far fallire l'operazione principale
     }
 
-    if (!existingSession) {
+    if (ownSession) {
       await session.commitTransaction();
       session.endSession();
     }
   } catch (error) {
-    if (!existingSession) {
+    if (ownSession && session) {
       await session.abortTransaction();
       session.endSession();
     }
     console.error('Error in auto top-up check:', error);
+    // Propaga l'errore solo se siamo in un metodo indipendente
+    throw error;
   }
 };
 

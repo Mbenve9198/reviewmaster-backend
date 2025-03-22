@@ -505,19 +505,25 @@ const whatsappAssistantController = {
             }
             
             // Procedi con il consumo dei crediti per il messaggio in ingresso
-            await creditService.consumeCredits(
-                assistant.hotelId._id.toString(), 
-                'inbound', 
-                interaction._id, 
-                `Messaggio WhatsApp in ingresso da ${message.ProfileName || 'Ospite'}`
-            );
+            try {
+                await creditService.consumeCredits(
+                    assistant.hotelId._id.toString(), 
+                    'inbound', 
+                    interaction._id, 
+                    `Messaggio WhatsApp in ingresso da ${message.ProfileName || 'Ospite'}`
+                );
+                
+                // Log dettagliato dei crediti consumati
+                console.log('=== CREDITI CONSUMATI (INBOUND) ===');
+                console.log(`- Costo messaggio in entrata: ${creditService.CREDIT_COSTS.INBOUND_MESSAGE} crediti`);
+                console.log(`- Da: ${message.ProfileName || 'Ospite'} (${message.From})`);
+                console.log(`- Hotel: ${assistant.hotelId.name} (ID: ${assistant.hotelId._id})`);
+            } catch (creditError) {
+                console.error('Error consuming credits for inbound message:', creditError);
+                // Continuiamo comunque il flusso, poiché è meglio servire il messaggio anche in caso di errore di crediti
+                // (proteggiamo già all'inizio della funzione con creditStatus.hasCredits)
+            }
             
-            // Log dettagliato dei crediti consumati
-            console.log('=== CREDITI CONSUMATI (INBOUND) ===');
-            console.log(`- Costo messaggio in entrata: ${creditService.CREDIT_COSTS.INBOUND_MESSAGE} crediti`);
-            console.log(`- Da: ${message.ProfileName || 'Ospite'} (${message.From})`);
-            console.log(`- Hotel: ${assistant.hotelId.name} (ID: ${assistant.hotelId._id})`);
-
             // Verifica e log delle regole dell'assistente
             console.log('Final assistant rules:', {
                 assistantId: assistant?._id,
@@ -630,12 +636,17 @@ const whatsappAssistantController = {
                     });
                     
                     // Consuma crediti per il messaggio programmato
-                    await creditService.consumeCredits(
-                        assistant.hotelId._id.toString(),
-                        'scheduled',
-                        interaction._id,
-                        `Richiesta recensione programmata per ${interaction.phoneNumber}`
-                    );
+                    try {
+                        await creditService.consumeCredits(
+                            assistant.hotelId._id.toString(),
+                            'scheduled',
+                            interaction._id,
+                            `Richiesta recensione programmata per ${interaction.phoneNumber}`
+                        );
+                    } catch (creditError) {
+                        console.error('Error consuming credits for scheduled message:', creditError);
+                        // Continuiamo comunque poiché il messaggio è già stato programmato
+                    }
                     
                     // Aggiorna l'interazione con la recensione programmata
                     if (!interaction.reviewRequests) {
@@ -911,26 +922,28 @@ console.log('Hotel details:', {
             res.send('<Response></Response>');
 
             // Consumo crediti per il messaggio in uscita
-            await creditService.consumeCredits(
-                assistant.hotelId._id.toString(), 
-                'outbound', 
-                interaction._id, 
-                `Messaggio WhatsApp in uscita per ${message.ProfileName || 'Ospite'}`
-            );
+            try {
+                await creditService.consumeCredits(
+                    assistant.hotelId._id.toString(), 
+                    'outbound', 
+                    interaction._id, 
+                    `Messaggio WhatsApp in uscita per ${message.ProfileName || 'Ospite'}`
+                );
 
-            // Log dettagliato dei crediti consumati
-            console.log('=== CREDITI CONSUMATI (OUTBOUND) ===');
-            console.log(`- Costo messaggio in uscita: ${creditService.CREDIT_COSTS.OUTBOUND_MESSAGE} crediti`);
-            console.log(`- A: ${message.ProfileName || 'Ospite'} (${message.From})`);
-            console.log(`- Hotel: ${assistant.hotelId.name} (ID: ${assistant.hotelId._id})`);
-            
-            // Nuovo log per il totale dei crediti consumati
-            console.log('=== RIEPILOGO CREDITI ===');
-            console.log(`- Totale crediti consumati per questa interazione: ${creditService.CREDIT_COSTS.INBOUND_MESSAGE + creditService.CREDIT_COSTS.OUTBOUND_MESSAGE}`);
-            
-            // Recupera il nuovo saldo dopo l'addebito
-            const updatedCreditStatus = await creditService.checkCredits(assistant.hotelId._id.toString());
-            console.log(`- Crediti rimanenti: ${updatedCreditStatus.credits}`);
+                // Log dettagliato dei crediti consumati
+                console.log('=== CREDITI CONSUMATI (OUTBOUND) ===');
+                console.log(`- Costo messaggio in uscita: ${creditService.CREDIT_COSTS.OUTBOUND_MESSAGE} crediti`);
+                console.log(`- A: ${message.ProfileName || 'Ospite'} (${message.From})`);
+                console.log(`- Hotel: ${assistant.hotelId.name} (ID: ${assistant.hotelId._id})`);
+                
+                // Nuovo log per il totale dei crediti consumati
+                console.log('=== RIEPILOGO CREDITI ===');
+                console.log(`- Totale crediti consumati per questa interazione: ${creditService.CREDIT_COSTS.INBOUND_MESSAGE + creditService.CREDIT_COSTS.OUTBOUND_MESSAGE}`);
+            } catch (creditError) {
+                // Log dell'errore senza interrompere il flusso o inviare una nuova risposta
+                // (La risposta è già stata inviata sopra con res.send)
+                console.error('Error consuming credits for outbound message:', creditError);
+            }
 
             // Invia la risposta conversazionale via Twilio
             try {

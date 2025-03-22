@@ -241,34 +241,50 @@ const ruleController = {
                 }
             }
 
-            // Consuma i crediti attraverso il servizio centralizzato
-            const creditsConsumed = await creditService.consumeCredits(
-                hotelId, 
-                'review_analysis', 
-                null, 
-                'Theme analysis'
-            );
+            // Variabile per tenere traccia dello stato della risposta
+            let responseHasBeenSent = false;
 
-            if (!creditsConsumed) {
-                return res.status(403).json({ 
-                    message: 'Failed to consume credits. Please try again later.',
-                    type: 'CREDIT_ERROR'
+            try {
+                // Consuma i crediti attraverso il servizio centralizzato
+                const creditsConsumed = await creditService.consumeCredits(
+                    hotelId, 
+                    'review_analysis', 
+                    null, 
+                    'Theme analysis'
+                );
+
+                if (!creditsConsumed) {
+                    return res.status(403).json({ 
+                        message: 'Failed to consume credits. Please try again later.',
+                        type: 'CREDIT_ERROR'
+                    });
+                }
+
+                // Aggiorna lo stato dei crediti dopo il consumo
+                const updatedCreditStatus = await creditService.checkCredits(hotelId);
+                
+                // Imposta il flag che indica che una risposta è stata inviata
+                responseHasBeenSent = true;
+                
+                // Invia la risposta al client
+                res.json({ 
+                    analysis: JSON.parse(analysis),
+                    reviewsAnalyzed: reviews.length,
+                    creditsRemaining: updatedCreditStatus.credits
                 });
+            } catch (error) {
+                console.error('Credit operation error:', error);
+                if (!responseHasBeenSent) {
+                    return res.status(500).json({ 
+                        message: 'Error processing credits', 
+                        error: error.message 
+                    });
+                }
             }
-
-            // Aggiorna lo stato dei crediti dopo il consumo
-            const updatedCreditStatus = await creditService.checkCredits(hotelId);
-
-            res.json({ 
-                analysis: JSON.parse(analysis),
-                reviewsAnalyzed: reviews.length,
-                creditsRemaining: updatedCreditStatus.credits
-            });
-
         } catch (error) {
-            console.error('Theme analysis error:', error);
-            res.status(500).json({ 
-                message: 'Error analyzing themes',
+            console.error('Error in themeAnalysis:', error);
+            return res.status(500).json({ 
+                message: 'Error analyzing themes', 
                 error: error.message 
             });
         }
