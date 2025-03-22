@@ -24,7 +24,7 @@ const whatsappAssistantRoutes = require('./routes/whatsapp-assistant.routes');
 const whatsappAssistantController = require('./controllers/whatsapp-assistant.controller');
 const podcastRoutes = require('./routes/podcast.routes');
 const routes = require('./routes');
-const webhookRoutes = require('./routes/webhooks.routes');
+const webhookRoutes = require('./routes/webhook.routes');
 const AppSettings = require('./models/app-settings.model');
 
 const app = express();
