@@ -33,12 +33,18 @@ const whatsappAssistantSchema = new mongoose.Schema({
     },
     // Informazioni sull'hotel
     breakfast: {
-        type: String,
-        default: null
+        type: mongoose.Schema.Types.Mixed,
+        default: {
+            startTime: "07:00",
+            endTime: "10:30"
+        }
     },
     checkIn: {
-        type: String,
-        default: null
+        type: mongoose.Schema.Types.Mixed,
+        default: {
+            startTime: "14:00",
+            endTime: "22:00"
+        }
     },
     // Impostazioni per le recensioni
     reviewLink: {

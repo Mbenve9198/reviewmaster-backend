@@ -807,8 +807,12 @@ Hotel Details (use naturally in conversation):
 - Name: ${hotel.name}
 - Type: ${hotel.type}
 - About: ${hotel.description || 'A welcoming place to stay'}
-- Breakfast: ${assistant.breakfast.startTime} - ${assistant.breakfast.endTime}
-- Check-in: ${assistant.checkIn.startTime} - ${assistant.checkIn.endTime}
+- Breakfast: ${typeof assistant.breakfast === 'string' 
+    ? assistant.breakfast 
+    : `${assistant.breakfast.startTime} - ${assistant.breakfast.endTime}`}
+- Check-in: ${typeof assistant.checkIn === 'string' 
+    ? assistant.checkIn 
+    : `${assistant.checkIn.startTime} - ${assistant.checkIn.endTime}`}
 - Reviews: ${assistant.reviewLink}
 
 ${assistant.rules && assistant.rules.length > 0 ? `
