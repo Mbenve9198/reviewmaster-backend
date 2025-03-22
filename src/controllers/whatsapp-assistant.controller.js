@@ -202,7 +202,7 @@ const whatsappAssistantController = {
     addRule: async (req, res) => {
         try {
             const { hotelId } = req.params;
-            const { topic, response, isCustom } = req.body;
+            const { topic, response, isCustom, question } = req.body;
 
             // Verifica che l'hotel appartenga all'utente
             const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
@@ -216,12 +216,16 @@ const whatsappAssistantController = {
                 return res.status(404).json({ message: 'Assistant not found' });
             }
 
+            // Assicuriamoci che ci sia sempre un valore per question
+            const questionValue = question || topic;
+
             // Aggiungi la nuova regola
             assistant.rules.push({
                 topic,
                 response,
                 isCustom: isCustom || false,
-                isActive: true
+                isActive: true,
+                question: questionValue
             });
 
             await assistant.save();
@@ -258,8 +262,19 @@ const whatsappAssistantController = {
                 return res.status(404).json({ message: 'Rule not found' });
             }
 
+            // Se stiamo aggiornando il campo topic ma non c'è question, aggiorniamo anche question
+            if (updateData.topic && !updateData.question) {
+                updateData.question = updateData.topic;
+            }
+
             // Aggiorna i campi della regola
             Object.assign(assistant.rules[ruleIndex], updateData);
+
+            // Assicurati che question sia sempre presente
+            if (!assistant.rules[ruleIndex].question) {
+                assistant.rules[ruleIndex].question = assistant.rules[ruleIndex].topic;
+            }
+
             await assistant.save();
 
             res.json(assistant.rules[ruleIndex]);
