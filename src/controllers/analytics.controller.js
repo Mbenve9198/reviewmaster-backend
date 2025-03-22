@@ -523,7 +523,6 @@ const analyticsController = {
             }
 
             const creditCost = 10;
-            
             // Utilizza il servizio centralizzato per verificare i crediti
             const creditStatus = await creditService.checkCredits(hotelId);
             if (!creditStatus.hasCredits || creditStatus.credits < creditCost) {
@@ -700,55 +699,40 @@ const analyticsController = {
                         }
                     });
 
+                    analysis = {
+                        ...analysis,
+                        _id: savedAnalysis._id,
+                        title: defaultTitle,
+                        followUpSuggestions
+                    };
+                    
                     // Consuma i crediti attraverso il servizio centralizzato
                     try {
-                        const creditsConsumed = await creditService.consumeCredits(
+                        await creditService.consumeCredits(
                             hotelId, 
                             'review_analysis', 
                             savedAnalysis._id.toString(), 
                             `Reviews analysis - ${savedAnalysis.title}`
                         );
-
-                        if (!creditsConsumed) {
-                            return res.status(403).json({ 
-                                message: 'Failed to consume credits. Please try again later.',
-                                type: 'CREDIT_ERROR'
-                            });
-                        }
-                        
-                        // Assegna l'ID del documento salvato all'analisi per la risposta
-                        analysis = {
-                            ...analysis,
-                            _id: savedAnalysis._id,
-                            title: defaultTitle,
-                            followUpSuggestions
-                        };
-                        
                     } catch (creditError) {
-                        // In caso di errore, log e risposta di errore
                         console.error('Credit consumption error:', creditError);
-                        return res.status(500).json({
-                            message: 'Error processing credits',
-                            type: 'CREDIT_PROCESSING_ERROR'
-                        });
+                        // Continua anche se il consumo di crediti fallisce
                     }
                 }
 
-                // NON MODIFICARE i valori delle menzioni con il conteggio di recensioni correlate
-                // Ma assicuriamoci che i campi relatedReviews esistano come array
                 if (!req.body.previousMessages && analysis.strengths && analysis.issues) {
+                    // IMPORTANTE: NON modificare i campi "mentions" qui, 
+                    // lascia che l'analisi di Gemini ritorni il numero corretto
                     for (const strength of analysis.strengths) {
                         if (!Array.isArray(strength.relatedReviews)) {
                             strength.relatedReviews = [];
                         }
-                        // NON modificare il valore di mentions
                     }
 
                     for (const issue of analysis.issues) {
                         if (!Array.isArray(issue.relatedReviews)) {
                             issue.relatedReviews = [];
                         }
-                        // NON modificare il valore di mentions
                     }
                 }
             } catch (error) {
@@ -756,7 +740,6 @@ const analyticsController = {
                 throw new Error('Error in analysis');
             }
 
-            // Invia la risposta nel formato originale
             return res.status(200).json({
                 _id: analysis._id,
                 analysis,
