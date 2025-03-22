@@ -512,6 +512,12 @@ const whatsappAssistantController = {
                 `Messaggio WhatsApp in ingresso da ${message.ProfileName || 'Ospite'}`
             );
             
+            // Log dettagliato dei crediti consumati
+            console.log('=== CREDITI CONSUMATI (INBOUND) ===');
+            console.log(`- Costo messaggio in entrata: ${creditService.CREDIT_COSTS.INBOUND_MESSAGE} crediti`);
+            console.log(`- Da: ${message.ProfileName || 'Ospite'} (${message.From})`);
+            console.log(`- Hotel: ${assistant.hotelId.name} (ID: ${assistant.hotelId._id})`);
+
             // Verifica e log delle regole dell'assistente
             console.log('Final assistant rules:', {
                 assistantId: assistant?._id,
@@ -907,6 +913,20 @@ console.log('Hotel details:', {
                 interaction._id, 
                 `Messaggio WhatsApp in uscita per ${message.ProfileName || 'Ospite'}`
             );
+
+            // Log dettagliato dei crediti consumati
+            console.log('=== CREDITI CONSUMATI (OUTBOUND) ===');
+            console.log(`- Costo messaggio in uscita: ${creditService.CREDIT_COSTS.OUTBOUND_MESSAGE} crediti`);
+            console.log(`- A: ${message.ProfileName || 'Ospite'} (${message.From})`);
+            console.log(`- Hotel: ${assistant.hotelId.name} (ID: ${assistant.hotelId._id})`);
+            
+            // Nuovo log per il totale dei crediti consumati
+            console.log('=== RIEPILOGO CREDITI ===');
+            console.log(`- Totale crediti consumati per questa interazione: ${creditService.CREDIT_COSTS.INBOUND_MESSAGE + creditService.CREDIT_COSTS.OUTBOUND_MESSAGE}`);
+            
+            // Recupera il nuovo saldo dopo l'addebito
+            const updatedCreditStatus = await creditService.checkCredits(assistant.hotelId._id.toString());
+            console.log(`- Crediti rimanenti: ${updatedCreditStatus.credits}`);
 
             // Invia la risposta conversazionale via Twilio
             try {

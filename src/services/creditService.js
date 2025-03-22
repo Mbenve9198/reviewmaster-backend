@@ -130,6 +130,17 @@ const consumeCredits = async (hotelId, operationType, interactionId, description
       );
     }
 
+    // Log dettagliato dell'addebito
+    console.log(`==== DETTAGLIO ADDEBITO CREDITI ====`);
+    console.log(`- Utente: ${user._id}`);
+    console.log(`- Hotel: ${hotelId}`);
+    console.log(`- Operazione: ${operationType}`);
+    console.log(`- Costo totale: ${creditCost} crediti`);
+    console.log(`- Crediti gratuiti utilizzati: ${freeCreditsToUse}`);
+    console.log(`- Crediti pagati utilizzati: ${paidCreditsToUse}`);
+    console.log(`- Crediti rimanenti: ${(user.wallet?.credits || 0) - paidCreditsToUse}`);
+    console.log(`- Crediti gratuiti rimanenti: ${Math.max(0, 1000 - (user.wallet?.freeScrapingUsed || 0) - freeCreditsToUse)}`);
+
     // Crea una transazione per questo consumo
     await Transaction.create(
       [{
@@ -146,6 +157,24 @@ const consumeCredits = async (hotelId, operationType, interactionId, description
       }],
       { session }
     );
+
+    // Verifica che l'operazione sia andata a buon fine
+    const updatedUser = await User.findById(user._id).session(session);
+    if (!updatedUser) {
+      console.error('Errore: impossibile verificare l\'aggiornamento dell\'utente');
+      throw new Error('Failed to update user credits');
+    }
+
+    // Verifica che i crediti siano stati effettivamente sottratti
+    const expectedCredits = (user.wallet?.credits || 0) - paidCreditsToUse;
+    if (updatedUser.wallet?.credits !== expectedCredits) {
+      console.error('Errore: i crediti non sono stati aggiornati correttamente');
+      console.error(`- Crediti attesi: ${expectedCredits}`);
+      console.error(`- Crediti effettivi: ${updatedUser.wallet?.credits}`);
+      throw new Error('Credit deduction verification failed');
+    }
+
+    console.log(`Addebito crediti completato con successo per l'utente ${user._id}`);
 
     // Verifica se è necessario un top-up automatico
     await checkAndTriggerAutoTopUp(hotelId, user._id, session);
