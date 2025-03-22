@@ -32,7 +32,11 @@ const app = express();
 // Configurazione di Morgan per il logging HTTP
 app.use(morgan('dev')); // Usa il formato 'dev' per il logging
 
-// Configurazione del body parser PRIMA delle routes
+// IMPORTANTE: Configura il middleware raw per il webhook Stripe PRIMA del body parser generale
+// Questo permette a Stripe di ricevere il payload raw per la verifica della firma
+app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
+
+// Configurazione del body parser per tutte le altre routes
 app.use(express.json({
     limit: '10mb',  // Aumentato a 10MB per gestire grandi batch di recensioni
     verify: (req, res, buf) => {
@@ -84,9 +88,6 @@ app.use(cors(corsOptions));
 
 // Gestione esplicita delle richieste OPTIONS per tutte le route
 app.options('*', cors(corsOptions));
-
-// Middleware specifico per il webhook di Stripe
-app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
 
 // Health check
 app.get('/', (req, res) => {

@@ -41,9 +41,34 @@ const walletController = {
             });
 
             try {
+                // Se l'utente non ha già un ID cliente Stripe, creane uno
+                let stripeCustomerId = user.stripeCustomerId;
+                
+                if (!stripeCustomerId) {
+                    console.log('Creating Stripe customer for user:', userId);
+                    
+                    const customer = await stripe.customers.create({
+                        email: user.email,
+                        name: user.name || 'Customer',
+                        metadata: {
+                            userId: userId.toString()
+                        }
+                    });
+                    
+                    stripeCustomerId = customer.id;
+                    
+                    // Salva l'ID cliente Stripe nell'oggetto utente
+                    await User.findByIdAndUpdate(userId, {
+                        stripeCustomerId: stripeCustomerId
+                    });
+                    
+                    console.log('Stripe customer created:', stripeCustomerId);
+                }
+
                 const paymentIntent = await stripe.paymentIntents.create({
                     amount, // es: 1500 centesimi = 15€
                     currency: 'eur',
+                    customer: stripeCustomerId,
                     metadata: {
                         userId,
                         credits,
