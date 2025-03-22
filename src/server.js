@@ -26,6 +26,9 @@ const podcastRoutes = require('./routes/podcast.routes');
 const routes = require('./routes');
 const webhookRoutes = require('./routes/webhook.routes');
 const AppSettings = require('./models/app-settings.model');
+const stripeRoutes = require('./routes/stripe.routes');
+const whatsappRoutes = require('./routes/whatsapp.routes');
+const creditSettingsRoutes = require('./routes/credit-settings.routes');
 
 const app = express();
 
@@ -116,6 +119,12 @@ app.get('/api/redirect/review', whatsappAssistantController.handleReviewRedirect
 
 // Stripe webhook route
 app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));
+
+// Registra le rotte dell'API
+app.use('/api/stripe', stripeRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/webhook', webhookRoutes);
+app.use('/api/credit-settings', creditSettingsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

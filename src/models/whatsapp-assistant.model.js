@@ -68,29 +68,33 @@ const whatsappAssistantSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
-    // Impostazioni di credito per l'hotel
+    
+    // DEPRECATO: Questa sezione è stata migrata al modello UserCreditSettings
+    // Mantenuta per retrocompatibilità durante la transizione
+    // Sarà rimossa in una versione futura
     creditSettings: {
-        // Soglia minima di crediti prima del top-up automatico
         minimumThreshold: {
             type: Number,
-            default: 50
+            default: 50,
+            min: 10,
+            max: 1000
         },
-        // Importo da aggiungere durante il top-up automatico
         topUpAmount: {
             type: Number,
-            default: 200
+            default: 100,
+            min: 50,
+            max: 10000
         },
-        // Se il top-up automatico è attivo
         autoTopUp: {
             type: Boolean,
             default: false
         },
-        // Data dell'ultimo top-up automatico
         lastAutoTopUp: {
             type: Date,
             default: null
         }
     },
+    
     rules: {
         type: [whatsappRuleSchema],
         default: []
