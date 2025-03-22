@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
+const morgan = require('morgan');
 require('dotenv').config();
 
 const { setupSyncJobs } = require('./jobs/sync.job');
@@ -22,6 +23,9 @@ const ruleRoutes = require('./routes/rule.routes');
 const whatsappAssistantRoutes = require('./routes/whatsapp-assistant.routes');
 const whatsappAssistantController = require('./controllers/whatsapp-assistant.controller');
 const podcastRoutes = require('./routes/podcast.routes');
+const routes = require('./routes');
+const webhookRoutes = require('./routes/webhooks.routes');
+const AppSettings = require('./models/app-settings.model');
 
 const app = express();
 
@@ -87,6 +91,7 @@ app.get('/', (req, res) => {
 });
 
 // Routes
+app.use('/api', routes);
 app.use('/api/auth', authRoutes);
 app.use('/api/hotels', authMiddleware, checkEmailVerification, hotelRoutes);
 app.use('/api/reviews', authMiddleware, checkCredits, reviewRoutes);
@@ -97,6 +102,7 @@ app.use('/api/wallet', authMiddleware, walletRoutes);
 app.use('/api/books', authMiddleware, bookRoutes);
 app.use('/api/rules', authMiddleware, checkCredits, ruleRoutes);
 app.use('/api/podcast', authMiddleware, checkCredits, podcastRoutes);
+app.use('/webhook', webhookRoutes);
 
 // WhatsApp Assistant routes - alcune route non richiedono autenticazione
 app.use('/api/whatsapp-assistant', whatsappAssistantRoutes);
@@ -130,6 +136,17 @@ app.use((err, req, res, next) => {
     });
 });
 
+// Inizializza le impostazioni globali dell'applicazione all'avvio
+const initializeAppSettings = async () => {
+  try {
+    console.log('Inizializzazione impostazioni globali...');
+    await AppSettings.getGlobalSettings();
+    console.log('Impostazioni globali inizializzate con successo');
+  } catch (error) {
+    console.error('Errore nell\'inizializzazione delle impostazioni globali:', error);
+  }
+};
+
 // Database connection
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => {
@@ -137,6 +154,9 @@ mongoose.connect(process.env.MONGODB_URI)
         
         setupSyncJobs();
         console.log('Review sync jobs initialized');
+        
+        // Inizializza le impostazioni dell'app dopo la connessione al database
+        initializeAppSettings();
         
         const PORT = process.env.PORT || 3000;
         app.listen(PORT, () => {

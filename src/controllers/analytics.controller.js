@@ -7,6 +7,8 @@ const Analysis = require('../models/analysis.model');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Book, BookChunk } = require('../models/book.model');
 const mongoose = require('mongoose');
+const SentimentAnalysis = require('../models/sentiment-analysis.model');
+const creditService = require('../services/creditService');
 
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
@@ -521,9 +523,10 @@ const analyticsController = {
             }
 
             const creditCost = 10;
-            const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
             
-            if (totalCreditsAvailable < creditCost) {
+            // Utilizza il servizio centralizzato per verificare i crediti
+            const creditStatus = await creditService.checkCredits(hotelId);
+            if (!creditStatus.hasCredits || creditStatus.credits < creditCost) {
                 return res.status(403).json({ 
                     message: 'Insufficient credits available. Please purchase more credits to continue.',
                     type: 'NO_CREDITS'
@@ -703,6 +706,33 @@ const analyticsController = {
                         title: defaultTitle,
                         followUpSuggestions
                     };
+
+                    // Consuma i crediti attraverso il servizio centralizzato
+                    const creditsConsumed = await creditService.consumeCredits(
+                        hotelId, 
+                        'review_analysis', 
+                        savedAnalysis._id.toString(), 
+                        `Reviews analysis - ${savedAnalysis.title}`
+                    );
+
+                    if (!creditsConsumed) {
+                        return res.status(403).json({ 
+                            message: 'Failed to consume credits. Please try again later.',
+                            type: 'CREDIT_ERROR'
+                        });
+                    }
+
+                    // Aggiorna lo stato dei crediti dopo il consumo
+                    const updatedCreditStatus = await creditService.checkCredits(hotelId);
+                    
+                    res.status(201).json({
+                        analysis: savedAnalysis,
+                        analysisText: analysis,
+                        suggestions: followUpSuggestions,
+                        creditsUsed: creditCost,
+                        creditsRemaining: updatedCreditStatus.credits,
+                        provider
+                    });
                 }
 
                 if (!req.body.previousMessages && analysis.strengths && analysis.issues) {

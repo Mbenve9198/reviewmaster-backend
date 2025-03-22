@@ -1,9 +1,13 @@
+const mongoose = require('mongoose');
 const Review = require('../models/review.model');
 const User = require('../models/user.model');
 const Hotel = require('../models/hotel.model');
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 const Rule = require('../models/rule.model');
+const { franc } = require('franc-min');
+const axios = require('axios');
+const creditService = require('../services/creditService');
 
 // Aggiungi un sistema di deduplicazione delle richieste
 const requestCache = new Map();
@@ -60,14 +64,6 @@ const reviewController = {
             const user = await User.findById(userId);
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
-            }
-
-            // Verifica se l'utente ha crediti disponibili
-            if (!user.wallet?.credits && user.wallet?.freeScrapingRemaining <= 0) {
-                return res.status(403).json({ 
-                    message: 'No credits available. Please purchase credits to continue.',
-                    type: 'NO_CREDITS'
-                });
             }
 
             // Verifica che l'hotel appartenga all'utente
@@ -388,30 +384,37 @@ Format your response as a simple array of 3 strings, nothing else. For example:
             // Decrementa i crediti in base al tipo di richiesta
             const creditCost = previousMessages ? 1 : 2;  // 2 crediti per prima risposta, 1 per follow-up
 
-            // Verifica se l'utente ha abbastanza crediti
-            const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
-            if (totalCreditsAvailable < creditCost) {
+            // Utilizza il servizio centralizzato per verificare i crediti
+            const creditStatus = await creditService.checkCredits(hotelId);
+            if (!creditStatus.hasCredits || creditStatus.credits < creditCost) {
                 return res.status(403).json({ 
                     message: 'Insufficient credits available. Please purchase more credits to continue.',
                     type: 'NO_CREDITS'
                 });
             }
 
-            // Decrementa prima i crediti gratuiti, poi quelli pagati
-            let freeCreditsToDeduct = Math.min(user.wallet?.freeScrapingRemaining || 0, creditCost);
-            let paidCreditsToDeduct = creditCost - freeCreditsToDeduct;
+            // Consuma i crediti attraverso il servizio centralizzato
+            const creditsConsumed = await creditService.consumeCredits(
+                hotelId, 
+                'review_response', 
+                previousMessages ? null : reviewId, 
+                `AI response to ${previousMessages ? 'follow-up' : 'review'}`
+            );
 
-            await User.findByIdAndUpdate(userId, {
-                $inc: { 
-                    'wallet.credits': -paidCreditsToDeduct,
-                    'wallet.freeScrapingRemaining': -freeCreditsToDeduct
-                }
-            });
+            if (!creditsConsumed) {
+                return res.status(403).json({ 
+                    message: 'Failed to consume credits. Please try again later.',
+                    type: 'CREDIT_ERROR'
+                });
+            }
+
+            // Aggiorna lo stato dei crediti dopo il consumo
+            const updatedCreditStatus = await creditService.checkCredits(hotelId);
 
             res.json({ 
                 response: aiResponse,
                 detectedLanguage,
-                creditsRemaining: totalCreditsAvailable - creditCost,
+                creditsRemaining: updatedCreditStatus.credits,
                 suggestions,
                 provider // Aggiungiamo il provider utilizzato nella risposta
             });

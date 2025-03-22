@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const AppSettings = require('./app-settings.model');
 
 const userSchema = new mongoose.Schema({
     email: {
@@ -49,16 +50,40 @@ const userSchema = new mongoose.Schema({
     resetPasswordExpires: Date
 });
 
-userSchema.methods.hasFreeScrapingCredits = function() {
-    return this.wallet.freeScrapingUsed < 1000;
+userSchema.methods.hasFreeScrapingCredits = async function() {
+    try {
+        // Carica le impostazioni globali
+        const settings = await AppSettings.getGlobalSettings();
+        const initialFreeCredits = settings.credits?.initialFreeCredits || 50;
+        
+        return this.wallet.freeScrapingUsed < initialFreeCredits;
+    } catch (error) {
+        console.error('Error checking free credits:', error);
+        // Fallback al valore predefinito in caso di errore
+        return this.wallet.freeScrapingUsed < 50;
+    }
 };
 
-userSchema.methods.incrementFreeScrapingUsed = function() {
-    if (this.wallet.freeScrapingUsed < 1000) {
-        this.wallet.freeScrapingUsed += 1;
-        return true;
+userSchema.methods.incrementFreeScrapingUsed = async function() {
+    try {
+        // Carica le impostazioni globali
+        const settings = await AppSettings.getGlobalSettings();
+        const initialFreeCredits = settings.credits?.initialFreeCredits || 50;
+        
+        if (this.wallet.freeScrapingUsed < initialFreeCredits) {
+            this.wallet.freeScrapingUsed += 1;
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error incrementing free credits:', error);
+        // Fallback al valore predefinito in caso di errore
+        if (this.wallet.freeScrapingUsed < 50) {
+            this.wallet.freeScrapingUsed += 1;
+            return true;
+        }
+        return false;
     }
-    return false;
 };
 
 const User = mongoose.model('User', userSchema);

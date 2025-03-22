@@ -2,15 +2,52 @@ const User = require('../models/user.model');
 const Transaction = require('../models/transaction.model');
 const WhatsAppAssistant = require('../models/whatsapp-assistant.model');
 const Hotel = require('../models/hotel.model');
+const AppSettings = require('../models/app-settings.model');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const mongoose = require('mongoose');
 
-// Costanti per il consumo di crediti
-const CREDIT_COSTS = {
+// Valori di default che saranno sostituiti dai valori caricati dal database
+let CREDIT_COSTS = {
   INBOUND_MESSAGE: 0.5,
   OUTBOUND_MESSAGE: 0.5,
-  SCHEDULED_MESSAGE: 1.0
+  SCHEDULED_MESSAGE: 1.0,
+  REVIEW_RESPONSE: 2.0,
+  REVIEW_ANALYSIS: 1.0
 };
+
+let INITIAL_FREE_CREDITS = 50; // Valore predefinito di 50 crediti gratuiti
+
+/**
+ * Carica le impostazioni dal database
+ */
+const loadSettings = async () => {
+  try {
+    console.log('Caricamento impostazioni applicazione...');
+    const settings = await AppSettings.getGlobalSettings();
+    
+    if (settings && settings.credits) {
+      INITIAL_FREE_CREDITS = settings.credits.initialFreeCredits || INITIAL_FREE_CREDITS;
+      
+      // Aggiorna i costi delle operazioni se presenti nelle impostazioni
+      if (settings.credits.costs) {
+        CREDIT_COSTS.INBOUND_MESSAGE = settings.credits.costs.inboundMessage || CREDIT_COSTS.INBOUND_MESSAGE;
+        CREDIT_COSTS.OUTBOUND_MESSAGE = settings.credits.costs.outboundMessage || CREDIT_COSTS.OUTBOUND_MESSAGE;
+        CREDIT_COSTS.SCHEDULED_MESSAGE = settings.credits.costs.scheduledMessage || CREDIT_COSTS.SCHEDULED_MESSAGE;
+        CREDIT_COSTS.REVIEW_RESPONSE = settings.credits.costs.reviewResponse || CREDIT_COSTS.REVIEW_RESPONSE;
+        CREDIT_COSTS.REVIEW_ANALYSIS = settings.credits.costs.reviewAnalysis || CREDIT_COSTS.REVIEW_ANALYSIS;
+      }
+      
+      console.log(`Impostazioni caricate: ${INITIAL_FREE_CREDITS} crediti gratuiti iniziali`);
+      console.log('Costi operazioni:', CREDIT_COSTS);
+    }
+  } catch (error) {
+    console.error('Errore nel caricamento delle impostazioni:', error);
+    // Mantieni i valori di default in caso di errore
+  }
+};
+
+// Carica le impostazioni all'avvio del servizio
+loadSettings();
 
 /**
  * Verifica se l'hotel ha crediti sufficienti per un'operazione
@@ -33,7 +70,7 @@ const checkCredits = async (hotelId) => {
 
     // Calcola i crediti disponibili
     const availableCredits = user.wallet?.credits || 0;
-    const freeCredits = Math.max(0, 1000 - (user.wallet?.freeScrapingUsed || 0));
+    const freeCredits = Math.max(0, INITIAL_FREE_CREDITS - (user.wallet?.freeScrapingUsed || 0));
     const totalCredits = availableCredits + freeCredits;
 
     // Determina se i crediti sono bassi (sotto la soglia minima)
@@ -99,7 +136,7 @@ const consumeCredits = async (hotelId, operationType, interactionId, description
 
     // Calcola i crediti disponibili
     const availableCredits = user.wallet?.credits || 0;
-    const freeCredits = Math.max(0, 1000 - (user.wallet?.freeScrapingUsed || 0));
+    const freeCredits = Math.max(0, INITIAL_FREE_CREDITS - (user.wallet?.freeScrapingUsed || 0));
     const totalCredits = availableCredits + freeCredits;
 
     // Verifica se ci sono abbastanza crediti
@@ -139,7 +176,7 @@ const consumeCredits = async (hotelId, operationType, interactionId, description
     console.log(`- Crediti gratuiti utilizzati: ${freeCreditsToUse}`);
     console.log(`- Crediti pagati utilizzati: ${paidCreditsToUse}`);
     console.log(`- Crediti rimanenti: ${(user.wallet?.credits || 0) - paidCreditsToUse}`);
-    console.log(`- Crediti gratuiti rimanenti: ${Math.max(0, 1000 - (user.wallet?.freeScrapingUsed || 0) - freeCreditsToUse)}`);
+    console.log(`- Crediti gratuiti rimanenti: ${Math.max(0, INITIAL_FREE_CREDITS - (user.wallet?.freeScrapingUsed || 0) - freeCreditsToUse)}`);
 
     // Crea una transazione per questo consumo
     await Transaction.create(

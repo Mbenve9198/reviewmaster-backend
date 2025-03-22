@@ -1,16 +1,24 @@
 const User = require('../models/user.model');
+const creditService = require('../services/creditService');
 
 const checkCredits = async (req, res, next) => {
   try {
     const userId = req.userId;
-    const user = await User.findById(userId);
-
-    if (!user) {
-      return res.status(401).json({ message: 'User not found' });
+    
+    // Recupera l'ID dell'hotel dalla richiesta (può essere in params, body o query)
+    const hotelId = req.params.hotelId || req.body.hotelId || req.query.hotelId;
+    
+    if (!hotelId) {
+      // Se non c'è un hotelId, non possiamo verificare i crediti
+      console.log('No hotelId found in request, skipping credit check');
+      return next();
     }
 
-    // Aggiungi i crediti disponibili alla request per uso successivo
-    req.userCredits = user.wallet?.credits || 0;
+    // Utilizza il servizio centralizzato per verificare i crediti
+    const creditStatus = await creditService.checkCredits(hotelId);
+    
+    // Aggiungi le informazioni sui crediti alla richiesta per uso nei controller
+    req.creditStatus = creditStatus;
 
     // Non blocchiamo la richiesta qui, lasciamo che sia il controller
     // a decidere se ci sono abbastanza crediti per l'operazione specifica

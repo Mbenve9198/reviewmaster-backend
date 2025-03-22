@@ -3,6 +3,7 @@ const Rule = require('../models/rule.model');
 const User = require('../models/user.model');
 const Hotel = require('../models/hotel.model');
 const Review = require('../models/review.model');
+const creditService = require('../services/creditService');
 
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
@@ -182,9 +183,10 @@ const ruleController = {
             }
 
             const creditCost = 10;
-            const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
             
-            if (totalCreditsAvailable < creditCost) {
+            // Utilizza il servizio centralizzato per verificare i crediti
+            const creditStatus = await creditService.checkCredits(hotelId);
+            if (!creditStatus.hasCredits || creditStatus.credits < creditCost) {
                 return res.status(403).json({ 
                     message: 'Insufficient credits. Please purchase more credits to continue.',
                     type: 'NO_CREDITS'
@@ -239,21 +241,28 @@ const ruleController = {
                 }
             }
 
-            // Deduci i crediti
-            let freeCreditsToDeduct = Math.min(user.wallet?.freeScrapingRemaining || 0, creditCost);
-            let paidCreditsToDeduct = creditCost - freeCreditsToDeduct;
+            // Consuma i crediti attraverso il servizio centralizzato
+            const creditsConsumed = await creditService.consumeCredits(
+                hotelId, 
+                'review_analysis', 
+                null, 
+                'Theme analysis'
+            );
 
-            await User.findByIdAndUpdate(userId, {
-                $inc: { 
-                    'wallet.credits': -paidCreditsToDeduct,
-                    'wallet.freeScrapingRemaining': -freeCreditsToDeduct
-                }
-            });
+            if (!creditsConsumed) {
+                return res.status(403).json({ 
+                    message: 'Failed to consume credits. Please try again later.',
+                    type: 'CREDIT_ERROR'
+                });
+            }
+
+            // Aggiorna lo stato dei crediti dopo il consumo
+            const updatedCreditStatus = await creditService.checkCredits(hotelId);
 
             res.json({ 
                 analysis: JSON.parse(analysis),
                 reviewsAnalyzed: reviews.length,
-                creditsRemaining: totalCreditsAvailable - creditCost
+                creditsRemaining: updatedCreditStatus.credits
             });
 
         } catch (error) {
