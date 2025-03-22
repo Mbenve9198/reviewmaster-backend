@@ -31,6 +31,8 @@ const generateInitialPrompt = (hotel, reviews, platforms, avgRating) => {
 
 You are an expert hospitality industry analyst. Analyze the reviews and return a JSON object with this exact structure.
 
+CRITICALLY IMPORTANT: The "reviewCount" field in the meta section MUST BE SET TO ${reviews.length}. This is the exact number of reviews being analyzed. Do not alter this number.
+
 IMPORTANT: For each strength and issue, calculate the TOTAL number of reviews that mention it and put this TOTAL COUNT in the "mentions" field. However, in the "relatedReviews" array, include ONLY THE TOP 50 MOST REPRESENTATIVE review IDs - this means the most clear examples that demonstrate this strength or issue.
 
 {
@@ -120,6 +122,7 @@ Guidelines:
 8. For each strength and issue, include ONLY UP TO 50 MOST REPRESENTATIVE review IDs in the relatedReviews array
 9. Use the MongoDB ObjectId from the reviews array as the reviewId in relatedReviews
 10. The "mentions" value should be the ACTUAL TOTAL COUNT of reviews mentioning this topic, even if you only include 50 IDs
+11. The meta.reviewCount MUST be ${reviews.length} - this is critically important
 
 Review data (with IDs) for analysis: ${JSON.stringify(reviewsForAnalysis, null, 2)}`;
 };
@@ -434,9 +437,23 @@ const runAnalysisWithValidation = async (model, systemPrompt) => {
     // Pulizia base del testo
     text = text.replace(/```json\s*|\s*```/g, '').trim();
     
+    // Prima di tentare il parsing, estraiamo e salviamo il conteggio recensioni, che potrebbe essere perso nella riparazione
+    let originalReviewCount = null;
+    try {
+        // Cerca il reviewCount nel JSON malformato usando regex
+        const reviewCountMatch = text.match(/"reviewCount":\s*(\d+)/);
+        if (reviewCountMatch && reviewCountMatch[1]) {
+            originalReviewCount = parseInt(reviewCountMatch[1], 10);
+            console.log(`Extracted original reviewCount from response: ${originalReviewCount}`);
+        }
+    } catch (extractError) {
+        console.warn('Error extracting reviewCount:', extractError);
+    }
+    
     // Tentativo di parsing del JSON
     try {
-        return JSON.parse(text);
+        const parsedAnalysis = JSON.parse(text);
+        return parsedAnalysis;
     } catch (parseError) {
         console.warn('Malformed JSON response, attempting correction with Claude...');
         
@@ -478,7 +495,16 @@ ${text}`;
             
             // Pulizia e parsing finale
             const cleanedText = fixedText.replace(/```json\s*|\s*```/g, '').trim();
-            return JSON.parse(cleanedText);
+            const correctedAnalysis = JSON.parse(cleanedText);
+            
+            // Ripristina il conteggio originale se l'abbiamo estratto
+            if (originalReviewCount && correctedAnalysis.meta) {
+                const currentCount = correctedAnalysis.meta.reviewCount || 0;
+                console.log(`Correcting reviewCount from ${currentCount} to original ${originalReviewCount}`);
+                correctedAnalysis.meta.reviewCount = originalReviewCount;
+            }
+            
+            return correctedAnalysis;
         } catch (claudeError) {
             console.error('Error during Claude fix:', claudeError);
             throw new Error('Unable to process model response: ' + parseError.message);
@@ -607,6 +633,12 @@ const analyticsController = {
                 } else {
                     analysis = await runAnalysisWithValidation(model, systemPrompt);
                     provider = 'gemini';
+
+                    // Importante: Assicuriamoci che il conteggio delle recensioni sia corretto
+                    if (analysis && analysis.meta) {
+                        analysis.meta.reviewCount = reviews.length;
+                        console.log(`Corrected reviewCount in meta to match actual number of reviews: ${reviews.length}`);
+                    }
                 }
 
                 // Salviamo l'analisi nel database se non è un follow-up
