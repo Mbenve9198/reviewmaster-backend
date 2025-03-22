@@ -4,6 +4,7 @@ const Transaction = require('../models/transaction.model');
 const mongoose = require('mongoose');
 const WhatsAppAssistant = require('../models/whatsapp-assistant.model');
 const notificationService = require('../services/notification.service');
+const UserCreditSettings = require('../models/user-credit-settings.model');
 
 module.exports = async (req, res) => {
     const sig = req.headers['stripe-signature'];
@@ -121,38 +122,25 @@ async function handleSuccessfulPayment(paymentIntent) {
         }
 
         // Aggiungi i crediti solo quando il pagamento è confermato
-        const userUpdated = await User.findByIdAndUpdate(
-            userId,
-            { 
-                $inc: { 'wallet.credits': credits },
-                $push: { 
-                    'wallet.history': {
-                        type: 'credit_purchase',
-                        amount: credits,
-                        pricePerCredit,
-                        transactionId: transaction._id,
-                        isAutoTopUp
-                    }
-                }
-            },
-            { 
-                session,
-                new: true
-            }
-        );
-
-        if (!userUpdated) {
-            throw new Error('User not found');
-        }
-
-        // Se è un pagamento auto top-up, aggiorna la data dell'ultimo top-up nell'assistente
-        if (isAutoTopUp && hotelId) {
-            await WhatsAppAssistant.findOneAndUpdate(
-                { hotelId },
-                { 'creditSettings.lastAutoTopUp': new Date() },
-                { session }
-            );
-        }
+        await Promise.all([
+            // Aggiorna il saldo dell'utente
+            User.findByIdAndUpdate(
+                userId,
+                { $inc: { 'wallet.credits': credits } }
+            ),
+            
+            // Aggiorna lo stato della transazione
+            Transaction.findByIdAndUpdate(
+                transaction._id,
+                { status: 'completed' }
+            ),
+            
+            // Aggiorna la data dell'ultimo auto top-up se questa è un'operazione di auto top-up
+            isAutoTopUp ? UserCreditSettings.findOneAndUpdate(
+                { userId },
+                { lastAutoTopUp: new Date() }
+            ) : Promise.resolve()
+        ]);
 
         await session.commitTransaction();
         console.log(`Successfully processed payment for user ${userId}: ${credits} credits added${isAutoTopUp ? ' (auto top-up)' : ''}`);

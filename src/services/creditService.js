@@ -82,9 +82,9 @@ const checkCredits = async (hotelId) => {
     const freeCredits = Math.max(0, INITIAL_FREE_CREDITS - (user.wallet?.freeScrapingUsed || 0));
     const totalCredits = availableCredits + freeCredits;
 
-    // Determina se i crediti sono bassi (sotto la soglia minima)
-    const assistant = await WhatsAppAssistant.findOne({ hotelId });
-    const minimumThreshold = assistant?.creditSettings?.minimumThreshold || 50;
+    // Determina se i crediti sono bassi utilizzando le impostazioni utente
+    const userCreditSettings = await UserCreditSettings.findOne({ userId: user._id });
+    const minimumThreshold = userCreditSettings?.minimumThreshold || 50;
     const lowBalance = totalCredits < minimumThreshold;
 
     return {
@@ -138,6 +138,14 @@ const consumeCredits = async (hotelId, operationType, interactionId, description
       case 'scheduled':
         creditCost = CREDIT_COSTS.SCHEDULED_MESSAGE;
         actionType = 'whatsapp_scheduled_message';
+        break;
+      case 'review_response':
+        creditCost = CREDIT_COSTS.REVIEW_RESPONSE;
+        actionType = 'review_response';
+        break;
+      case 'review_analysis':
+        creditCost = CREDIT_COSTS.REVIEW_ANALYSIS;
+        actionType = 'review_analysis';
         break;
       default:
         throw new Error(`Unknown operation type: ${operationType}`);
@@ -249,141 +257,11 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
   }
 
   try {
-    // Cerca prima le impostazioni utente per il top-up automatico
+    // Usa solo le impostazioni utente per il top-up automatico
     const userCreditSettings = await UserCreditSettings.findOne({ userId }).session(session);
     
-    // Se l'utente ha impostazioni di credito e l'auto top-up è attivo, usa quelle
-    if (userCreditSettings && userCreditSettings.autoTopUp) {
-      // Trova l'utente
-      const user = await User.findById(userId).session(session);
-      if (!user) {
-        throw new Error('User not found');
-      }
-
-      // Calcola i crediti disponibili
-      const availableCredits = user.wallet?.credits || 0;
-      
-      // Verifica se il saldo è sotto la soglia minima
-      if (availableCredits >= userCreditSettings.minimumThreshold) {
-        // Il saldo è sufficiente, non serve top-up
-        if (!existingSession) {
-          await session.abortTransaction();
-          session.endSession();
-        }
-        return;
-      }
-
-      // Verifica se c'è stato un top-up recente (evita multiple richieste in caso di errori)
-      const lastAutoTopUp = userCreditSettings.lastAutoTopUp;
-      const now = new Date();
-      if (lastAutoTopUp && (now.getTime() - lastAutoTopUp.getTime() < 24 * 60 * 60 * 1000)) {
-        // Top-up effettuato nelle ultime 24 ore, salta
-        if (!existingSession) {
-          await session.abortTransaction();
-          session.endSession();
-        }
-        return;
-      }
-
-      // L'utente ha bisogno di un top-up automatico
-      const topUpAmount = userCreditSettings.topUpAmount;
-      const pricePerCredit = calculatePricePerCredit(topUpAmount);
-      const totalPrice = topUpAmount * pricePerCredit;
-      const amountInCents = Math.round(totalPrice * 100);
-
-      // Verifica che l'utente abbia un ID cliente Stripe
-      if (!user.stripeCustomerId) {
-        console.error('User does not have a Stripe customer ID for auto top-up');
-        if (!existingSession) {
-          await session.abortTransaction();
-          session.endSession();
-        }
-        return;
-      }
-
-      try {
-        // Ottieni il metodo di pagamento predefinito del cliente
-        const customer = await stripe.customers.retrieve(
-          user.stripeCustomerId, 
-          { expand: ['invoice_settings.default_payment_method'] }
-        );
-        
-        const defaultPaymentMethod = customer?.invoice_settings?.default_payment_method;
-        
-        if (!defaultPaymentMethod) {
-          console.error('User does not have a default payment method for auto top-up');
-          if (!existingSession) {
-            await session.abortTransaction();
-            session.endSession();
-          }
-          return;
-        }
-        
-        console.log(`Utilizzo metodo di pagamento predefinito: ${defaultPaymentMethod.id} per auto top-up`);
-
-        // Crea l'intent di pagamento off-session
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount: amountInCents,
-          currency: 'eur',
-          customer: user.stripeCustomerId,
-          payment_method: defaultPaymentMethod.id, // Usa il metodo di pagamento predefinito
-          off_session: true,
-          confirm: true,
-          metadata: {
-            userId: userId.toString(),
-            hotelId: hotelId ? hotelId.toString() : '',
-            credits: topUpAmount.toString(),
-            pricePerCredit: pricePerCredit.toString(),
-            autoTopUp: 'true'
-          },
-        });
-
-        // Crea una transazione in stato pending
-        await Transaction.create(
-          [{
-            userId,
-            type: 'purchase',
-            credits: topUpAmount,
-            amount: totalPrice,
-            status: 'pending',
-            description: `Auto top-up of ${topUpAmount} credits`,
-            metadata: {
-              stripePaymentIntentId: paymentIntent.id,
-              pricePerCredit,
-              actionType: 'auto_topup',
-              hotelId: hotelId || null
-            }
-          }],
-          { session }
-        );
-
-        // Aggiorna la data dell'ultimo top-up
-        await UserCreditSettings.findOneAndUpdate(
-          { userId },
-          { lastAutoTopUp: now },
-          { session }
-        );
-
-        console.log(`Auto top-up initiated for user ${userId}, amount: ${topUpAmount} credits`);
-      } catch (stripeError) {
-        console.error('Auto top-up payment failed:', stripeError);
-        // Non facciamo fallire la transazione principale in caso di errore del top-up
-      }
-
-      if (!existingSession) {
-        await session.commitTransaction();
-        session.endSession();
-      }
-      
-      // Abbiamo già processato il top-up, usciamo dalla funzione
-      return;
-    }
-    
-    // Fallback al vecchio sistema: usa le impostazioni del WhatsApp Assistant
-    // Questo può essere rimosso una volta che tutti gli utenti sono migrati al nuovo sistema
-    const assistant = await WhatsAppAssistant.findOne({ hotelId }).session(session);
-    if (!assistant || !assistant.creditSettings.autoTopUp) {
-      // Auto top-up non attivo per questo hotel
+    // Se l'utente non ha impostazioni o non ha attivato l'auto top-up, esci
+    if (!userCreditSettings || !userCreditSettings.autoTopUp) {
       if (!existingSession) {
         await session.abortTransaction();
         session.endSession();
@@ -401,7 +279,7 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
     const availableCredits = user.wallet?.credits || 0;
     
     // Verifica se il saldo è sotto la soglia minima
-    if (availableCredits >= assistant.creditSettings.minimumThreshold) {
+    if (availableCredits >= userCreditSettings.minimumThreshold) {
       // Il saldo è sufficiente, non serve top-up
       if (!existingSession) {
         await session.abortTransaction();
@@ -411,7 +289,7 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
     }
 
     // Verifica se c'è stato un top-up recente (evita multiple richieste in caso di errori)
-    const lastAutoTopUp = assistant.creditSettings.lastAutoTopUp;
+    const lastAutoTopUp = userCreditSettings.lastAutoTopUp;
     const now = new Date();
     if (lastAutoTopUp && (now.getTime() - lastAutoTopUp.getTime() < 24 * 60 * 60 * 1000)) {
       // Top-up effettuato nelle ultime 24 ore, salta
@@ -423,7 +301,7 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
     }
 
     // L'utente ha bisogno di un top-up automatico
-    const topUpAmount = assistant.creditSettings.topUpAmount;
+    const topUpAmount = userCreditSettings.topUpAmount;
     const pricePerCredit = calculatePricePerCredit(topUpAmount);
     const totalPrice = topUpAmount * pricePerCredit;
     const amountInCents = Math.round(totalPrice * 100);
@@ -468,7 +346,7 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
         confirm: true,
         metadata: {
           userId: userId.toString(),
-          hotelId: hotelId.toString(),
+          hotelId: hotelId ? hotelId.toString() : '',
           credits: topUpAmount.toString(),
           pricePerCredit: pricePerCredit.toString(),
           autoTopUp: 'true'
@@ -487,44 +365,21 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
           metadata: {
             stripePaymentIntentId: paymentIntent.id,
             pricePerCredit,
-            actionType: 'whatsapp_auto_topup',
-            hotelId
+            actionType: 'auto_topup',
+            hotelId: hotelId || null
           }
         }],
         { session }
       );
 
       // Aggiorna la data dell'ultimo top-up
-      await WhatsAppAssistant.findOneAndUpdate(
-        { hotelId },
-        { 'creditSettings.lastAutoTopUp': now },
+      await UserCreditSettings.findOneAndUpdate(
+        { userId },
+        { lastAutoTopUp: now },
         { session }
       );
 
-      // Crea/Aggiorna anche le impostazioni dell'utente per la migrazione graduale
-      let userCreditSettings = await UserCreditSettings.findOne({ userId }).session(session);
-      if (!userCreditSettings) {
-        await UserCreditSettings.create([{
-          userId,
-          minimumThreshold: assistant.creditSettings.minimumThreshold,
-          topUpAmount: assistant.creditSettings.topUpAmount,
-          autoTopUp: assistant.creditSettings.autoTopUp,
-          lastAutoTopUp: now
-        }], { session });
-      } else {
-        await UserCreditSettings.findOneAndUpdate(
-          { userId },
-          { 
-            minimumThreshold: assistant.creditSettings.minimumThreshold,
-            topUpAmount: assistant.creditSettings.topUpAmount,
-            autoTopUp: assistant.creditSettings.autoTopUp,
-            lastAutoTopUp: now
-          },
-          { session }
-        );
-      }
-
-      console.log(`Auto top-up initiated for hotel ${hotelId}, user ${userId}, amount: ${topUpAmount} credits`);
+      console.log(`Auto top-up initiated for user ${userId}, amount: ${topUpAmount} credits`);
     } catch (stripeError) {
       console.error('Auto top-up payment failed:', stripeError);
       // Non facciamo fallire la transazione principale in caso di errore del top-up

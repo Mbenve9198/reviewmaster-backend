@@ -1,102 +1,106 @@
 const mongoose = require('mongoose');
+const _ = require('lodash');
 
-const whatsappRuleSchema = new mongoose.Schema({
-    topic: {
+// Schema per le regole di risposta
+const responseRuleSchema = new mongoose.Schema({
+    question: {
         type: String,
         required: true
-    },
-    isCustom: {
-        type: Boolean,
-        default: false
     },
     response: {
         type: String,
         required: true
     },
+    keywords: [String],
     isActive: {
         type: Boolean,
         default: true
     }
-});
+}, { _id: true, timestamps: true });
 
+// Schema principale per l'assistente WhatsApp
 const whatsappAssistantSchema = new mongoose.Schema({
     hotelId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Hotel',
         required: true,
-        unique: true // Un hotel può avere solo un assistente
+        unique: true
     },
+    // Imposta il fuso orario dell'hotel (utile per messaggi programmati)
     timezone: {
         type: String,
-        required: true
+        default: 'Europe/Rome'
     },
+    // Informazioni sull'hotel
     breakfast: {
-        startTime: {
-            type: String,
-            required: true
-        },
-        endTime: {
-            type: String,
-            required: true
-        }
+        type: String,
+        default: null
     },
     checkIn: {
-        startTime: {
-            type: String,
-            required: true
-        },
-        endTime: {
-            type: String,
-            required: true
-        }
+        type: String,
+        default: null
     },
+    // Impostazioni per le recensioni
     reviewLink: {
         type: String,
-        required: true
+        default: null
     },
     reviewRequestDelay: {
         type: Number,
-        required: true,
-        default: 3 // Default 3 giorni
+        default: 12 // ore dopo il checkout
     },
+    // Nome che attiva le risposte alle domande
     triggerName: {
         type: String,
-        required: true,
-        unique: true
+        default: 'Hotel Assistant'
     },
+    // Stato attivo/inattivo
     isActive: {
         type: Boolean,
         default: true
     },
-    // Impostazioni di credito per l'hotel
-    creditSettings: {
-        // Soglia minima di crediti prima del top-up automatico
-        minimumThreshold: {
-            type: Number,
-            default: 50
-        },
-        // Importo da aggiungere durante il top-up automatico
-        topUpAmount: {
-            type: Number,
-            default: 200
-        },
-        // Se il top-up automatico è attivo
-        autoTopUp: {
-            type: Boolean,
-            default: false
-        },
-        // Data dell'ultimo top-up automatico
-        lastAutoTopUp: {
-            type: Date,
-            default: null
-        }
-    },
-    rules: {
-        type: [whatsappRuleSchema],
-        default: []
+    // Regole di risposta
+    rules: [responseRuleSchema]
+}, { timestamps: true });
+
+// Trova regole che corrispondono a una query
+whatsappAssistantSchema.methods.findMatchingRules = function(query) {
+    if (!query || !this.rules || this.rules.length === 0) {
+        return [];
     }
-}, {
-    timestamps: true
-});
+    
+    // Normalizza la query per il confronto
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    // Verifica se la domanda contiene le parole chiave o è simile alle domande nelle regole
+    const matchingRules = this.rules.filter(rule => {
+        // Ignora le regole non attive
+        if (!rule.isActive) return false;
+        
+        // Controlla se la query corrisponde esattamente alla domanda della regola
+        if (rule.question.toLowerCase().trim() === normalizedQuery) {
+            return true;
+        }
+        
+        // Controlla se la query contiene le parole chiave della regola
+        if (rule.keywords && rule.keywords.length > 0) {
+            const matchesKeywords = rule.keywords.some(keyword => 
+                normalizedQuery.includes(keyword.toLowerCase().trim())
+            );
+            if (matchesKeywords) return true;
+        }
+        
+        // Implementa un controllo base di similarità
+        const questionWords = rule.question.toLowerCase().split(/\s+/);
+        const queryWords = normalizedQuery.split(/\s+/);
+        const matchingWords = _.intersection(questionWords, queryWords);
+        
+        // Se almeno il 60% delle parole corrisponde, considera una corrispondenza
+        const matchPercentage = matchingWords.length / questionWords.length;
+        return matchPercentage >= 0.6;
+    });
+    
+    return matchingRules;
+};
 
 module.exports = mongoose.model('WhatsAppAssistant', whatsappAssistantSchema); 
