@@ -29,6 +29,9 @@ const AppSettings = require('./models/app-settings.model');
 
 const app = express();
 
+// Configurazione di Morgan per il logging HTTP
+app.use(morgan('dev')); // Usa il formato 'dev' per il logging
+
 // Configurazione del body parser PRIMA delle routes
 app.use(express.json({
     limit: '10mb',  // Aumentato a 10MB per gestire grandi batch di recensioni
