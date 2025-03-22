@@ -563,7 +563,6 @@ const analyticsController = {
             let provider;
             let suggestions = [];
             let suggestionsMessage;
-            let responseHasBeenSent = false; // Flag per tenere traccia se la risposta è stata inviata
 
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
@@ -701,15 +700,7 @@ const analyticsController = {
                         }
                     });
 
-                    analysis = {
-                        ...analysis,
-                        _id: savedAnalysis._id,
-                        title: defaultTitle,
-                        followUpSuggestions
-                    };
-
                     // Consuma i crediti attraverso il servizio centralizzato
-                    // MODIFICA: Gestire il caso in cui il consumo di crediti fallisce
                     try {
                         const creditsConsumed = await creditService.consumeCredits(
                             hotelId, 
@@ -719,26 +710,20 @@ const analyticsController = {
                         );
 
                         if (!creditsConsumed) {
-                            // Se non è possibile consumare crediti, rispondere con errore e uscire
                             return res.status(403).json({ 
                                 message: 'Failed to consume credits. Please try again later.',
                                 type: 'CREDIT_ERROR'
                             });
                         }
-
-                        // Aggiorna lo stato dei crediti dopo il consumo
-                        const updatedCreditStatus = await creditService.checkCredits(hotelId);
                         
-                        // MODIFICA: Imposta il flag che la risposta è stata inviata
-                        responseHasBeenSent = true;
-                        res.status(201).json({
-                            analysis: savedAnalysis,
-                            analysisText: analysis,
-                            suggestions: followUpSuggestions,
-                            creditsUsed: creditCost,
-                            creditsRemaining: updatedCreditStatus.credits,
-                            provider
-                        });
+                        // Assegna l'ID del documento salvato all'analisi per la risposta
+                        analysis = {
+                            ...analysis,
+                            _id: savedAnalysis._id,
+                            title: defaultTitle,
+                            followUpSuggestions
+                        };
+                        
                     } catch (creditError) {
                         // In caso di errore, log e risposta di errore
                         console.error('Credit consumption error:', creditError);
@@ -749,23 +734,21 @@ const analyticsController = {
                     }
                 }
 
+                // NON MODIFICARE i valori delle menzioni con il conteggio di recensioni correlate
+                // Ma assicuriamoci che i campi relatedReviews esistano come array
                 if (!req.body.previousMessages && analysis.strengths && analysis.issues) {
-                    // Allinea mentions con il numero effettivo di relatedReviews per ogni strength
                     for (const strength of analysis.strengths) {
                         if (!Array.isArray(strength.relatedReviews)) {
                             strength.relatedReviews = [];
                         }
-                        // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
-                        strength.mentions = strength.relatedReviews.length;
+                        // NON modificare il valore di mentions
                     }
 
-                    // Allinea mentions con il numero effettivo di relatedReviews per ogni issue
                     for (const issue of analysis.issues) {
                         if (!Array.isArray(issue.relatedReviews)) {
                             issue.relatedReviews = [];
                         }
-                        // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
-                        issue.mentions = issue.relatedReviews.length;
+                        // NON modificare il valore di mentions
                     }
                 }
             } catch (error) {
@@ -773,25 +756,20 @@ const analyticsController = {
                 throw new Error('Error in analysis');
             }
 
-            // MODIFICA: Invia la risposta solo se non è già stata inviata
-            if (!responseHasBeenSent) {
-                return res.status(200).json({
-                    _id: analysis._id,
-                    analysis,
-                    provider,
-                    suggestions: analysis.followUpSuggestions || [],
-                    suggestionsMessage
-                });
-            }
+            // Invia la risposta nel formato originale
+            return res.status(200).json({
+                _id: analysis._id,
+                analysis,
+                provider,
+                suggestions: analysis.followUpSuggestions || [],
+                suggestionsMessage
+            });
         } catch (error) {
             console.error('Error in analyzeReviews:', error);
-            // MODIFICA: Aggiungi un controllo per evitare di inviare una risposta se la connessione è già chiusa
-            if (!res.headersSent) {
-                return res.status(500).json({ 
-                    message: 'Error in analyzeReviews',
-                    details: error.message 
-                });
-            }
+            return res.status(500).json({ 
+                message: 'Error in analyzeReviews',
+                details: error.message 
+            });
         }
     },
 
