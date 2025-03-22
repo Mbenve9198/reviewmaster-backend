@@ -218,9 +218,9 @@ const whatsappAssistantController = {
 
             // Assicuriamoci che ci sia sempre un valore per question
             const questionValue = question || topic;
-
-            // Aggiungi la nuova regola
-            assistant.rules.push({
+            
+            // Log di debug per vedere i valori
+            console.log('Creazione regola con valori:', {
                 topic,
                 response,
                 isCustom: isCustom || false,
@@ -228,9 +228,35 @@ const whatsappAssistantController = {
                 question: questionValue
             });
 
-            await assistant.save();
+            // Crea un nuovo documento per la regola
+            const newRule = {
+                topic,
+                response,
+                isCustom: isCustom || false,
+                isActive: true,
+                question: questionValue
+            };
+            
+            // Aggiungi la nuova regola
+            assistant.rules.push(newRule);
 
-            res.status(201).json(assistant.rules[assistant.rules.length - 1]);
+            try {
+                const savedAssistant = await assistant.save();
+                console.log('Assistente salvato con successo. Nuova regola:',
+                    savedAssistant.rules[savedAssistant.rules.length - 1]);
+                
+                res.status(201).json(savedAssistant.rules[savedAssistant.rules.length - 1]);
+            } catch (saveError) {
+                console.error('Errore durante il salvataggio della regola:', saveError);
+                // Log dettagliato dell'errore di validazione
+                if (saveError.name === 'ValidationError') {
+                    console.error('Dettagli errore di validazione:');
+                    for (let field in saveError.errors) {
+                        console.error(`Campo: ${field}, Messaggio: ${saveError.errors[field].message}, Valore: ${saveError.errors[field].value}`);
+                    }
+                }
+                throw saveError;
+            }
         } catch (error) {
             console.error('Add rule error:', error);
             res.status(500).json({ 
@@ -267,17 +293,39 @@ const whatsappAssistantController = {
                 updateData.question = updateData.topic;
             }
 
+            // Log dei dati prima dell'aggiornamento
+            console.log('Aggiornamento regola con ID:', ruleId);
+            console.log('Dati originali:', assistant.rules[ruleIndex]);
+            console.log('Dati aggiornamento:', updateData);
+
             // Aggiorna i campi della regola
             Object.assign(assistant.rules[ruleIndex], updateData);
 
             // Assicurati che question sia sempre presente
             if (!assistant.rules[ruleIndex].question) {
                 assistant.rules[ruleIndex].question = assistant.rules[ruleIndex].topic;
+                console.log('Impostato question dal topic:', assistant.rules[ruleIndex].topic);
             }
 
-            await assistant.save();
+            console.log('Dati finali dopo le modifiche:', assistant.rules[ruleIndex]);
 
-            res.json(assistant.rules[ruleIndex]);
+            try {
+                const savedAssistant = await assistant.save();
+                console.log('Assistente aggiornato con successo. Regola aggiornata:', 
+                    savedAssistant.rules[ruleIndex]);
+                
+                res.json(savedAssistant.rules[ruleIndex]);
+            } catch (saveError) {
+                console.error('Errore durante l\'aggiornamento della regola:', saveError);
+                // Log dettagliato dell'errore di validazione
+                if (saveError.name === 'ValidationError') {
+                    console.error('Dettagli errore di validazione:');
+                    for (let field in saveError.errors) {
+                        console.error(`Campo: ${field}, Messaggio: ${saveError.errors[field].message}, Valore: ${saveError.errors[field].value}`);
+                    }
+                }
+                throw saveError;
+            }
         } catch (error) {
             console.error('Update rule error:', error);
             res.status(500).json({ 

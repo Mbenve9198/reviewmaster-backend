@@ -5,7 +5,11 @@ const _ = require('lodash');
 const responseRuleSchema = new mongoose.Schema({
     question: {
         type: String,
-        required: true
+        required: true,
+        default: function() {
+            // Usa il topic come valore predefinito per question se non specificato
+            return this.topic || '';
+        }
     },
     response: {
         type: String,
@@ -15,8 +19,27 @@ const responseRuleSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true
+    },
+    topic: {
+        type: String,
+        required: true
+    },
+    isCustom: {
+        type: Boolean,
+        default: false
+    },
+    customTopic: {
+        type: String
     }
 }, { _id: true, timestamps: true });
+
+// Aggiungi un middleware pre-validate per garantire che question abbia sempre un valore
+responseRuleSchema.pre('validate', function(next) {
+    if (!this.question && this.topic) {
+        this.question = this.topic;
+    }
+    next();
+});
 
 // Schema principale per l'assistente WhatsApp
 const whatsappAssistantSchema = new mongoose.Schema({
