@@ -33,7 +33,9 @@ You are an expert hospitality industry analyst. Analyze the reviews and return a
 
 CRITICALLY IMPORTANT: The "reviewCount" field in the meta section MUST BE SET TO ${reviews.length}. This is the exact number of reviews being analyzed. Do not alter this number.
 
-IMPORTANT: For each strength and issue, calculate the TOTAL number of reviews that mention it and put this TOTAL COUNT in the "mentions" field. However, in the "relatedReviews" array, include ONLY THE TOP 50 MOST REPRESENTATIVE review IDs - this means the most clear examples that demonstrate this strength or issue.
+IMPORTANT ABOUT REVIEW IDs: Only include in "relatedReviews" the IDs that are ACTUALLY IN THE REVIEW DATA PROVIDED. Never invent or create IDs. Only use the exact "_id" values from the reviewsForAnalysis array. Do not modify these IDs in any way.
+
+IMPORTANT: For each strength and issue, calculate the TOTAL number of reviews that mention it and put this TOTAL COUNT in the "mentions" field. However, in the "relatedReviews" array, include ONLY THE TOP 50 MOST REPRESENTATIVE review IDs - this means the most clear examples that demonstrate this strength or issue. Ensure that the "mentions" count and the number of IDs in "relatedReviews" are consistent - never claim more reviews mention a topic than you have valid IDs for.
 
 {
   "meta": {
@@ -743,6 +745,12 @@ const analyticsController = {
                         if (!Array.isArray(strength.relatedReviews)) {
                             strength.relatedReviews = [];
                         }
+                        
+                        // Filtra ID duplicati e invalidi
+                        strength.relatedReviews = strength.relatedReviews
+                            .filter(id => mongoose.Types.ObjectId.isValid(id))
+                            .filter((id, index, self) => self.indexOf(id) === index);
+                        
                         // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
                         strength.mentions = strength.relatedReviews.length;
                     }
@@ -752,8 +760,57 @@ const analyticsController = {
                         if (!Array.isArray(issue.relatedReviews)) {
                             issue.relatedReviews = [];
                         }
+                        
+                        // Filtra ID duplicati e invalidi
+                        issue.relatedReviews = issue.relatedReviews
+                            .filter(id => mongoose.Types.ObjectId.isValid(id))
+                            .filter((id, index, self) => self.indexOf(id) === index);
+                        
                         // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
                         issue.mentions = issue.relatedReviews.length;
+                    }
+
+                    // Verifica che ogni ID sia effettivamente una recensione esistente nel database
+                    const allReviewIds = [
+                        ...analysis.strengths.flatMap(s => s.relatedReviews),
+                        ...analysis.issues.flatMap(i => i.relatedReviews)
+                    ];
+
+                    if (allReviewIds.length > 0) {
+                        try {
+                            // Verifica quali ID esistono effettivamente nel database
+                            const existingReviews = await Review.find({
+                                _id: { $in: allReviewIds }
+                            }).select('_id');
+                            
+                            const existingIds = existingReviews.map(r => r._id.toString());
+                            
+                            // Aggiorna nuovamente strengths e issues mantenendo solo gli ID esistenti
+                            for (const strength of analysis.strengths) {
+                                const originalCount = strength.relatedReviews.length;
+                                strength.relatedReviews = strength.relatedReviews
+                                    .filter(id => existingIds.includes(id.toString()));
+                                
+                                if (strength.relatedReviews.length !== originalCount) {
+                                    console.log(`Filtered out ${originalCount - strength.relatedReviews.length} non-existent review IDs from strength '${strength.title}'`);
+                                    strength.mentions = strength.relatedReviews.length;
+                                }
+                            }
+                            
+                            for (const issue of analysis.issues) {
+                                const originalCount = issue.relatedReviews.length;
+                                issue.relatedReviews = issue.relatedReviews
+                                    .filter(id => existingIds.includes(id.toString()));
+                                
+                                if (issue.relatedReviews.length !== originalCount) {
+                                    console.log(`Filtered out ${originalCount - issue.relatedReviews.length} non-existent review IDs from issue '${issue.title}'`);
+                                    issue.mentions = issue.relatedReviews.length;
+                                }
+                            }
+                        } catch (verifyError) {
+                            console.error('Error verifying review IDs existence:', verifyError);
+                            // Continuiamo comunque per non bloccare il processo
+                        }
                     }
                 }
             } catch (error) {
@@ -1145,9 +1202,43 @@ ${JSON.stringify(plan, null, 2)}`
                 });
             }
 
+            // Verifica prima che gli IDs siano validi ObjectIDs MongoDB
+            const validIds = targetGroup.relatedReviews
+                .filter(id => mongoose.Types.ObjectId.isValid(id))
+                .filter((id, index, self) => self.indexOf(id) === index); // Rimuovi duplicati
+            
+            // Recupera solo le recensioni che esistono effettivamente
             const reviews = await Review.find({
-                _id: { $in: targetGroup.relatedReviews }
+                _id: { $in: validIds }
             });
+
+            // Aggiorna il conteggio "mentions" per riflettere il numero reale di recensioni
+            const foundCount = reviews.length;
+            const declaredCount = targetGroup.mentions;
+            
+            // Se c'è discrepanza, aggiorna l'analisi nel database
+            if (foundCount !== declaredCount) {
+                console.log(`Discrepancy found in ${category} '${targetGroup.title}': declared ${declaredCount} reviews but found only ${foundCount}`);
+                
+                // Aggiorniamo il conteggio per riflettere la realtà
+                if (category === 'strengths') {
+                    const strengthIndex = analysis.analysis.strengths.findIndex(s => s._id.toString() === itemId);
+                    if (strengthIndex >= 0) {
+                        analysis.analysis.strengths[strengthIndex].mentions = foundCount;
+                        analysis.markModified('analysis.strengths');
+                        await analysis.save();
+                        console.log(`Updated mentions count for strength '${targetGroup.title}' from ${declaredCount} to ${foundCount}`);
+                    }
+                } else {
+                    const issueIndex = analysis.analysis.issues.findIndex(i => i._id.toString() === itemId);
+                    if (issueIndex >= 0) {
+                        analysis.analysis.issues[issueIndex].mentions = foundCount;
+                        analysis.markModified('analysis.issues');
+                        await analysis.save();
+                        console.log(`Updated mentions count for issue '${targetGroup.title}' from ${declaredCount} to ${foundCount}`);
+                    }
+                }
+            }
 
             const groupedReviews = reviews.map(review => ({
                 id: review._id,
@@ -1161,7 +1252,7 @@ ${JSON.stringify(plan, null, 2)}`
 
             return res.status(200).json({
                 title: targetGroup.title,
-                count: groupedReviews.length,
+                count: groupedReviews.length, // Restituisci il conteggio effettivo
                 reviews: groupedReviews
             });
 
