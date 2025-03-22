@@ -7,8 +7,6 @@ const Analysis = require('../models/analysis.model');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Book, BookChunk } = require('../models/book.model');
 const mongoose = require('mongoose');
-const SentimentAnalysis = require('../models/sentiment-analysis.model');
-const creditService = require('../services/creditService');
 
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
@@ -523,9 +521,9 @@ const analyticsController = {
             }
 
             const creditCost = 10;
-            // Utilizza il servizio centralizzato per verificare i crediti
-            const creditStatus = await creditService.checkCredits(hotelId);
-            if (!creditStatus.hasCredits || creditStatus.credits < creditCost) {
+            const totalCreditsAvailable = (user.wallet?.credits || 0) + (user.wallet?.freeScrapingRemaining || 0);
+            
+            if (totalCreditsAvailable < creditCost) {
                 return res.status(403).json({ 
                     message: 'Insufficient credits available. Please purchase more credits to continue.',
                     type: 'NO_CREDITS'
@@ -705,34 +703,25 @@ const analyticsController = {
                         title: defaultTitle,
                         followUpSuggestions
                     };
-                    
-                    // Consuma i crediti attraverso il servizio centralizzato
-                    try {
-                        await creditService.consumeCredits(
-                            hotelId, 
-                            'review_analysis', 
-                            savedAnalysis._id.toString(), 
-                            `Reviews analysis - ${savedAnalysis.title}`
-                        );
-                    } catch (creditError) {
-                        console.error('Credit consumption error:', creditError);
-                        // Continua anche se il consumo di crediti fallisce
-                    }
                 }
 
                 if (!req.body.previousMessages && analysis.strengths && analysis.issues) {
-                    // IMPORTANTE: NON modificare i campi "mentions" qui, 
-                    // lascia che l'analisi di Gemini ritorni il numero corretto
+                    // Allinea mentions con il numero effettivo di relatedReviews per ogni strength
                     for (const strength of analysis.strengths) {
                         if (!Array.isArray(strength.relatedReviews)) {
                             strength.relatedReviews = [];
                         }
+                        // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
+                        strength.mentions = strength.relatedReviews.length;
                     }
 
+                    // Allinea mentions con il numero effettivo di relatedReviews per ogni issue
                     for (const issue of analysis.issues) {
                         if (!Array.isArray(issue.relatedReviews)) {
                             issue.relatedReviews = [];
                         }
+                        // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
+                        issue.mentions = issue.relatedReviews.length;
                     }
                 }
             } catch (error) {
