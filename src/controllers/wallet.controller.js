@@ -3,6 +3,7 @@ const User = require('../models/user.model');
 const Transaction = require('../models/transaction.model');
 const creditService = require('../services/creditService');
 const AppSettings = require('../models/app-settings.model');
+const UserCreditSettings = require('../models/user-credit-settings.model');
 
 const calculatePricePerCredit = (credits) => {
     if (credits >= 10000) return 0.10;
@@ -217,6 +218,126 @@ const walletController = {
             console.error('Error getting Stripe customer ID:', error);
             res.status(500).json({ 
                 message: 'Failed to get Stripe customer ID',
+                error: error.message 
+            });
+        }
+    },
+
+    // Nuovo metodo per ottenere le impostazioni utente incluse le credit settings
+    getUserSettings: async (req, res) => {
+        try {
+            const userId = req.userId;
+            
+            const [user, creditSettings, transactions, settings, failedTransactions] = await Promise.all([
+                User.findById(userId),
+                UserCreditSettings.findOne({ userId }),
+                Transaction.getLatestTransactions(userId, 10),
+                AppSettings.getGlobalSettings(),
+                Transaction.find({ 
+                    userId: userId,
+                    status: 'failed',
+                    type: 'purchase'
+                })
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .exec()
+            ]);
+
+            if (!user) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+
+            // Se non esistono impostazioni, crea il default
+            if (!creditSettings) {
+                const newSettings = await UserCreditSettings.create({
+                    userId,
+                    minimumThreshold: 50,
+                    topUpAmount: 200,
+                    autoTopUp: false
+                });
+                
+                // Utilizza il valore delle impostazioni o il valore di fallback dal creditService
+                const initialFreeCredits = settings?.credits?.initialFreeCredits || creditService.getInitialFreeCredits();
+                
+                // Restituisci le informazioni complete
+                return res.json({
+                    _id: user._id,
+                    email: user.email,
+                    name: user.name,
+                    credits: user.wallet.credits,
+                    freeScrapingUsed: user.wallet.freeScrapingUsed,
+                    freeScrapingRemaining: Math.max(0, initialFreeCredits - user.wallet.freeScrapingUsed),
+                    recentTransactions: transactions.map(t => t.getFormattedDetails()),
+                    failedTransactions: failedTransactions.map(t => t.getFormattedDetails()),
+                    creditSettings: newSettings
+                });
+            }
+
+            // Utilizza il valore delle impostazioni o il valore di fallback dal creditService
+            const initialFreeCredits = settings?.credits?.initialFreeCredits || creditService.getInitialFreeCredits();
+            
+            // Restituisci le informazioni complete
+            res.json({
+                _id: user._id,
+                email: user.email,
+                name: user.name,
+                credits: user.wallet.credits,
+                freeScrapingUsed: user.wallet.freeScrapingUsed,
+                freeScrapingRemaining: Math.max(0, initialFreeCredits - user.wallet.freeScrapingUsed),
+                recentTransactions: transactions.map(t => t.getFormattedDetails()),
+                failedTransactions: failedTransactions.map(t => t.getFormattedDetails()),
+                creditSettings
+            });
+        } catch (error) {
+            console.error('Get user settings error:', error);
+            res.status(500).json({ 
+                message: 'Error fetching user settings',
+                error: error.message 
+            });
+        }
+    },
+
+    // Nuovo metodo per aggiornare le impostazioni di credito dell'utente
+    updateUserSettings: async (req, res) => {
+        try {
+            const userId = req.userId;
+            const { creditSettings } = req.body;
+            
+            if (!creditSettings) {
+                return res.status(400).json({ message: 'Credit settings are required' });
+            }
+            
+            const user = await User.findById(userId);
+            if (!user) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+            
+            let userCreditSettings = await UserCreditSettings.findOne({ userId });
+            
+            if (!userCreditSettings) {
+                userCreditSettings = new UserCreditSettings({
+                    userId,
+                    minimumThreshold: creditSettings.minimumThreshold || 50,
+                    topUpAmount: creditSettings.topUpAmount || 200,
+                    autoTopUp: creditSettings.autoTopUp !== undefined ? creditSettings.autoTopUp : false
+                });
+            } else {
+                userCreditSettings.minimumThreshold = creditSettings.minimumThreshold || userCreditSettings.minimumThreshold;
+                userCreditSettings.topUpAmount = creditSettings.topUpAmount || userCreditSettings.topUpAmount;
+                userCreditSettings.autoTopUp = creditSettings.autoTopUp !== undefined ? creditSettings.autoTopUp : userCreditSettings.autoTopUp;
+            }
+            
+            await userCreditSettings.save();
+            
+            // Restituisci solo le impostazioni aggiornate per semplicità
+            res.json({
+                message: 'Credit settings updated successfully',
+                creditSettings: userCreditSettings
+            });
+        } catch (error) {
+            console.error('Update user settings error:', error);
+            res.status(500).json({ 
+                message: 'Error updating user settings',
                 error: error.message 
             });
         }

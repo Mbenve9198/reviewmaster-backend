@@ -20,4 +20,11 @@ router.get('/transactions', (req, res) => walletController.getTransactions(req, 
 // Route per ottenere l'ID cliente Stripe dell'utente
 router.get('/stripe-customer', (req, res) => walletController.getStripeCustomerId(req, res));
 
+// Nuove route per le impostazioni utente
+// Route per ottenere le impostazioni utente incluse le credit settings
+router.get('/user', (req, res) => walletController.getUserSettings(req, res));
+
+// Route per aggiornare le impostazioni utente
+router.patch('/user', (req, res) => walletController.updateUserSettings(req, res));
+
 module.exports = router;

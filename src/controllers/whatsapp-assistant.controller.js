@@ -160,6 +160,9 @@ const whatsappAssistantController = {
                 return res.status(404).json({ message: 'Assistant not found' });
             }
 
+            // Controlla se stiamo aggiornando le impostazioni di credito
+            const isUpdatingCreditSettings = updateData.creditSettings !== undefined;
+            
             // Aggiorna solo i campi forniti
             Object.keys(updateData).forEach(key => {
                 if (updateData[key] !== undefined) {
@@ -168,6 +171,35 @@ const whatsappAssistantController = {
             });
 
             await assistant.save();
+            
+            // Se abbiamo aggiornato le impostazioni di credito, sincronizzale con il modello UserCreditSettings
+            if (isUpdatingCreditSettings && updateData.creditSettings) {
+                const UserCreditSettings = require('../models/user-credit-settings.model');
+                
+                // Cerca le impostazioni esistenti o crea un nuovo record
+                let userCreditSettings = await UserCreditSettings.findOne({ userId: req.userId });
+                
+                if (!userCreditSettings) {
+                    // Crea nuove impostazioni basate su quelle dell'assistente
+                    await UserCreditSettings.create({
+                        userId: req.userId,
+                        minimumThreshold: assistant.creditSettings.minimumThreshold,
+                        topUpAmount: assistant.creditSettings.topUpAmount,
+                        autoTopUp: assistant.creditSettings.autoTopUp,
+                        lastAutoTopUp: assistant.creditSettings.lastAutoTopUp
+                    });
+                } else {
+                    // Aggiorna le impostazioni esistenti
+                    userCreditSettings.minimumThreshold = assistant.creditSettings.minimumThreshold;
+                    userCreditSettings.topUpAmount = assistant.creditSettings.topUpAmount;
+                    userCreditSettings.autoTopUp = assistant.creditSettings.autoTopUp;
+                    userCreditSettings.lastAutoTopUp = assistant.creditSettings.lastAutoTopUp;
+                    
+                    await userCreditSettings.save();
+                }
+                
+                console.log(`Credit settings synchronized for user ${req.userId} from WhatsApp Assistant ${hotelId}`);
+            }
 
             res.json(assistant);
         } catch (error) {

@@ -26,9 +26,6 @@ const podcastRoutes = require('./routes/podcast.routes');
 const routes = require('./routes');
 const webhookRoutes = require('./routes/webhook.routes');
 const AppSettings = require('./models/app-settings.model');
-const stripeRoutes = require('./routes/stripe.routes');
-const whatsappRoutes = require('./routes/whatsapp.routes');
-const creditSettingsRoutes = require('./routes/credit-settings.routes');
 
 const app = express();
 
@@ -117,13 +114,7 @@ app.use('/api/whatsapp-assistant', whatsappAssistantRoutes);
 // Aggiungi una route specifica per il redirect che sia accessibile pubblicamente
 app.get('/api/redirect/review', whatsappAssistantController.handleReviewRedirect);
 
-// Registra le rotte dell'API
-app.use('/api/stripe', stripeRoutes);
-app.use('/api/whatsapp', whatsappRoutes);
-app.use('/api/webhook', webhookRoutes);
-app.use('/api/credit-settings', creditSettingsRoutes);
-
-// Stripe webhook route - deve rimanere separata per gestire il body raw
+// Stripe webhook route
 app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));
 
 // Error handling middleware
