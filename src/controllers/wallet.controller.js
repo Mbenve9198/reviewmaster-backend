@@ -1,6 +1,8 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const User = require('../models/user.model');
 const Transaction = require('../models/transaction.model');
+const creditService = require('../services/creditService');
+const AppSettings = require('../models/app-settings.model');
 
 const calculatePricePerCredit = (credits) => {
     if (credits >= 10000) return 0.10;
@@ -93,19 +95,23 @@ const walletController = {
         try {
             const userId = req.userId;
             
-            const [user, transactions] = await Promise.all([
+            const [user, transactions, settings] = await Promise.all([
                 User.findById(userId),
-                Transaction.getLatestTransactions(userId, 10)
+                Transaction.getLatestTransactions(userId, 10),
+                AppSettings.getGlobalSettings()
             ]);
 
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
             }
 
+            // Utilizza il valore delle impostazioni o il valore di fallback dal creditService
+            const initialFreeCredits = settings?.credits?.initialFreeCredits || creditService.getInitialFreeCredits();
+            
             res.json({
                 credits: user.wallet.credits,
                 freeScrapingUsed: user.wallet.freeScrapingUsed,
-                freeScrapingRemaining: 1000 - user.wallet.freeScrapingUsed,
+                freeScrapingRemaining: Math.max(0, initialFreeCredits - user.wallet.freeScrapingUsed),
                 recentTransactions: transactions.map(t => t.getFormattedDetails())
             });
         } catch (error) {

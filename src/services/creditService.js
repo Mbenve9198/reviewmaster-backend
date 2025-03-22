@@ -50,6 +50,14 @@ const loadSettings = async () => {
 loadSettings();
 
 /**
+ * Restituisce il valore attuale dei crediti gratuiti iniziali
+ * @returns {number} - Il valore dei crediti gratuiti iniziali
+ */
+const getInitialFreeCredits = () => {
+  return INITIAL_FREE_CREDITS;
+};
+
+/**
  * Verifica se l'hotel ha crediti sufficienti per un'operazione
  * @param {string} hotelId - ID dell'hotel
  * @param {string} operationType - Tipo di operazione (inbound, outbound, scheduled)
@@ -376,5 +384,6 @@ module.exports = {
   checkCredits,
   consumeCredits,
   checkAndTriggerAutoTopUp,
-  CREDIT_COSTS
+  CREDIT_COSTS,
+  getInitialFreeCredits
 }; 
