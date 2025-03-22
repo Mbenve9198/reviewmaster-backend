@@ -2,6 +2,7 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const User = require('../models/user.model');
 const Transaction = require('../models/transaction.model');
 const mongoose = require('mongoose');
+const WhatsAppAssistant = require('../models/whatsapp-assistant.model');
 
 module.exports = async (req, res) => {
     const sig = req.headers['stripe-signature'];
@@ -45,11 +46,15 @@ async function handleSuccessfulPayment(paymentIntent) {
     const userId = paymentIntent.metadata.userId;
     const credits = parseInt(paymentIntent.metadata.credits, 10);
     const pricePerCredit = parseFloat(paymentIntent.metadata.pricePerCredit);
+    const isAutoTopUp = paymentIntent.metadata.autoTopUp === 'true';
+    const hotelId = paymentIntent.metadata.hotelId;
 
     console.log('Parsed payment values:', { // Log 5
         userId,
         credits,
-        pricePerCredit
+        pricePerCredit,
+        isAutoTopUp,
+        hotelId
     });
 
     const session = await mongoose.startSession();
@@ -99,7 +104,8 @@ async function handleSuccessfulPayment(paymentIntent) {
                         type: 'credit_purchase',
                         amount: credits,
                         pricePerCredit,
-                        transactionId: transaction._id
+                        transactionId: transaction._id,
+                        isAutoTopUp
                     }
                 }
             },
@@ -113,8 +119,17 @@ async function handleSuccessfulPayment(paymentIntent) {
             throw new Error('User not found');
         }
 
+        // Se è un pagamento auto top-up, aggiorna la data dell'ultimo top-up nell'assistente
+        if (isAutoTopUp && hotelId) {
+            await WhatsAppAssistant.findOneAndUpdate(
+                { hotelId },
+                { 'creditSettings.lastAutoTopUp': new Date() },
+                { session }
+            );
+        }
+
         await session.commitTransaction();
-        console.log(`Successfully processed payment for user ${userId}: ${credits} credits added`);
+        console.log(`Successfully processed payment for user ${userId}: ${credits} credits added${isAutoTopUp ? ' (auto top-up)' : ''}`);
     } catch (error) {
         await session.abortTransaction();
         console.error('Payment processing error:', error);

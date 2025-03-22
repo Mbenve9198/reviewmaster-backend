@@ -48,7 +48,12 @@ const transactionSchema = new mongoose.Schema({
                 'review_analysis',
                 'analysis_followup',
                 'trial_bonus',
-                'referral_bonus'
+                'referral_bonus',
+                // Nuovi tipi per WhatsApp
+                'whatsapp_inbound_message',
+                'whatsapp_outbound_message',
+                'whatsapp_scheduled_message',
+                'whatsapp_auto_topup'
             ]
         },
         hotelId: {
@@ -63,6 +68,11 @@ const transactionSchema = new mongoose.Schema({
         freeScrapingUsed: {
             type: Boolean,
             default: false
+        },
+        // Campo per tracciare interazioni WhatsApp
+        whatsappInteractionId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'WhatsappInteraction'
         }
     },
     createdAt: {

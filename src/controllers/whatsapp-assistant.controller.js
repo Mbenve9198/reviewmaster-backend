@@ -4,6 +4,7 @@ const Hotel = require('../models/hotel.model');
 const twilio = require('twilio');
 const SentimentAnalysis = require('../models/sentiment-analysis.model');
 const mongoose = require('mongoose');
+const creditService = require('../services/creditService');
 
 const client = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -469,6 +470,48 @@ const whatsappAssistantController = {
                 }
             }
             
+            // VERIFICA DEI CREDITI
+            console.log('=== VERIFICA CREDITI ===');
+            const creditStatus = await creditService.checkCredits(assistant.hotelId._id.toString());
+            
+            if (!creditStatus.hasCredits) {
+                console.log('CREDITI ESAURITI per hotel:', assistant.hotelId.name);
+                
+                // Invia messaggio di crediti esauriti
+                const lowBalanceMessage = {
+                    it: `Spiacenti, il saldo crediti dell'hotel è esaurito. Per favore contatta la reception.`,
+                    en: `Sorry, the hotel's credit balance has been depleted. Please contact the reception desk.`,
+                    fr: `Désolé, le solde de crédit de l'hôtel est épuisé. Veuillez contacter la réception.`,
+                    de: `Entschuldigung, das Guthaben des Hotels ist aufgebraucht. Bitte kontaktieren Sie die Rezeption.`,
+                    es: `Lo sentimos, el saldo de crédito del hotel se ha agotado. Por favor, contacte con recepción.`
+                };
+                
+                const userLanguage = getLanguageFromPhone(message.From);
+                
+                await twilioClient.messages.create({
+                    body: lowBalanceMessage[userLanguage] || lowBalanceMessage.en,
+                    from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                    to: message.From,
+                    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                });
+                
+                // Return empty TwiML response
+                res.set('Content-Type', 'text/xml');
+                return res.send('<Response></Response>');
+            }
+            
+            if (creditStatus.lowBalance) {
+                console.log('CREDITI BASSI per hotel:', assistant.hotelId.name, 'Saldo:', creditStatus.credits);
+            }
+            
+            // Procedi con il consumo dei crediti per il messaggio in ingresso
+            await creditService.consumeCredits(
+                assistant.hotelId._id.toString(), 
+                'inbound', 
+                interaction._id, 
+                `Messaggio WhatsApp in ingresso da ${message.ProfileName || 'Ospite'}`
+            );
+            
             // Verifica e log delle regole dell'assistente
             console.log('Final assistant rules:', {
                 assistantId: assistant?._id,
@@ -579,6 +622,14 @@ const whatsappAssistantController = {
                         status: twilioMessage.status,
                         dateCreated: twilioMessage.dateCreated
                     });
+                    
+                    // Consuma crediti per il messaggio programmato
+                    await creditService.consumeCredits(
+                        assistant.hotelId._id.toString(),
+                        'scheduled',
+                        interaction._id,
+                        `Richiesta recensione programmata per ${interaction.phoneNumber}`
+                    );
                     
                     // Aggiorna l'interazione con la recensione programmata
                     if (!interaction.reviewRequests) {
@@ -848,6 +899,14 @@ console.log('Hotel details:', {
             // Invia una risposta TwiML vuota
             res.set('Content-Type', 'text/xml');
             res.send('<Response></Response>');
+
+            // Consumo crediti per il messaggio in uscita
+            await creditService.consumeCredits(
+                assistant.hotelId._id.toString(), 
+                'outbound', 
+                interaction._id, 
+                `Messaggio WhatsApp in uscita per ${message.ProfileName || 'Ospite'}`
+            );
 
             // Invia la risposta conversazionale via Twilio
             try {
