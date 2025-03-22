@@ -307,12 +307,31 @@ const checkAndTriggerAutoTopUp = async (hotelId, userId, existingSession = null)
     }
 
     try {
+      // Ottieni il metodo di pagamento predefinito del cliente
+      const customer = await stripe.customers.retrieve(
+        user.stripeCustomerId, 
+        { expand: ['invoice_settings.default_payment_method'] }
+      );
+      
+      const defaultPaymentMethod = customer?.invoice_settings?.default_payment_method;
+      
+      if (!defaultPaymentMethod) {
+        console.error('User does not have a default payment method for auto top-up');
+        if (!existingSession) {
+          await session.abortTransaction();
+          session.endSession();
+        }
+        return;
+      }
+      
+      console.log(`Utilizzo metodo di pagamento predefinito: ${defaultPaymentMethod.id} per auto top-up`);
+
       // Crea l'intent di pagamento off-session
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amountInCents,
         currency: 'eur',
         customer: user.stripeCustomerId,
-        payment_method_types: ['card'],
+        payment_method: defaultPaymentMethod.id, // Usa il metodo di pagamento predefinito
         off_session: true,
         confirm: true,
         metadata: {

@@ -74,6 +74,31 @@ async function handleSuccessfulPayment(paymentIntent) {
             return; // Importante: esce dalla funzione se la transazione è già stata processata
         }
 
+        // Trova informazioni dell'utente per ottenere il suo customer ID
+        const user = await User.findById(userId);
+        
+        if (user && user.stripeCustomerId && paymentIntent.payment_method) {
+            try {
+                // Salva questo metodo di pagamento come predefinito per il cliente
+                console.log(`Attaching payment method ${paymentIntent.payment_method} to customer ${user.stripeCustomerId}`);
+                
+                await stripe.paymentMethods.attach(
+                    paymentIntent.payment_method,
+                    { customer: user.stripeCustomerId }
+                );
+                
+                await stripe.customers.update(
+                    user.stripeCustomerId,
+                    { invoice_settings: { default_payment_method: paymentIntent.payment_method } }
+                );
+                
+                console.log(`Metodo di pagamento impostato come predefinito per l'utente ${userId}`);
+            } catch (err) {
+                console.error('Error saving payment method:', err);
+                // Continuiamo con la transazione anche se fallisce il salvataggio del metodo
+            }
+        }
+
         // Aggiorna lo stato della transazione
         const transaction = await Transaction.findOneAndUpdate(
             { 
@@ -95,7 +120,7 @@ async function handleSuccessfulPayment(paymentIntent) {
         }
 
         // Aggiungi i crediti solo quando il pagamento è confermato
-        const user = await User.findByIdAndUpdate(
+        const userUpdated = await User.findByIdAndUpdate(
             userId,
             { 
                 $inc: { 'wallet.credits': credits },
@@ -115,7 +140,7 @@ async function handleSuccessfulPayment(paymentIntent) {
             }
         );
 
-        if (!user) {
+        if (!userUpdated) {
             throw new Error('User not found');
         }
 

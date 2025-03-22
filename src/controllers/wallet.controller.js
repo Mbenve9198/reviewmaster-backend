@@ -69,6 +69,7 @@ const walletController = {
                     amount, // es: 1500 centesimi = 15€
                     currency: 'eur',
                     customer: stripeCustomerId,
+                    setup_future_usage: 'off_session', // Importante: permette di riutilizzare questo metodo di pagamento in futuro
                     metadata: {
                         userId,
                         credits,
