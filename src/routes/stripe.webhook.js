@@ -3,6 +3,7 @@ const User = require('../models/user.model');
 const Transaction = require('../models/transaction.model');
 const mongoose = require('mongoose');
 const WhatsAppAssistant = require('../models/whatsapp-assistant.model');
+const notificationService = require('../services/notification.service');
 
 module.exports = async (req, res) => {
     const sig = req.headers['stripe-signature'];
@@ -155,6 +156,18 @@ async function handleSuccessfulPayment(paymentIntent) {
 
         await session.commitTransaction();
         console.log(`Successfully processed payment for user ${userId}: ${credits} credits added${isAutoTopUp ? ' (auto top-up)' : ''}`);
+        
+        // Invia email di conferma pagamento avvenuto con successo
+        const amountInEur = paymentIntent.amount / 100; // Converti i centesimi in euro
+        await notificationService.sendPaymentSuccessEmail({
+            userId,
+            amount: amountInEur,
+            credits,
+            isAutoTopUp,
+            paymentIntentId: paymentIntent.id
+        });
+        
+        console.log(`Payment success notification sent to user ${userId} for ${isAutoTopUp ? 'auto top-up' : 'purchase'}`);
     } catch (error) {
         await session.abortTransaction();
         console.error('Payment processing error:', error);
@@ -173,6 +186,12 @@ async function handleSuccessfulPayment(paymentIntent) {
 
 async function handlePaymentFailed(paymentIntent) {
     try {
+        const isAutoTopUp = paymentIntent.metadata?.autoTopUp === 'true';
+        const userId = paymentIntent.metadata?.userId;
+        const credits = parseInt(paymentIntent.metadata?.credits, 10) || 0;
+
+        console.log(`Payment failed for payment intent ${paymentIntent.id}${isAutoTopUp ? ' (auto top-up)' : ''}`);
+        
         // Aggiorna lo stato della transazione a failed
         await Transaction.findOneAndUpdate(
             { 'metadata.stripePaymentIntentId': paymentIntent.id },
@@ -183,7 +202,23 @@ async function handlePaymentFailed(paymentIntent) {
             }
         );
 
-        console.log(`Payment failed for payment intent ${paymentIntent.id}`);
+        // Se era un auto top-up, invia una notifica email all'utente
+        if (isAutoTopUp && userId) {
+            const amountInEur = paymentIntent.amount / 100; // Converti i centesimi in euro
+            const errorReason = paymentIntent.last_payment_error?.decline_code || 
+                               paymentIntent.last_payment_error?.message || 
+                               'Payment declined';
+            
+            await notificationService.sendPaymentFailedEmail({
+                userId,
+                amount: amountInEur,
+                credits,
+                reason: errorReason,
+                paymentIntentId: paymentIntent.id
+            });
+            
+            console.log(`Payment failed notification sent for auto top-up (userId: ${userId})`);
+        }
     } catch (error) {
         console.error('Error handling failed payment:', error);
     }

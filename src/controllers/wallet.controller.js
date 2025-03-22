@@ -121,10 +121,19 @@ const walletController = {
         try {
             const userId = req.userId;
             
-            const [user, transactions, settings] = await Promise.all([
+            const [user, transactions, settings, failedTransactions] = await Promise.all([
                 User.findById(userId),
                 Transaction.getLatestTransactions(userId, 10),
-                AppSettings.getGlobalSettings()
+                AppSettings.getGlobalSettings(),
+                // Ottieni le ultime transazioni fallite
+                Transaction.find({ 
+                    userId: userId,
+                    status: 'failed',
+                    type: 'purchase' // Solo le ricariche fallite
+                })
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .exec()
             ]);
 
             if (!user) {
@@ -138,7 +147,8 @@ const walletController = {
                 credits: user.wallet.credits,
                 freeScrapingUsed: user.wallet.freeScrapingUsed,
                 freeScrapingRemaining: Math.max(0, initialFreeCredits - user.wallet.freeScrapingUsed),
-                recentTransactions: transactions.map(t => t.getFormattedDetails())
+                recentTransactions: transactions.map(t => t.getFormattedDetails()),
+                failedTransactions: failedTransactions.map(t => t.getFormattedDetails())
             });
         } catch (error) {
             console.error('Get wallet info error:', error);
