@@ -7,6 +7,7 @@ const Analysis = require('../models/analysis.model');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Book, BookChunk } = require('../models/book.model');
 const mongoose = require('mongoose');
+const creditService = require('../services/creditService');
 
 const anthropic = new Anthropic({
     apiKey: process.env.CLAUDE_API_KEY
@@ -17,6 +18,206 @@ const openai = new OpenAI({
 });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+const generatePhase1Prompt = (hotel, reviews, platforms, avgRating) => {
+    const reviewsForAnalysis = reviews.map((review, index) => ({
+        id: review._id.toString(),
+        text: review.content?.text || '',
+        rating: review.content?.rating || 0,
+        platform: review.platform,
+        date: review.metadata?.originalCreatedAt || new Date().toISOString()
+    }));
+
+    return `You are an expert hospitality industry analyst. Focus ONLY on basic analysis of these hotel reviews.
+
+CRITICALLY IMPORTANT: The "reviewCount" field in the meta section MUST BE SET TO ${reviews.length}. This is the exact number of reviews being analyzed. Do not alter this number.
+
+Review data for analysis: ${JSON.stringify(reviewsForAnalysis, null, 2)}
+
+Return a JSON object with ONLY these fields - NO OTHER FIELDS:
+{
+  "meta": {
+    "hotelName": "${hotel.name}",
+    "reviewCount": ${reviews.length},
+    "avgRating": ${avgRating},
+    "platforms": "${platforms.join(', ')}"
+  },
+  "sentiment": {
+    "excellent": "45%",
+    "average": "35%",
+    "needsImprovement": "20%",
+    "summary": "Brief interpretative summary of the sentiment distribution, highlighting significant patterns and what they mean for the hotel's reputation (2-3 sentences).",
+    "distribution": {
+      "rating5": "30%",
+      "rating4": "25%",
+      "rating3": "20%",
+      "rating2": "15%",
+      "rating1": "10%"
+    }
+  },
+  "trends": [
+    {
+      "metric": "Rating",
+      "change": "-0.3",
+      "period": "3 months"
+    },
+    {
+      "metric": "Positive Mentions",
+      "change": "+5%",
+      "period": "6 months"
+    },
+    {
+      "metric": "Negative Mentions",
+      "change": "-2%",
+      "period": "6 months"
+    }
+  ]
+}
+
+Calculate actual percentages based on the review data. For trends, analyze how ratings and sentiment have changed over time by grouping reviews by date.`;
+};
+
+const generatePhase2Prompt = (hotel, reviews, bookKnowledge, phase1Analysis) => {
+    const reviewsForAnalysis = reviews.map((review, index) => ({
+        id: review._id.toString(),
+        text: review.content?.text || '',
+        rating: review.content?.rating || 0,
+        platform: review.platform,
+        date: review.metadata?.originalCreatedAt || new Date().toISOString()
+    }));
+
+    return `First, carefully study this hospitality industry knowledge and use it as the foundation for your analysis. Your recommendations must reflect these industry best practices and methodologies:
+${bookKnowledge}
+
+You are an expert hospitality industry analyst. FOCUS ONLY ON IDENTIFYING THE TOP 3 STRENGTHS from these hotel reviews.
+
+IMPORTANT ABOUT REVIEW IDs: Only include in "relatedReviews" the IDs that are ACTUALLY IN THE REVIEW DATA PROVIDED. Never invent or create IDs. Only use the exact "_id" values from the reviewsForAnalysis array. Do not modify these IDs in any way.
+
+IMPORTANT: For each strength, calculate the TOTAL number of reviews that mention it and put this TOTAL COUNT in the "mentions" field. However, in the "relatedReviews" array, include ONLY THE TOP 50 MOST REPRESENTATIVE review IDs - this means the most clear examples that demonstrate this strength.
+
+Previous analysis context:
+${JSON.stringify(phase1Analysis, null, 2)}
+
+Review data for analysis: ${JSON.stringify(reviewsForAnalysis, null, 2)}
+
+Return a JSON object with ONLY this exact structure - NO OTHER FIELDS:
+{
+  "strengths": [
+    {
+      "title": "Location & Accessibility",
+      "impact": "+1.2",
+      "mentions": 87,
+      "quote": "Perfect location, close to train station and attractions",
+      "details": "Consistently praised for central location and easy access to public transport",
+      "marketingTips": [
+        {
+          "action": "Create local attractions guide",
+          "cost": "€",
+          "roi": "125%"
+        }
+      ],
+      "relatedReviews": ["id1", "id2", "id3"]
+    }
+  ]
+}
+
+Use your hospitality industry knowledge to:
+1. Identify truly meaningful strengths (not superficial ones)
+2. Create impactful marketing tips based on industry best practices
+3. Quantify the impact of each strength accurately
+4. Include only real quotes from the review data
+5. Provide detailed explanations that demonstrate industry expertise`;
+};
+
+const generatePhase3Prompt = (hotel, reviews, bookKnowledge, phase1Analysis) => {
+    const reviewsForAnalysis = reviews.map((review, index) => ({
+        id: review._id.toString(),
+        text: review.content?.text || '',
+        rating: review.content?.rating || 0,
+        platform: review.platform,
+        date: review.metadata?.originalCreatedAt || new Date().toISOString()
+    }));
+
+    return `First, carefully study this hospitality industry knowledge and use it as the foundation for your analysis. Your recommendations must reflect these industry best practices and methodologies:
+${bookKnowledge}
+
+You are an expert hospitality industry analyst. FOCUS ONLY ON IDENTIFYING KEY ISSUES AND AREAS FOR IMPROVEMENT from these hotel reviews.
+
+IMPORTANT ABOUT REVIEW IDs: Only include in "relatedReviews" the IDs that are ACTUALLY IN THE REVIEW DATA PROVIDED. Never invent or create IDs. Only use the exact "_id" values from the reviewsForAnalysis array. Do not modify these IDs in any way.
+
+IMPORTANT: For each issue, calculate the TOTAL number of reviews that mention it and put this TOTAL COUNT in the "mentions" field. However, in the "relatedReviews" array, include ONLY THE TOP 50 MOST REPRESENTATIVE review IDs - this means the most clear examples that demonstrate this issue.
+
+Previous analysis context:
+${JSON.stringify(phase1Analysis, null, 2)}
+
+Review data for analysis: ${JSON.stringify(reviewsForAnalysis, null, 2)}
+
+Return a JSON object with ONLY this exact structure - NO OTHER FIELDS:
+{
+  "issues": [
+    {
+      "title": "Noise Insulation",
+      "priority": "HIGH",
+      "impact": "-0.9",
+      "mentions": 42,
+      "quote": "Walls are thin, can hear everything from adjacent rooms",
+      "details": "Major issue affecting guest sleep quality and satisfaction",
+      "solution": {
+        "title": "Comprehensive Sound Proofing",
+        "timeline": "3-4 months",
+        "cost": "€€€",
+        "roi": "180%",
+        "steps": [
+          "Install soundproof windows",
+          "Add wall insulation",
+          "Replace door seals"
+        ]
+      },
+      "relatedReviews": ["id1", "id2", "id3"]
+    }
+  ]
+}
+
+Use your hospitality industry knowledge to:
+1. Identify genuine problems (not just minor complaints)
+2. Prioritize issues based on guest impact and frequency
+3. Create comprehensive solutions based on industry best practices
+4. Provide realistic timelines, costs, and ROI estimates
+5. Include detailed implementation steps that show industry expertise`;
+};
+
+const generatePhase4Prompt = (hotel, combinedAnalysis, bookKnowledge) => {
+    return `First, carefully study this hospitality industry knowledge and use it as the foundation for your analysis. Your recommendations must reflect these industry best practices and methodologies:
+${bookKnowledge}
+
+You are an expert hospitality industry analyst. FOCUS ONLY ON GENERATING QUICK WINS from this combined analysis of hotel reviews.
+
+Previous analysis context:
+${JSON.stringify(combinedAnalysis, null, 2)}
+
+Return a JSON object with ONLY this exact structure - NO OTHER FIELDS:
+{
+  "quickWins": [
+    {
+      "action": "Install door dampeners",
+      "timeline": "2 weeks",
+      "cost": "€",
+      "impact": "Medium"
+    }
+  ],
+  "followUpSuggestions": [
+    "What specific steps can we take to improve our breakfast offering based on the reviews?",
+    "How can we better communicate our sustainability initiatives to guests?"
+  ]
+}
+
+Use your hospitality industry knowledge to:
+1. Identify 3-5 truly impactful quick wins that can be implemented rapidly
+2. Ensure each quick win addresses a real issue identified in the analysis
+3. Provide realistic timelines, costs, and impact assessments
+4. Create 4-5 follow-up suggestions that would provide valuable insights
+5. Make all recommendations specific to this hotel's situation, not generic`;
+};
 
 const generateInitialPrompt = (hotel, reviews, platforms, avgRating) => {
     const reviewsForAnalysis = reviews.map((review, index) => ({
@@ -563,185 +764,128 @@ const analyticsController = {
             const bookKnowledge = await getBookKnowledge();
             console.log('Book knowledge fetched, length:', bookKnowledge.length);
 
-            const reviewsData = reviews.map(review => ({
-                content: review.content?.text || '',
-                rating: review.content?.rating || 0,
-                date: review.metadata?.originalCreatedAt || new Date().toISOString(),
-                platform: review.platform
-            }));
-
             // Calcola avgRating usando i dati originali delle recensioni
             const avgRating = (reviews.reduce((acc, r) => acc + (r.content?.rating || 0), 0) / reviews.length).toFixed(1);
 
             // Estrai le piattaforme direttamente dalle recensioni originali
             const platforms = [...new Set(reviews.map(r => r.platform))];
 
-            let systemPrompt;
+            // Creazione dell'oggetto base per archiviare l'analisi
+            let analysisResult = {
+                provider: 'gemini',
+                _id: null
+            };
+
+            // Inizializza il modello Gemini
+            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+            // Verifica se è una richiesta di follow-up
             if (req.body.previousMessages) {
                 const lastAnalysis = req.body.messages[req.body.messages.length - 2].content;
-                systemPrompt = generateFollowUpPrompt(hotel, reviewsData, req.body.previousMessages, lastAnalysis, bookKnowledge);
-            } else {
-                systemPrompt = generateInitialPrompt(hotel, reviews, platforms, avgRating);
+                const systemPrompt = generateFollowUpPrompt(hotel, reviews, req.body.previousMessages, lastAnalysis, bookKnowledge);
+                
+                console.log('Sending follow-up prompt to Gemini...');
+                const result = await model.generateContent({
+                    contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+                    generationConfig: {
+                        temperature: 0.7,
+                        topP: 0.8,
+                        topK: 40,
+                        maxOutputTokens: 10000
+                    },
+                    safetySettings: [
+                        {
+                            category: "HARM_CATEGORY_HARASSMENT",
+                            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                        },
+                        {
+                            category: "HARM_CATEGORY_HATE_SPEECH",
+                            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                        },
+                        {
+                            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                        },
+                        {
+                            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                        }
+                    ]
+                });
+                
+                const response = await result.response;
+                let formattedResponse = response.text()
+                    .replace(/\*\*/g, '**')
+                    .replace(/([.!?])\s*(\n)?/g, '$1\n\n')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .trim();
+                
+                analysisResult.analysis = formattedResponse;
+                console.log('Received follow-up response from Gemini');
+
+                return res.status(200).json({
+                    _id: analysisResult._id,
+                    analysis: analysisResult.analysis,
+                    provider: analysisResult.provider,
+                    suggestions: [],
+                    suggestionsMessage: null
+                });
             }
 
-            let analysis;
-            let provider;
-            let suggestions = [];
-            let suggestionsMessage;
-
+            // ---- FASE 1: Analisi di base ----
+            console.log('PHASE 1: Starting base analysis...');
+            const phase1Prompt = generatePhase1Prompt(hotel, reviews, platforms, avgRating);
+            let phase1Analysis;
+            
             try {
-                const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+                phase1Analysis = await runAnalysisWithValidation(model, phase1Prompt);
                 
-                if (req.body.previousMessages) {
-                    console.log('Sending follow-up prompt to Gemini...');
-                    const result = await model.generateContent({
-                        contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
-                        generationConfig: {
-                            temperature: 0.7,
-                            topP: 0.8,
-                            topK: 40,
-                            maxOutputTokens: 10000
-                        },
-                        safetySettings: [
-                            {
-                                category: "HARM_CATEGORY_HARASSMENT",
-                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                            },
-                            {
-                                category: "HARM_CATEGORY_HATE_SPEECH",
-                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                            },
-                            {
-                                category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                            },
-                            {
-                                category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                            }
-                        ]
-                    });
-                    
-                    const response = await result.response;
-                    let formattedResponse = response.text()
-                        .replace(/\*\*/g, '**')
-                        .replace(/([.!?])\s*(\n)?/g, '$1\n\n')
-                        .replace(/\n{3,}/g, '\n\n')
-                        .trim();
-                    
-                    analysis = formattedResponse;
-                    provider = 'gemini';
-                    console.log('Received follow-up response from Gemini');
-                } else {
-                    analysis = await runAnalysisWithValidation(model, systemPrompt);
-                    provider = 'gemini';
-
-                    // Importante: Assicuriamoci che il conteggio delle recensioni sia corretto
-                    if (analysis && analysis.meta) {
-                        analysis.meta.reviewCount = reviews.length;
-                        console.log(`Corrected reviewCount in meta to match actual number of reviews: ${reviews.length}`);
+                // Crea un documento di analisi iniziale nel database
+                const defaultTitle = `Analysis - ${hotel.name} - ${new Date().toLocaleDateString()}`;
+                const dateRange = getValidDateRange(reviews);
+                
+                const initialAnalysis = await Analysis.create({
+                    title: defaultTitle,
+                    userId,
+                    hotelId: hotelId,
+                    analysis: {
+                        meta: phase1Analysis.meta,
+                        sentiment: phase1Analysis.sentiment,
+                        trends: phase1Analysis.trends || [],
+                        strengths: [],
+                        issues: [],
+                        quickWins: []
+                    },
+                    reviewsAnalyzed: reviews.length,
+                    reviewIds: reviews.map(r => r._id),
+                    provider: 'gemini',
+                    metadata: {
+                        platforms,
+                        dateRange,
+                        creditsUsed: creditCost
                     }
-                }
+                });
+                
+                analysisResult._id = initialAnalysis._id;
+                analysisResult.analysis = initialAnalysis.analysis;
+                
+                console.log('PHASE 1: Base analysis completed and saved to database');
+            } catch (error) {
+                console.error('PHASE 1: Error in base analysis:', error);
+                throw new Error('Error in Phase 1: Base analysis failed');
+            }
 
-                // Salviamo l'analisi nel database se non è un follow-up
-                if (!req.body.previousMessages) {
-                    const defaultTitle = `Analysis - ${analysis.meta?.hotelName || 'Hotel'} - ${new Date().toLocaleDateString()}`;
-                    const dateRange = getValidDateRange(reviews);
-                    
-                    console.log('Generating suggestions with Gemini...');
-                    const suggestionsPrompt = `You are an AI assistant helping hotel managers analyze their reviews.
-                    Generate 4-5 follow-up questions that the manager might want to ask about this analysis.
-                    The questions should:
-                    - Be in English
-                    - Be actionable and solution-oriented
-                    - Reference specific data from the analysis
-                    - Be formulated as direct questions
-                    - Focus on getting specific recommendations and insights
-
-                    Return ONLY a JSON array of strings, no other text.
-                    Example format: ["question 1", "question 2", "question 3"]
-
-                    Analysis to generate questions about:
-                    ${JSON.stringify(analysis)}`;
-
-                    const suggestionsResult = await model.generateContent({
-                        contents: [{ role: 'user', parts: [{ text: suggestionsPrompt }] }],
-                        generationConfig: {
-                            temperature: 0.7
-                        }
-                    });
-
-                    const suggestionsResponse = await suggestionsResult.response;
-                    let followUpSuggestions = [];
-                    try {
-                        // FIX: Prima ottieni il testo, poi elaboralo
-                        const responseText = await suggestionsResponse.text();
-                        console.log('Raw suggestions response:', responseText);
-                        
-                        // Pulizia del testo prima del parsing
-                        const cleanedText = responseText.replace(/```json\s*|\s*```/g, '').trim();
-                        console.log('Cleaned suggestions text:', cleanedText);
-                        
-                        // Verifica se il testo è già un array JSON valido
-                        if (cleanedText.startsWith('[') && cleanedText.endsWith(']')) {
-                            followUpSuggestions = JSON.parse(cleanedText);
-                        } else {
-                            // Se non è un array JSON valido, estrai le domande usando regex
-                            const questionsRegex = /"([^"]+)"/g;
-                            const matches = [...cleanedText.matchAll(questionsRegex)];
-                            followUpSuggestions = matches.map(match => match[1]);
-                        }
-                        
-                        // Se ancora non abbiamo suggerimenti, creiamo domande predefinite
-                        if (!followUpSuggestions || followUpSuggestions.length === 0) {
-                            followUpSuggestions = [
-                                "What are the top 3 areas we should focus on improving?",
-                                "Can you suggest specific actions for our biggest strength?",
-                                "How do our ratings compare to industry averages?",
-                                "What quick wins can we implement immediately?"
-                            ];
-                        }
-                        
-                        console.log('Successfully generated suggestions:', followUpSuggestions);
-                    } catch (e) {
-                        console.error('Failed to parse suggestions response:', e);
-                        console.error('Raw text:', responseText);
-                        // Fallback a domande predefinite
-                        followUpSuggestions = [
-                            "What are the top 3 areas we should focus on improving?",
-                            "Can you suggest specific actions for our biggest strength?",
-                            "How do our ratings compare to industry averages?",
-                            "What quick wins can we implement immediately?"
-                        ];
-                    }
-
-                    const savedAnalysis = await Analysis.create({
-                        title: defaultTitle,
-                        userId,
-                        hotelId: hotelId,
-                        analysis: analysis,
-                        reviewsAnalyzed: reviews.length,
-                        reviewIds: reviews.map(r => r._id),
-                        provider,
-                        followUpSuggestions,
-                        metadata: {
-                            platforms,
-                            dateRange,
-                            creditsUsed: creditCost
-                        }
-                    });
-
-                    analysis = {
-                        ...analysis,
-                        _id: savedAnalysis._id,
-                        title: defaultTitle,
-                        followUpSuggestions
-                    };
-                }
-
-                if (!req.body.previousMessages && analysis.strengths && analysis.issues) {
-                    // Allinea mentions con il numero effettivo di relatedReviews per ogni strength
-                    for (const strength of analysis.strengths) {
+            // ---- FASE 2: Analisi dei punti di forza ----
+            console.log('PHASE 2: Starting strengths analysis...');
+            const phase2Prompt = generatePhase2Prompt(hotel, reviews, bookKnowledge, phase1Analysis);
+            let phase2Analysis;
+            
+            try {
+                phase2Analysis = await runAnalysisWithValidation(model, phase2Prompt);
+                
+                if (phase2Analysis && phase2Analysis.strengths) {
+                    // Valida e filtra gli ID delle recensioni correlate
+                    for (const strength of phase2Analysis.strengths) {
                         if (!Array.isArray(strength.relatedReviews)) {
                             strength.relatedReviews = [];
                         }
@@ -749,14 +893,40 @@ const analyticsController = {
                         // Filtra ID duplicati e invalidi
                         strength.relatedReviews = strength.relatedReviews
                             .filter(id => mongoose.Types.ObjectId.isValid(id))
-                            .filter((id, index, self) => self.indexOf(id) === index);
+                            .filter((id, index, self) => self.indexOf(id) === index)
+                            .slice(0, 50); // Limita a max 50 ID
                         
                         // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
                         strength.mentions = strength.relatedReviews.length;
                     }
+                    
+                    // Aggiorna il documento nel database
+                    await Analysis.findByIdAndUpdate(
+                        analysisResult._id,
+                        { 'analysis.strengths': phase2Analysis.strengths }
+                    );
+                    
+                    // Aggiorna il risultato
+                    analysisResult.analysis.strengths = phase2Analysis.strengths;
+                }
+                
+                console.log('PHASE 2: Strengths analysis completed and saved');
+            } catch (error) {
+                console.error('PHASE 2: Error in strengths analysis:', error);
+                // Continuiamo con la fase 3 anche se la fase 2 fallisce
+            }
 
-                    // Allinea mentions con il numero effettivo di relatedReviews per ogni issue
-                    for (const issue of analysis.issues) {
+            // ---- FASE 3: Analisi delle criticità ----
+            console.log('PHASE 3: Starting issues analysis...');
+            const phase3Prompt = generatePhase3Prompt(hotel, reviews, bookKnowledge, phase1Analysis);
+            let phase3Analysis;
+            
+            try {
+                phase3Analysis = await runAnalysisWithValidation(model, phase3Prompt);
+                
+                if (phase3Analysis && phase3Analysis.issues) {
+                    // Valida e filtra gli ID delle recensioni correlate
+                    for (const issue of phase3Analysis.issues) {
                         if (!Array.isArray(issue.relatedReviews)) {
                             issue.relatedReviews = [];
                         }
@@ -764,67 +934,140 @@ const analyticsController = {
                         // Filtra ID duplicati e invalidi
                         issue.relatedReviews = issue.relatedReviews
                             .filter(id => mongoose.Types.ObjectId.isValid(id))
-                            .filter((id, index, self) => self.indexOf(id) === index);
+                            .filter((id, index, self) => self.indexOf(id) === index)
+                            .slice(0, 50); // Limita a max 50 ID
                         
                         // Aggiorna mentions per riflettere il numero effettivo di relatedReviews
                         issue.mentions = issue.relatedReviews.length;
                     }
+                    
+                    // Aggiorna il documento nel database
+                    await Analysis.findByIdAndUpdate(
+                        analysisResult._id,
+                        { 'analysis.issues': phase3Analysis.issues }
+                    );
+                    
+                    // Aggiorna il risultato
+                    analysisResult.analysis.issues = phase3Analysis.issues;
+                }
+                
+                console.log('PHASE 3: Issues analysis completed and saved');
+            } catch (error) {
+                console.error('PHASE 3: Error in issues analysis:', error);
+                // Continuiamo con la fase 4 anche se la fase 3 fallisce
+            }
 
-                    // Verifica che ogni ID sia effettivamente una recensione esistente nel database
-                    const allReviewIds = [
-                        ...analysis.strengths.flatMap(s => s.relatedReviews),
-                        ...analysis.issues.flatMap(i => i.relatedReviews)
-                    ];
+            // ---- FASE 4: Quick Wins e suggerimenti ----
+            console.log('PHASE 4: Starting quick wins and suggestions analysis...');
+            const phase4Prompt = generatePhase4Prompt(hotel, analysisResult.analysis, bookKnowledge);
+            let phase4Analysis;
+            
+            try {
+                phase4Analysis = await runAnalysisWithValidation(model, phase4Prompt);
+                
+                if (phase4Analysis) {
+                    // Aggiorna il documento nel database
+                    await Analysis.findByIdAndUpdate(
+                        analysisResult._id,
+                        { 
+                            'analysis.quickWins': phase4Analysis.quickWins || [],
+                            'followUpSuggestions': phase4Analysis.followUpSuggestions || []
+                        }
+                    );
+                    
+                    // Aggiorna il risultato
+                    analysisResult.analysis.quickWins = phase4Analysis.quickWins || [];
+                    analysisResult.followUpSuggestions = phase4Analysis.followUpSuggestions || [];
+                }
+                
+                console.log('PHASE 4: Quick wins and suggestions analysis completed and saved');
+            } catch (error) {
+                console.error('PHASE 4: Error in quick wins analysis:', error);
+                // La fase 4 è opzionale, quindi continuiamo anche se fallisce
+            }
 
-                    if (allReviewIds.length > 0) {
-                        try {
-                            // Verifica quali ID esistono effettivamente nel database
-                            const existingReviews = await Review.find({
-                                _id: { $in: allReviewIds }
-                            }).select('_id');
-                            
-                            const existingIds = existingReviews.map(r => r._id.toString());
-                            
-                            // Aggiorna nuovamente strengths e issues mantenendo solo gli ID esistenti
-                            for (const strength of analysis.strengths) {
-                                const originalCount = strength.relatedReviews.length;
-                                strength.relatedReviews = strength.relatedReviews
-                                    .filter(id => existingIds.includes(id.toString()));
-                                
-                                if (strength.relatedReviews.length !== originalCount) {
-                                    console.log(`Filtered out ${originalCount - strength.relatedReviews.length} non-existent review IDs from strength '${strength.title}'`);
-                                    strength.mentions = strength.relatedReviews.length;
-                                }
-                            }
-                            
-                            for (const issue of analysis.issues) {
-                                const originalCount = issue.relatedReviews.length;
-                                issue.relatedReviews = issue.relatedReviews
-                                    .filter(id => existingIds.includes(id.toString()));
-                                
-                                if (issue.relatedReviews.length !== originalCount) {
-                                    console.log(`Filtered out ${originalCount - issue.relatedReviews.length} non-existent review IDs from issue '${issue.title}'`);
-                                    issue.mentions = issue.relatedReviews.length;
-                                }
-                            }
-                        } catch (verifyError) {
-                            console.error('Error verifying review IDs existence:', verifyError);
-                            // Continuiamo comunque per non bloccare il processo
+            // Verifichiamo che gli ID existano nel database
+            const allReviewIds = [
+                ...(analysisResult.analysis.strengths || []).flatMap(s => s.relatedReviews || []),
+                ...(analysisResult.analysis.issues || []).flatMap(i => i.relatedReviews || [])
+            ];
+
+            if (allReviewIds.length > 0) {
+                try {
+                    // Verifica quali ID esistono effettivamente nel database
+                    const existingReviews = await Review.find({
+                        _id: { $in: allReviewIds }
+                    }).select('_id');
+                    
+                    const existingIds = existingReviews.map(r => r._id.toString());
+                    
+                    // Aggiorna nuovamente strengths e issues mantenendo solo gli ID esistenti
+                    for (const strength of (analysisResult.analysis.strengths || [])) {
+                        const originalCount = strength.relatedReviews?.length || 0;
+                        strength.relatedReviews = (strength.relatedReviews || [])
+                            .filter(id => existingIds.includes(id.toString()));
+                        
+                        if (strength.relatedReviews.length !== originalCount) {
+                            console.log(`Filtered out ${originalCount - strength.relatedReviews.length} non-existent review IDs from strength '${strength.title}'`);
+                            strength.mentions = strength.relatedReviews.length;
                         }
                     }
+                    
+                    for (const issue of (analysisResult.analysis.issues || [])) {
+                        const originalCount = issue.relatedReviews?.length || 0;
+                        issue.relatedReviews = (issue.relatedReviews || [])
+                            .filter(id => existingIds.includes(id.toString()));
+                        
+                        if (issue.relatedReviews.length !== originalCount) {
+                            console.log(`Filtered out ${originalCount - issue.relatedReviews.length} non-existent review IDs from issue '${issue.title}'`);
+                            issue.mentions = issue.relatedReviews.length;
+                        }
+                    }
+                    
+                    // Aggiorna il documento nel database una volta verificati tutti gli ID
+                    await Analysis.findByIdAndUpdate(
+                        analysisResult._id,
+                        { 
+                            'analysis.strengths': analysisResult.analysis.strengths,
+                            'analysis.issues': analysisResult.analysis.issues
+                        }
+                    );
+                } catch (verifyError) {
+                    console.error('Error verifying review IDs existence:', verifyError);
+                    // Continuiamo comunque per non bloccare il processo
                 }
-            } catch (error) {
-                console.error('Error in analysis:', error);
-                throw new Error('Error in analysis');
+            }
+
+            // Recupera l'analisi completa dal database
+            const finalAnalysis = await Analysis.findById(analysisResult._id);
+
+            // Addebita i crediti all'utente
+            try {
+                console.log(`Consumo ${creditCost} crediti per l'analisi di ${reviews.length} recensioni per l'hotel ${hotel.name}`);
+                const creditsConsumed = await creditService.consumeCredits(
+                    hotelId,
+                    'review_analysis',
+                    finalAnalysis._id.toString(),
+                    `Analisi di ${reviews.length} recensioni per ${hotel.name}`
+                );
+                
+                if (!creditsConsumed) {
+                    console.error(`⚠️ Impossibile addebitare i crediti per l'analisi con ID ${finalAnalysis._id}`);
+                    // Continuiamo comunque per non bloccare il processo
+                }
+            } catch (creditError) {
+                console.error('Errore durante il consumo dei crediti:', creditError);
+                // Continuiamo comunque per non bloccare il processo
             }
 
             return res.status(200).json({
-                _id: analysis._id,
-                analysis,
-                provider,
-                suggestions: analysis.followUpSuggestions || [],
-                suggestionsMessage
+                _id: finalAnalysis._id,
+                analysis: finalAnalysis.analysis,
+                provider: finalAnalysis.provider,
+                suggestions: finalAnalysis.followUpSuggestions || [],
+                suggestionsMessage: null
             });
+
         } catch (error) {
             console.error('Error in analyzeReviews:', error);
             return res.status(500).json({ 
