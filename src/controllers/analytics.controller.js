@@ -19,6 +19,9 @@ const openai = new OpenAI({
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// Aggiungi funzione di delay per gestire i limiti di quota
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 const generatePhase1Prompt = (hotel, reviews, platforms, avgRating) => {
     const reviewsForAnalysis = reviews.map((review, index) => ({
         id: review._id.toString(),
@@ -870,6 +873,10 @@ const analyticsController = {
                 analysisResult.analysis = initialAnalysis.analysis;
                 
                 console.log('PHASE 1: Base analysis completed and saved to database');
+                
+                // Attendiamo 70 secondi prima di passare alla fase 2
+                console.log('Waiting 70 seconds before starting Phase 2...');
+                await delay(70000);
             } catch (error) {
                 console.error('PHASE 1: Error in base analysis:', error);
                 throw new Error('Error in Phase 1: Base analysis failed');
@@ -911,6 +918,10 @@ const analyticsController = {
                 }
                 
                 console.log('PHASE 2: Strengths analysis completed and saved');
+                
+                // Attendiamo 90 secondi prima di passare alla fase 3
+                console.log('Waiting 90 seconds before starting Phase 3...');
+                await delay(90000);
             } catch (error) {
                 console.error('PHASE 2: Error in strengths analysis:', error);
                 // Continuiamo con la fase 3 anche se la fase 2 fallisce
@@ -952,6 +963,10 @@ const analyticsController = {
                 }
                 
                 console.log('PHASE 3: Issues analysis completed and saved');
+                
+                // Attendiamo 70 secondi prima di passare alla fase 4
+                console.log('Waiting 70 seconds before starting Phase 4...');
+                await delay(70000);
             } catch (error) {
                 console.error('PHASE 3: Error in issues analysis:', error);
                 // Continuiamo con la fase 4 anche se la fase 3 fallisce
