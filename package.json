@@ -37,6 +37,7 @@
     "node-cron": "^3.0.3",
     "openai": "^4.81.0",
     "pdf-parse": "^1.1.1",
+    "redis": "^4.7.0",
     "resend": "^4.0.1",
     "stripe": "^17.5.0",
     "twilio": "^5.4.4"
