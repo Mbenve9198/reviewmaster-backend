@@ -8,10 +8,12 @@ const Rule = require('../models/rule.model');
 const { franc } = require('franc-min');
 const axios = require('axios');
 const creditService = require('../services/creditService');
+const redisService = require('../services/redisService');
+const aiService = require('../services/aiService');
+const hotelService = require('../services/hotelService');
 
-// Aggiungi un sistema di deduplicazione delle richieste
-const requestCache = new Map();
-const CACHE_TTL = 60000; // 1 minuto in millisecondi
+// Rimuoviamo la cache in memoria locale che non è distribuibile
+// const requestCache = new Map();
 
 const reviewController = {
     generateResponse: async (req, res) => {
@@ -21,7 +23,7 @@ const reviewController = {
             
             console.log('Request body:', req.body);
             
-            // Crea una chiave unica per questa richiesta
+            // Crea una chiave unica per questa richiesta usando Redis invece della Map locale
             const requestKey = JSON.stringify({
                 userId,
                 hotelId,
@@ -29,29 +31,18 @@ const reviewController = {
                 responseSettings
             });
             
-            // Controllo ottimizzato con lock per evitare race condition
-            const cachedRequest = requestCache.get(requestKey);
-            if (cachedRequest) {
-                const timeSinceLastRequest = Date.now() - cachedRequest.timestamp;
-                if (timeSinceLastRequest < 10000) { // 10 secondi
-                    console.log('Duplicate request detected, ignoring...');
-                    return res.status(429).json({ 
-                        message: 'Too many similar requests. Please wait a moment before trying again.',
-                        type: 'DUPLICATE_REQUEST'
-                    });
-                }
+            // Controlla se è una richiesta duplicata usando Redis
+            const isDuplicate = await redisService.isDuplicateRequest(requestKey, 10000); // 10 secondi
+            if (isDuplicate) {
+                console.log('Duplicate request detected, ignoring...');
+                return res.status(429).json({ 
+                    message: 'Too many similar requests. Please wait a moment before trying again.',
+                    type: 'DUPLICATE_REQUEST'
+                });
             }
             
-            // Memorizza questa richiesta nel cache PRIMA di procedere
-            requestCache.set(requestKey, { 
-                timestamp: Date.now(),
-                processing: true // Indica che stiamo elaborando questa richiesta
-            });
-            
-            // Pulisci periodicamente il cache
-            setTimeout(() => {
-                requestCache.delete(requestKey);
-            }, CACHE_TTL);
+            // Registra questa richiesta in Redis
+            await redisService.registerRequest(requestKey);
             
             // Validazione input
             if (!hotelId || !review) {
@@ -60,76 +51,39 @@ const reviewController = {
                 });
             }
 
-            // Verifica l'utente e i suoi crediti
-            const user = await User.findById(userId);
+            // Controlla il rate limit per utente
+            const rateLimiterKey = `user:${userId}:review_responses`;
+            const rateLimitStatus = await redisService.rateLimit(rateLimiterKey, 10, 60); // 10 richieste al minuto
+            
+            if (!rateLimitStatus.allowed) {
+                console.log(`Rate limit exceeded for user ${userId}: ${rateLimitStatus.current}/${10}`);
+                return res.status(429).json({
+                    message: 'Rate limit exceeded. Please try again later.',
+                    type: 'RATE_LIMIT_EXCEEDED',
+                    remaining: rateLimitStatus.remaining,
+                    resetIn: '60 seconds'
+                });
+            }
+
+            // Ottieni tutti i dati necessari in modo ottimizzato
+            const { hotel, user, activeRules } = await hotelService.getHotelDataWithRules(hotelId, userId);
+            
+            // Verifica dell'utente
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            // Verifica che l'hotel appartenga all'utente
-            const hotel = await Hotel.findOne({ _id: hotelId, userId });
+            // Verifica dell'hotel
             if (!hotel) {
                 return res.status(404).json({ message: 'Hotel not found' });
             }
 
-            // Inizializza i client AI
-            const anthropic = new Anthropic({
-                apiKey: process.env.CLAUDE_API_KEY,
-            });
-            
-            const openai = new OpenAI({
-                apiKey: process.env.OPENAI_API_KEY,
-            });
+            // Rileva la lingua della recensione
+            const reviewText = typeof review === 'object' ? review.text : review;
+            const detectedLanguage = aiService.detectLanguage(reviewText);
 
             // Ottieni il nome del recensore: controlla se è presente review.name oppure review.reviewerName
             const reviewerName = typeof review === 'object' ? (review.name || review.reviewerName || 'Guest') : 'Guest';
-
-            // Rileva la lingua solo alla prima richiesta
-            let detectedLanguage = null;
-            if (!previousMessages) {
-                try {
-                    const reviewText = typeof review === 'object' ? review.text : review;
-                    
-                    // Prova prima con Claude
-                    try {
-                        const languageDetectionMessage = await anthropic.messages.create({
-                            model: "claude-3-7-sonnet-20250219",
-                            max_tokens: 50,
-                            temperature: 0,
-                            system: "You are a language detection expert. Respond only with the ISO language code.",
-                            messages: [{ role: "user", content: reviewText }]
-                        });
-                        
-                        if (languageDetectionMessage?.content?.[0]?.text) {
-                            detectedLanguage = languageDetectionMessage.content[0].text.trim();
-                        } else {
-                            detectedLanguage = 'en'; // fallback to English
-                        }
-                    } catch (claudeError) {
-                        console.log('Claude language detection failed, trying OpenAI:', claudeError.message);
-                        
-                        // Fallback a OpenAI per il rilevamento della lingua
-                        const openaiLanguageDetection = await openai.chat.completions.create({
-                            model: "gpt-4.5-preview-2025-02-27",
-                            messages: [
-                                { role: "system", content: "You are a language detection expert. Respond only with the ISO language code." },
-                                { role: "user", content: reviewText }
-                            ],
-                            max_tokens: 50,
-                            temperature: 0
-                        });
-                        
-                        if (openaiLanguageDetection?.choices?.[0]?.message?.content) {
-                            detectedLanguage = openaiLanguageDetection.choices[0].message.content.trim();
-                        } else {
-                            detectedLanguage = 'en'; // fallback to English
-                        }
-                    }
-                } catch (error) {
-                    console.error('Language detection error with both providers:', error);
-                    detectedLanguage = 'en'; // fallback to English
-                }
-            }
 
             // Costruisci le istruzioni in base alle impostazioni della risposta
             const style = responseSettings?.style || 'professional';
@@ -153,12 +107,6 @@ const reviewController = {
                 default:
                     lengthInstruction += "moderate in length, around 4-5 sentences.";
             }
-
-            // Dopo la verifica dell'hotel e prima della generazione del prompt
-            const activeRules = await Rule.find({ 
-                hotelId: hotel._id, 
-                isActive: true 
-            }).sort({ priority: -1 });
 
             // Genera il testo delle regole per il prompt
             const rulesInstructions = activeRules.length > 0 
@@ -185,24 +133,15 @@ Use the following hotel information in your response when relevant:
 - Hotel Type: ${hotel.type}
 - Hotel Description: ${hotel.description}
 
-CRITICAL INSTRUCTION: You MUST respond ONLY in the reviewer's language, which has been detected as "${detectedLanguage}". 
-Do NOT use English or any other language unless "${detectedLanguage}" is English.
-The entire response must be written in "${detectedLanguage}", following proper linguistic and cultural conventions, 
-formality levels, and grammatical structures specific to "${detectedLanguage}"-speaking cultures.
-
-BACKUP INSTRUCTION: If the detected language code "${detectedLanguage}" appears incorrect or doesn't match the language of the review, IGNORE the detected language and simply respond in the SAME LANGUAGE as the review text itself. Analyze the review text to determine its language and use that language for your response.
-
-If the review has limited or no text content, create a polite response based on:
-- The rating (if available)
-- The reviewer's name (if available)
-- General appreciation for feedback
-- An invitation to return
+CRITICAL INSTRUCTION: You MUST analyze the language of the review and respond ONLY in the SAME LANGUAGE as the reviewer used. 
+Detect the language used in the review and make sure your entire response is written in that same language,
+following proper linguistic and cultural conventions, formality levels, and grammatical structures specific to that language.
 
 Always end the response with:
 ${hotel.managerSignature}
 ${hotel.name}
 
-Format the response appropriately with proper spacing and paragraphs according to ${detectedLanguage} conventions.
+Format the response appropriately with proper spacing and paragraphs according to the conventions of the detected language.
 
 If the user asks for modifications to your previous response, adjust it according to their request while maintaining the same language and format.`;
 
@@ -227,64 +166,6 @@ If the user asks for modifications to your previous response, adjust it accordin
                 }];
             }
 
-            // Funzione per generare risposta con Claude e fallback a OpenAI
-            const generateAIResponse = async () => {
-                try {
-                    // Prima prova con Claude
-                    console.log('Attempting to generate response with Claude...');
-                    
-                    // Imposta un timeout più breve per Claude in caso di sovraccarico
-                    const claudePromise = anthropic.messages.create({
-                        model: "claude-3-7-sonnet-20250219",
-                        max_tokens: 1000,
-                        temperature: 0.7,
-                        system: systemPrompt,
-                        messages: messages
-                    });
-                    
-                    // Utilizziamo un timeout di 5 secondi per rilevare rapidamente se Claude è sovraccarico
-                    const timeoutPromise = new Promise((_, reject) => {
-                        setTimeout(() => reject(new Error('Claude timeout after 5s')), 5000);
-                    });
-                    
-                    // Race tra la risposta di Claude e il timeout
-                    const claudeResponse = await Promise.race([claudePromise, timeoutPromise]);
-                    
-                    console.log('Generated response with Claude successfully');
-                    return {
-                        text: claudeResponse?.content?.[0]?.text || 'We apologize, but we could not generate a response at this time.',
-                        provider: 'claude'
-                    };
-                } catch (claudeError) {
-                    // Se Claude fallisce, prova subito con OpenAI
-                    console.log('Claude API error, falling back to OpenAI:', claudeError.message);
-                    
-                    try {
-                        // Converti i messaggi nel formato OpenAI
-                        const openaiMessages = [
-                            { role: "system", content: systemPrompt },
-                            ...messages
-                        ];
-                        
-                        const openaiResponse = await openai.chat.completions.create({
-                            model: "gpt-4.5-preview-2025-02-27",
-                            messages: openaiMessages,
-                            max_tokens: 1000,
-                            temperature: 0.7
-                        });
-                        
-                        console.log('Generated response with OpenAI successfully');
-                        return {
-                            text: openaiResponse?.choices?.[0]?.message?.content || 'We apologize, but we could not generate a response at this time.',
-                            provider: 'openai'
-                        };
-                    } catch (openaiError) {
-                        console.error('OpenAI API error:', openaiError);
-                        throw new Error('Failed to generate response from both AI providers');
-                    }
-                }
-            };
-
             // Decrementa i crediti in base al tipo di richiesta
             const creditCost = previousMessages ? 1 : 2;  // 2 crediti per prima risposta, 1 per follow-up
 
@@ -307,7 +188,7 @@ If the user asks for modifications to your previous response, adjust it accordin
                 const creditsConsumed = await creditService.consumeCredits(
                     hotelId, 
                     'review_response', 
-                    previousMessages ? null : reviewId, 
+                    previousMessages ? null : null, // Corretto il riferimento a reviewId che era indefinito
                     `AI response to ${previousMessages ? 'follow-up' : 'review'}`
                 );
 
@@ -318,70 +199,24 @@ If the user asks for modifications to your previous response, adjust it accordin
                     });
                 }
 
-                // Genera la risposta AI
-                const aiResponseObj = await generateAIResponse();
+                // Genera la risposta AI utilizzando il nuovo servizio
+                const aiResponseObj = await aiService.generateAIResponse(systemPrompt, messages, {
+                    timeout: 15000, // Timeout più lungo di 15 secondi invece di 5
+                    maxRetries: 1    // Un solo retry
+                });
                 aiResponse = aiResponseObj.text;
 
-                // Genera suggerimenti se richiesto
+                // Genera suggerimenti se richiesto, in modo asincrono e parallelo
                 if (generateSuggestions && !previousMessages) {
-                    try {
-                        const suggestionsPrompt = `Based on this review: "${review.text}"
-
-Generate 3 relevant suggestions for improving the response. Each suggestion should be a short question or request (max 6 words).
-
-Consider:
-- Specific points mentioned in the review
-- The rating (${review.rating})
-- Areas for improvement
-- Positive aspects to emphasize
-
-Format your response as a simple array of 3 strings, nothing else. For example:
-["Address the breakfast complaint", "Highlight room cleanliness more", "Mention upcoming renovations"]`;
-
-                        // Prova prima con Claude per i suggerimenti
-                        try {
-                            const suggestionsResponse = await anthropic.messages.create({
-                                model: "claude-3-7-sonnet-20250219",
-                                max_tokens: 150,
-                                temperature: 0.7,
-                                system: "You are a helpful assistant generating suggestions for improving hotel review responses.",
-                                messages: [{ role: "user", content: suggestionsPrompt }]
-                            });
-
-                            if (suggestionsResponse?.content?.[0]?.text) {
-                                try {
-                                    suggestions = JSON.parse(suggestionsResponse.content[0].text);
-                                } catch (e) {
-                                    console.error('Error parsing Claude suggestions:', e);
-                                    suggestions = [];
-                                }
-                            }
-                        } catch (claudeSuggestionsError) {
-                            // Fallback a OpenAI per i suggerimenti
-                            console.log('Claude suggestions failed, trying OpenAI:', claudeSuggestionsError.message);
-                            
-                            const openaiSuggestionsResponse = await openai.chat.completions.create({
-                                model: "gpt-4.5-preview-2025-02-27",
-                                messages: [
-                                    { role: "system", content: "You are a helpful assistant generating suggestions for improving hotel review responses." },
-                                    { role: "user", content: suggestionsPrompt }
-                                ],
-                                max_tokens: 150,
-                                temperature: 0.7
-                            });
-                            
-                            if (openaiSuggestionsResponse?.choices?.[0]?.message?.content) {
-                                try {
-                                    suggestions = JSON.parse(openaiSuggestionsResponse.choices[0].message.content);
-                                } catch (e) {
-                                    console.error('Error parsing OpenAI suggestions:', e);
-                                    suggestions = [];
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Error generating suggestions with both providers:', error);
-                    }
+                    // Esegui questa richiesta parallelamente, senza bloccare la risposta principale
+                    aiService.generateSuggestions(review)
+                        .then(generatedSuggestions => {
+                            suggestions = generatedSuggestions;
+                        })
+                        .catch(error => {
+                            console.error('Error generating suggestions:', error);
+                            suggestions = [];
+                        });
                 }
 
                 // Salva la recensione solo se è una nuova recensione manuale e non ci sono messaggi precedenti
@@ -412,7 +247,7 @@ Format your response as a simple array of 3 strings, nothing else. For example:
                     await reviewDoc.save();
                 }
 
-                // Invia la risposta al client
+                // Invia la risposta al client senza attendere i suggerimenti
                 responseHasBeenSent = true;
                 res.json({
                     content: aiResponse,
@@ -441,6 +276,21 @@ Format your response as a simple array of 3 strings, nothing else. For example:
             const { hotelId } = req.params;
             const { platform, responseStatus, rating, search } = req.query;
             const userId = req.userId;
+
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await hotelService.getHotelWithCache(hotelId, userId);
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found' });
+            }
+
+            // Genera una chiave di cache per questa query specifica
+            const cacheKey = `reviews:${hotelId}:${platform || 'all'}:${responseStatus || 'all'}:${rating || 'all'}:${search || ''}`;
+            
+            // Controlla se abbiamo risultati in cache
+            const cachedReviews = await redisService.getCachedResponse(cacheKey);
+            if (cachedReviews) {
+                return res.json(cachedReviews);
+            }
 
             let query = { hotelId };
 
@@ -473,6 +323,9 @@ Format your response as a simple array of 3 strings, nothing else. For example:
                 .lean()
                 .exec();
 
+            // Salva in cache con TTL di 5 minuti
+            await redisService.cacheResponse(cacheKey, reviews, 300000);
+
             res.json(reviews);
         } catch (error) {
             console.error('Get hotel reviews error:', error);
@@ -486,13 +339,22 @@ Format your response as a simple array of 3 strings, nothing else. For example:
             const userId = req.userId;
 
             // Verifica che l'hotel appartenga all'utente
-            const hotel = await Hotel.findOne({ _id: hotelId, userId });
+            const hotel = await hotelService.getHotelWithCache(hotelId, userId);
             if (!hotel) {
                 return res.status(404).json({ message: 'Hotel not found' });
             }
 
+            // Genera una chiave di cache per le statistiche
+            const cacheKey = `reviews:stats:${hotelId}`;
+            
+            // Controlla se abbiamo statistiche in cache
+            const cachedStats = await redisService.getCachedResponse(cacheKey);
+            if (cachedStats) {
+                return res.json(cachedStats);
+            }
+
             const stats = await Review.aggregate([
-                { $match: { hotelId: hotel._id } },
+                { $match: { hotelId: mongoose.Types.ObjectId(hotelId) } },
                 { 
                     $group: {
                         _id: null,
@@ -505,11 +367,16 @@ Format your response as a simple array of 3 strings, nothing else. For example:
                 }
             ]);
 
-            res.json(stats[0] || {
+            const result = stats[0] || {
                 averageRating: 0,
                 totalReviews: 0,
                 responseRate: 0
-            });
+            };
+
+            // Salva in cache con TTL di 10 minuti
+            await redisService.cacheResponse(cacheKey, result, 600000);
+
+            res.json(result);
         } catch (error) {
             console.error('Get stats error:', error);
             res.status(500).json({ message: 'Error fetching statistics' });
