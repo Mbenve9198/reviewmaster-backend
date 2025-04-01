@@ -27,4 +27,8 @@ router.get('/user', (req, res) => walletController.getUserSettings(req, res));
 // Route per aggiornare le impostazioni utente
 router.patch('/user', (req, res) => walletController.updateUserSettings(req, res));
 
+// Rotte per la gestione dell'indirizzo di fatturazione
+router.get('/billing-address', walletController.getBillingAddress);
+router.post('/billing-address', walletController.saveBillingAddress);
+
 module.exports = router;

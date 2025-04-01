@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: reviewmaster-api
+    name: replai-api
     env: node
     buildCommand: npm install
     startCommand: npm start

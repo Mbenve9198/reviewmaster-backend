@@ -14,7 +14,7 @@ const calculatePricePerCredit = (credits) => {
 const walletController = {
     createPaymentIntent: async (req, res) => {
         try {
-            const { credits } = req.body;
+            const { credits, billingDetails, business_details } = req.body;
             const userId = req.userId;
 
             console.log('Creating payment intent with credits:', credits);
@@ -48,13 +48,43 @@ const walletController = {
                 if (!stripeCustomerId) {
                     console.log('Creating Stripe customer for user:', userId);
                     
-                    const customer = await stripe.customers.create({
+                    const customerData = {
                         email: user.email,
                         name: user.name || 'Customer',
                         metadata: {
                             userId: userId.toString()
                         }
-                    });
+                    };
+                    
+                    // Aggiungi i dettagli di fatturazione se disponibili
+                    if (billingDetails) {
+                        customerData.name = billingDetails.name || customerData.name;
+                        customerData.phone = billingDetails.phone;
+                        customerData.address = billingDetails.address;
+                        
+                        // Salva i dettagli di fatturazione anche nel profilo utente
+                        if (!user.billingAddress) {
+                            user.billingAddress = {
+                                name: billingDetails.name,
+                                company: business_details?.name,
+                                vatId: billingDetails.tax_ids?.find(tax => tax.type === 'eu_vat')?.value,
+                                taxId: billingDetails.tax_ids?.find(tax => tax.type === 'it_pin')?.value,
+                                address: {
+                                    line1: billingDetails.address.line1,
+                                    line2: billingDetails.address.line2,
+                                    city: billingDetails.address.city,
+                                    state: billingDetails.address.state,
+                                    postalCode: billingDetails.address.postal_code,
+                                    country: billingDetails.address.country,
+                                },
+                                phone: billingDetails.phone,
+                                isDefault: true
+                            };
+                            await user.save();
+                        }
+                    }
+                    
+                    const customer = await stripe.customers.create(customerData);
                     
                     stripeCustomerId = customer.id;
                     
@@ -64,9 +94,27 @@ const walletController = {
                     });
                     
                     console.log('Stripe customer created:', stripeCustomerId);
+                } else if (billingDetails) {
+                    // Aggiorna i dettagli del cliente Stripe esistente
+                    await stripe.customers.update(stripeCustomerId, {
+                        name: billingDetails.name,
+                        phone: billingDetails.phone,
+                        address: billingDetails.address
+                    });
+                    
+                    // Aggiorna i metadati relativi all'azienda se disponibili
+                    if (business_details?.name) {
+                        await stripe.customers.update(stripeCustomerId, {
+                            metadata: {
+                                ...user.metadata,
+                                company: business_details.name
+                            }
+                        });
+                    }
                 }
 
-                const paymentIntent = await stripe.paymentIntents.create({
+                // Crea il payment intent con i dettagli di fatturazione
+                const paymentIntentData = {
                     amount, // es: 1500 centesimi = 15€
                     currency: 'eur',
                     customer: stripeCustomerId,
@@ -79,7 +127,26 @@ const walletController = {
                     automatic_payment_methods: {
                         enabled: true,
                     },
-                });
+                };
+                
+                // Aggiungi le informazioni di fatturazione al payment intent
+                if (billingDetails) {
+                    paymentIntentData.receipt_email = user.email; // Usa l'email dell'utente per la ricevuta
+                    
+                    // Aggiungi le informazioni per la fatturazione elettronica e/o IVA
+                    if (billingDetails.tax_ids && billingDetails.tax_ids.length > 0) {
+                        paymentIntentData.payment_method_data = {
+                            billing_details: {
+                                name: billingDetails.name,
+                                email: user.email,
+                                phone: billingDetails.phone,
+                                address: billingDetails.address
+                            }
+                        };
+                    }
+                }
+                
+                const paymentIntent = await stripe.paymentIntents.create(paymentIntentData);
 
                 // Create pending transaction
                 await Transaction.create({
@@ -338,6 +405,104 @@ const walletController = {
             console.error('Update user settings error:', error);
             res.status(500).json({ 
                 message: 'Error updating user settings',
+                error: error.message 
+            });
+        }
+    },
+
+    // Ottiene l'indirizzo di fatturazione dell'utente
+    getBillingAddress: async (req, res) => {
+        try {
+            const userId = req.userId;
+            
+            if (!userId) {
+                return res.status(401).json({ message: 'User not authenticated' });
+            }
+            
+            const user = await User.findById(userId);
+            
+            if (!user) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+            
+            return res.status(200).json({ 
+                billingAddress: user.billingAddress || null 
+            });
+        } catch (error) {
+            console.error('Error getting billing address:', error);
+            return res.status(500).json({ 
+                message: 'Error retrieving billing address', 
+                error: error.message 
+            });
+        }
+    },
+
+    // Salva l'indirizzo di fatturazione dell'utente
+    saveBillingAddress: async (req, res) => {
+        try {
+            const userId = req.userId;
+            const billingAddressData = req.body;
+            
+            if (!userId) {
+                return res.status(401).json({ message: 'User not authenticated' });
+            }
+            
+            // Validazione
+            if (!billingAddressData.name || !billingAddressData.address) {
+                return res.status(400).json({ message: 'Incomplete address data' });
+            }
+            
+            const user = await User.findById(userId);
+            
+            if (!user) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+            
+            // Aggiorna l'indirizzo di fatturazione
+            user.billingAddress = billingAddressData;
+            await user.save();
+            
+            // Aggiorna anche i dettagli del cliente Stripe se esiste
+            if (user.stripeCustomerId) {
+                try {
+                    await stripe.customers.update(user.stripeCustomerId, {
+                        name: billingAddressData.name,
+                        phone: billingAddressData.phone,
+                        address: {
+                            line1: billingAddressData.address.line1,
+                            line2: billingAddressData.address.line2 || '',
+                            city: billingAddressData.address.city,
+                            state: billingAddressData.address.state || '',
+                            postal_code: billingAddressData.address.postalCode,
+                            country: billingAddressData.address.country,
+                        },
+                    });
+                    
+                    // Se c'è un'azienda, aggiunge anche i metadata
+                    if (billingAddressData.company) {
+                        await stripe.customers.update(user.stripeCustomerId, {
+                            metadata: {
+                                ...user.metadata,
+                                company: billingAddressData.company,
+                                vatId: billingAddressData.vatId || '',
+                                taxId: billingAddressData.taxId || ''
+                            }
+                        });
+                    }
+                } catch (stripeError) {
+                    console.error('Error updating Stripe customer:', stripeError);
+                    // Non blocchiamo l'operazione se l'aggiornamento Stripe fallisce
+                }
+            }
+            
+            return res.status(200).json({ 
+                message: 'Billing address saved successfully',
+                billingAddress: user.billingAddress
+            });
+        } catch (error) {
+            console.error('Error saving billing address:', error);
+            return res.status(500).json({ 
+                message: 'Error saving billing address', 
                 error: error.message 
             });
         }

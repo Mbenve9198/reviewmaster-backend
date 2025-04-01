@@ -72,8 +72,8 @@ const corsOptions = {
         'http://localhost:3001',
         'https://replai.app',
         'https://www.replai.app',
-        'https://reviewmaster-frontend-75touh5ri-marco-midachatcoms-projects.vercel.app',
-        'https://reviewmaster-frontend.vercel.app'
+        'https://replai-frontend-75touh5ri-marco-midachatcoms-projects.vercel.app',
+        'https://replai-frontend.vercel.app'
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -91,7 +91,7 @@ app.options('*', cors(corsOptions));
 
 // Health check
 app.get('/', (req, res) => {
-    res.json({ message: 'ReviewMaster API is running' });
+    res.json({ message: 'Replai API is running' });
 });
 
 // Routes

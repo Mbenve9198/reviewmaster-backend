@@ -1,6 +1,41 @@
 const mongoose = require('mongoose');
 const AppSettings = require('./app-settings.model');
 
+const billingAddressSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true
+    },
+    company: String,
+    vatId: String,
+    taxId: String,
+    address: {
+        line1: {
+            type: String,
+            required: true
+        },
+        line2: String,
+        city: {
+            type: String,
+            required: true
+        },
+        state: String,
+        postalCode: {
+            type: String,
+            required: true
+        },
+        country: {
+            type: String,
+            required: true
+        }
+    },
+    phone: String,
+    isDefault: {
+        type: Boolean,
+        default: true
+    }
+}, { _id: false });
+
 const userSchema = new mongoose.Schema({
     email: {
         type: String,
@@ -35,6 +70,7 @@ const userSchema = new mongoose.Schema({
             default: 0
         }
     },
+    billingAddress: billingAddressSchema,
     createdAt: {
         type: Date,
         default: Date.now
