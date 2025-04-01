@@ -119,52 +119,77 @@ const walletController = {
                     currency: 'eur',
                     customer: stripeCustomerId,
                     setup_future_usage: 'off_session', // Importante: permette di riutilizzare questo metodo di pagamento in futuro
+                    
+                    // Abilita Stripe Tax per il calcolo automatico dell'IVA
+                    automatic_tax: {
+                        enabled: true,
+                    },
+                    // Specifica che l'importo è al netto di tasse (verrà aggiunta l'IVA se necessario)
+                    tax_behavior: 'exclusive',
+                    
+                    // Dettagli del cliente necessari per il calcolo delle tasse
+                    customer_details: {
+                        address: billingDetails?.address || {},
+                        email: user.email,
+                        name: billingDetails?.name || user.name,
+                        phone: billingDetails?.phone,
+                        tax_ids: billingDetails?.tax_ids || []
+                    },
+                    
+                    // Abilita la raccolta degli ID fiscali (P.IVA, ecc.)
+                    tax_id_collection: {
+                        enabled: true
+                    },
+                    
                     metadata: {
                         userId,
                         credits,
                         pricePerCredit
                     },
-                    automatic_payment_methods: {
-                        enabled: true,
-                    },
+                    payment_method_types: ['card'], // Mostra solo pagamento con carta
                 };
                 
                 // Aggiungi le informazioni di fatturazione al payment intent
                 if (billingDetails) {
                     paymentIntentData.receipt_email = user.email; // Usa l'email dell'utente per la ricevuta
                     
-                    // Aggiungi le informazioni per la fatturazione elettronica e/o IVA
-                    if (billingDetails.tax_ids && billingDetails.tax_ids.length > 0) {
-                        paymentIntentData.payment_method_data = {
-                            billing_details: {
-                                name: billingDetails.name,
-                                email: user.email,
-                                phone: billingDetails.phone,
-                                address: billingDetails.address
-                            }
-                        };
-                    }
+                    // Le informazioni fiscali e l'indirizzo sono già impostate in customer_details
+                    // Non è necessario impostare payment_method_data (che richiede anche il campo 'type')
                 }
                 
                 const paymentIntent = await stripe.paymentIntents.create(paymentIntentData);
+
+                // Ottieni l'importo totale con le tasse incluse (se presenti)
+                const totalAmount = paymentIntent.amount;
+                const taxAmount = paymentIntent.automatic_tax?.enabled ? 
+                    (paymentIntent.automatic_tax.calculated_tax || 0) : 0;
+                
+                // Calcola il prezzo finale in euro (non in centesimi)
+                const finalTotalPrice = totalAmount / 100;
+                const taxPrice = taxAmount / 100;
 
                 // Create pending transaction
                 await Transaction.create({
                     userId,
                     type: 'purchase',
                     credits,
-                    amount: totalPrice, // Salviamo il prezzo in euro
+                    amount: finalTotalPrice, // Salviamo il prezzo totale in euro
                     status: 'pending',
                     description: `Purchase of ${credits} credits`,
                     metadata: {
                         stripePaymentIntentId: paymentIntent.id,
-                        pricePerCredit
+                        pricePerCredit,
+                        baseAmount: totalPrice,
+                        taxAmount: taxPrice,
+                        hasTax: taxAmount > 0
                     }
                 });
 
                 res.json({
                     clientSecret: paymentIntent.client_secret,
-                    amount,
+                    amount: totalAmount, // Importo in centesimi inclusa IVA
+                    baseAmount: amount, // Importo base in centesimi
+                    taxAmount, // Importo IVA in centesimi
                     credits,
                     pricePerCredit
                 });
