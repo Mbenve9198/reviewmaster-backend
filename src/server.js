@@ -114,6 +114,15 @@ app.use('/api/whatsapp-assistant', whatsappAssistantRoutes);
 // Aggiungi una route specifica per il redirect che sia accessibile pubblicamente
 app.get('/api/redirect/review', whatsappAssistantController.handleReviewRedirect);
 
+// Aggiungi anche una route per gestire il formato /api/redirect/review/{linkId}
+app.get('/api/redirect/review/*', whatsappAssistantController.handleReviewRedirect);
+
+// Aggiungi anche route per il formato /review/* (più corto e user-friendly)
+app.get('/review/*', whatsappAssistantController.handleReviewRedirect);
+
+// Aggiungi anche route per il formato specifico dell'API WhatsApp
+app.get('/api/whatsapp/review/*', whatsappAssistantController.handleReviewRedirect);
+
 // Stripe webhook route
 app.post('/api/webhook/stripe', require('./routes/stripe.webhook'));
 

@@ -767,14 +767,29 @@ const whatsappAssistantController = {
                     
                     console.log('Utilizzando template recensione:', contentSid);
                     
+                    // Client Twilio
+                    const twilioClient = twilio(
+                        process.env.TWILIO_ACCOUNT_SID,
+                        process.env.TWILIO_AUTH_TOKEN
+                    );
+                    
                     // Utilizza lo scheduling nativo di Twilio con template
                     console.log('Chiamata a Twilio API per scheduling con template...');
+                    
+                    // Costruisce un URL di reindirizzamento corretto che include /review/ seguito dal link originale
+                    const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api.replai.app';
+                    const encodedReviewLink = encodeURIComponent(assistant.reviewLink);
+                    const redirectUrl = `${baseUrl}/review/${encodedReviewLink}`;
+                    
+                    console.log('Link di recensione originale:', assistant.reviewLink);
+                    console.log('Link di recensione codificato:', redirectUrl);
+                    
                     const twilioMessage = await twilioClient.messages.create({
                         contentSid: contentSid,
                         contentVariables: JSON.stringify({
                             1: assistant.hotelId.name,                   // Nome hotel
                             2: interaction.profileName || 'Guest',       // Nome cliente
-                            3: assistant.reviewLink                      // Link di recensione da usare nel reindirizzamento
+                            3: redirectUrl                              // Link di recensione modificato per il reindirizzamento
                         }),
                         from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
                         to: interaction.phoneNumber,
@@ -1512,91 +1527,231 @@ ${userMessages.join('\n\n')}`
 
     handleReviewRedirect: async (req, res) => {
         try {
-            // Ottieni il link ID dalla richiesta
-            const { id } = req.query;
+            console.log('=== INIZIO GESTIONE REINDIRIZZAMENTO RECENSIONE ===');
+            console.log('URL originalUrl:', req.originalUrl);
+            console.log('URL path:', req.path);
+            console.log('Query string completa:', req.url.split('?')[1] || 'NESSUNA');
+            console.log('Query params:', JSON.stringify(req.query));
+            
+            // STEP 1: Gestione DIRETTA dell'URL completo nel percorso
+            // Questo nuovo approccio controlla PRIMA se l'intero URL contiene un reindirizzamento
+            const fullPath = req.originalUrl;
+            console.log('Percorso completo ricevuto:', fullPath);
+            
+            // Verifica se il percorso contiene un'URL di recensione (TripAdvisor, Google, ecc.)
+            if (fullPath.includes('/review/')) {
+                // Estrai tutto ciò che viene dopo "/review/"
+                let redirectUrl = fullPath.split('/review/')[1];
+                console.log('URL estratto dopo /review/:', redirectUrl || 'NESSUNO');
+                
+                if (redirectUrl) {
+                    // Gestione URL malformati specifici
+                    // Caso 1: URL senza protocollo
+                    if (redirectUrl.startsWith('www.')) {
+                        redirectUrl = 'https://' + redirectUrl;
+                        console.log('Aggiunto protocollo https a URL che inizia con www:', redirectUrl);
+                    }
+                    
+                    // Caso 2: URL con https:/ invece di https://
+                    if (redirectUrl.startsWith('https:/') && !redirectUrl.startsWith('https://')) {
+                        redirectUrl = redirectUrl.replace('https:/', 'https://');
+                        console.log('Corretto URL malformato (https:/):', redirectUrl);
+                    }
+                    
+                    // Caso 3: URL con http:/ invece di http://
+                    if (redirectUrl.startsWith('http:/') && !redirectUrl.startsWith('http://')) {
+                        redirectUrl = redirectUrl.replace('http:/', 'http://');
+                        console.log('Corretto URL malformato (http:/):', redirectUrl);
+                    }
+                    
+                    // Verifica che sia un URL valido per recensioni
+                    if (
+                        redirectUrl.includes('tripadvisor') || 
+                        redirectUrl.includes('google.com/maps') || 
+                        redirectUrl.includes('booking.com') ||
+                        redirectUrl.includes('trustpilot')
+                    ) {
+                        console.log('URL riconosciuto come valido per recensioni, reindirizzamento diretto a:', redirectUrl);
+                        return res.redirect(redirectUrl);
+                    } else {
+                        console.log('URL estratto non riconosciuto come piattaforma di recensione:', redirectUrl);
+                    }
+                } else {
+                    console.log('ERRORE: Percorso contiene /review/ ma nessun URL dopo');
+                }
+            }
+            
+            // STEP 2: Ottenere l'ID dalla richiesta in vari modi possibili
+            let id = null;
+            
+            // Metodo 1: Dalla query string ?id=xyz
+            if (req.query && req.query.id) {
+                id = req.query.id;
+                console.log('ID trovato nella query string:', id);
+            }
+            
+            // Metodo 2: Dai parametri dell'URL route /:id
+            if (!id && req.params && req.params[0]) {
+                id = req.params[0];
+                console.log('ID trovato nei parametri URL:', id);
+            }
+            
+            // Metodo 3: Dall'ultimo segmento del path
+            if (!id) {
+                const urlParts = req.originalUrl.split('/');
+                if (urlParts.length > 0) {
+                    id = urlParts[urlParts.length - 1];
+                    // Se c'è una query string, rimuoviamola
+                    if (id && id.includes('?')) {
+                        id = id.split('?')[0];
+                    }
+                    console.log('ID estratto dall\'ultimo segmento URL:', id);
+                }
+            }
             
             if (!id) {
+                console.log('ERRORE: Nessun ID trovato nella richiesta');
                 return res.status(400).json({ message: 'Missing review link ID' });
             }
             
-            console.log('Review redirect request received for ID:', id);
+            // STEP 3: Correggi URL malformati (caso specifico https:/ invece di https://)
+            if (id.includes('https:/') && !id.includes('https://')) {
+                id = id.replace('https:/', 'https://');
+                console.log('URL corretto da formato malformato:', id);
+            }
             
-            // Trova l'hotel corrispondente al link di recensione
+            // STEP 4: Gestisci il caso specifico del link completo nel path
+            // Verifica se l'URL completo è nella forma /review/https://www.tripadvisor...
+            if (req.originalUrl.includes('/review/http')) {
+                const urlMatch = req.originalUrl.match(/\/review\/(https?:\/\/.*)/);
+                if (urlMatch && urlMatch[1]) {
+                    const extractedUrl = urlMatch[1];
+                    console.log('URL estratto direttamente dal path completo:', extractedUrl);
+                    
+                    // Verifica se l'URL è un link TripAdvisor, Google o Booking
+                    if (extractedUrl.includes('tripadvisor') || 
+                        extractedUrl.includes('google.com') || 
+                        extractedUrl.includes('booking.com')) {
+                        console.log('Reindirizzamento diretto all\'URL estratto dal path');
+                        return res.redirect(extractedUrl);
+                    }
+                }
+            }
+            
+            // STEP 5: Decodifica l'ID se è URL encoded
+            let decodedId = id;
+            try {
+                // Verifica se l'ID è già un URL valido (potrebbe non essere codificato)
+                if (id.startsWith('http')) {
+                    console.log('ID già in formato URL non codificato:', id);
+                } else {
+                    // Prova a decodificare (potrebbe generare errore se non è URL encoded)
+                    decodedId = decodeURIComponent(id);
+                    console.log('ID decodificato da URL encoded:', decodedId);
+                    
+                    // Dopo decodifica, controlla di nuovo la forma malformata https:/
+                    if (decodedId.includes('https:/') && !decodedId.includes('https://')) {
+                        decodedId = decodedId.replace('https:/', 'https://');
+                        console.log('URL decodificato corretto da formato malformato:', decodedId);
+                    }
+                }
+            } catch (decodeError) {
+                console.log('Errore nella decodifica URL, uso ID originale:', decodeError.message);
+                // Continua con l'ID originale
+            }
+            
+            // STEP 6: Se l'ID decodificato è un URL completo, reindirizza direttamente
+            if (decodedId.startsWith('http')) {
+                console.log('AZIONE: Reindirizzamento diretto all\'URL:', decodedId);
+                return res.redirect(decodedId);
+            }
+            
+            // STEP 7: Caso speciale per URL di TripAdvisor malformati
+            if (decodedId.includes('tripadvisor') || decodedId.includes('google.com') || decodedId.includes('booking.com')) {
+                // Prova a correggere URL malformati per TripAdvisor e altri
+                if (decodedId.includes('www.tripadvisor') && !decodedId.startsWith('http')) {
+                    const fixedUrl = 'https://' + decodedId;
+                    console.log('AZIONE: Correzione di URL TripAdvisor senza protocollo:', fixedUrl);
+                    return res.redirect(fixedUrl);
+                }
+                
+                // In caso sia ancora un URL malformato ma riconoscibile come TripAdvisor
+                console.log('AZIONE: URL riconosciuto come recensione, tentativo di reindirizzamento diretto');
+                return res.redirect(decodedId);
+            }
+            
+            // STEP 8: Cerca l'hotel o l'assistente nel database
+            console.log('Ricerca nel database per hotel o assistenti con reviewLink...');
+            
+            // Cerca hotel con reviewLink corrispondente
             const hotel = await Hotel.findOne({ reviewLink: { $regex: id, $options: 'i' } });
             
-            if (!hotel) {
-                console.log('No hotel found with the provided review link ID');
-                // Se non troviamo un hotel, cerca se l'ID è esattamente il link di recensione
-                const assistant = await WhatsAppAssistant.findOne({ reviewLink: id }).populate('hotelId');
+            if (hotel) {
+                console.log('TROVATO: Hotel con ID:', hotel._id);
+                console.log('AZIONE: Reindirizzamento a:', hotel.reviewLink);
                 
-                if (assistant) {
-                    console.log('Found assistant with exact review link match:', assistant._id);
-                    return res.redirect(assistant.reviewLink);
-                }
-                
-                // Se non troviamo nulla, cerca un hotel con quel reviewLink esatto
-                const exactHotel = await Hotel.findOne({ reviewLink: id });
-                if (exactHotel) {
-                    console.log('Found hotel with exact review link match:', exactHotel._id);
-                    return res.redirect(exactHotel.reviewLink);
-                }
-                
-                // Se ancora non troviamo nulla, cerca l'assistente che contiene questo reviewLink
-                const partialAssistant = await WhatsAppAssistant.findOne({ 
-                    reviewLink: { $regex: id, $options: 'i' } 
-                }).populate('hotelId');
-                
-                if (partialAssistant) {
-                    console.log('Found assistant with partial review link match:', partialAssistant._id);
-                    return res.redirect(partialAssistant.reviewLink);
-                }
-                
-                // Fallback: reindirizza a una pagina generica
-                console.log('No matching hotel or assistant found, using fallback');
-                return res.redirect('https://replai.app/');
-            }
-            
-            console.log('Found hotel with ID:', hotel._id, 'Redirecting to:', hotel.reviewLink);
-            
-            // Traccia il clic (se necessario)
-            // Questo è opzionale, ma utile per le analitiche
-            try {
-                // Trova l'interazione WhatsApp più recente per questo hotel
-                const interaction = await WhatsappInteraction.findOne({
-                    hotelId: hotel._id
-                }).sort({ lastInteraction: -1 });
-                
-                if (interaction) {
-                    // Se l'interazione ha un oggetto reviewTracking, aggiornalo
-                    if (interaction.reviewTracking) {
-                        interaction.reviewTracking.clicked = true;
-                        interaction.reviewTracking.clickedAt = new Date();
-                        interaction.reviewTracking.clickCount += 1;
-                    } else {
-                        // Altrimenti crea un nuovo oggetto reviewTracking
-                        interaction.reviewTracking = {
-                            trackingId: id,
-                            sentAt: interaction.reviewScheduledFor || new Date(),
-                            clicked: true,
-                            clickedAt: new Date(),
-                            clickCount: 1
-                        };
-                    }
+                // Traccia il clic (se possibile)
+                try {
+                    const interaction = await WhatsappInteraction.findOne({
+                        hotelId: hotel._id
+                    }).sort({ lastInteraction: -1 });
                     
-                    await interaction.save();
-                    console.log('Review click tracked for interaction:', interaction._id);
+                    if (interaction) {
+                        if (interaction.reviewTracking) {
+                            interaction.reviewTracking.clicked = true;
+                            interaction.reviewTracking.clickedAt = new Date();
+                            interaction.reviewTracking.clickCount += 1;
+                        } else {
+                            interaction.reviewTracking = {
+                                trackingId: id,
+                                sentAt: interaction.reviewScheduledFor || new Date(),
+                                clicked: true,
+                                clickedAt: new Date(),
+                                clickCount: 1
+                            };
+                        }
+                        
+                        await interaction.save();
+                        console.log('Tracciamento clic registrato per interazione:', interaction._id);
+                    }
+                } catch (trackingError) {
+                    console.error('Errore nel tracciamento del clic:', trackingError);
+                    // Continuiamo con il reindirizzamento comunque
                 }
-            } catch (trackingError) {
-                console.error('Error tracking review click:', trackingError);
-                // Continuiamo con il reindirizzamento anche se il tracciamento fallisce
+                
+                return res.redirect(hotel.reviewLink);
             }
             
-            // Reindirizza l'utente all'URL di recensione effettivo
-            res.redirect(hotel.reviewLink);
+            // Se non troviamo un hotel, cerca un assistente
+            console.log('Nessun hotel trovato, cerco assistenti...');
+            
+            // Cerca assistente con reviewLink esatto
+            const assistant = await WhatsAppAssistant.findOne({ reviewLink: id }).populate('hotelId');
+            if (assistant) {
+                console.log('TROVATO: Assistente con ID:', assistant._id);
+                console.log('AZIONE: Reindirizzamento a:', assistant.reviewLink);
+                return res.redirect(assistant.reviewLink);
+            }
+            
+            // Cerca assistente con reviewLink parziale
+            const partialAssistant = await WhatsAppAssistant.findOne({ 
+                reviewLink: { $regex: id, $options: 'i' } 
+            }).populate('hotelId');
+            
+            if (partialAssistant) {
+                console.log('TROVATO: Assistente con match parziale, ID:', partialAssistant._id);
+                console.log('AZIONE: Reindirizzamento a:', partialAssistant.reviewLink);
+                return res.redirect(partialAssistant.reviewLink);
+            }
+            
+            // Fallback: reindirizza alla home
+            console.log('FALLBACK: Nessuna corrispondenza trovata, reindirizzamento alla home');
+            console.log('=== FINE GESTIONE REINDIRIZZAMENTO RECENSIONE ===');
+            return res.redirect('https://replai.app/');
         } catch (error) {
-            console.error('Error in handleReviewRedirect:', error);
-            // In caso di errore, reindirizza a una pagina generica
-            res.redirect('https://replai.app/');
+            console.error('ERRORE in handleReviewRedirect:', error);
+            // In caso di errore, reindirizza alla home
+            return res.redirect('https://replai.app/');
         }
     },
 
@@ -1795,12 +1950,21 @@ ${userMessages.join('\n\n')}`
             
             // Utilizza lo scheduling nativo di Twilio con template
             console.log('Chiamata a Twilio API per scheduling con template...');
+            
+            // Costruisce un URL di reindirizzamento corretto che include /review/ seguito dal link originale
+            const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api.replai.app';
+            const encodedReviewLink = encodeURIComponent(assistant.reviewLink);
+            const redirectUrl = `${baseUrl}/review/${encodedReviewLink}`;
+            
+            console.log('Link di recensione originale:', assistant.reviewLink);
+            console.log('Link di recensione codificato:', redirectUrl);
+            
             const twilioMessage = await twilioClient.messages.create({
                 contentSid: contentSid,
                 contentVariables: JSON.stringify({
                     1: assistant.hotelId.name,                   // Nome hotel
                     2: interaction.profileName || 'Guest',       // Nome cliente
-                    3: assistant.reviewLink                      // Link di recensione da usare nel reindirizzamento
+                    3: redirectUrl                              // Link di recensione modificato per il reindirizzamento
                 }),
                 from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
                 to: interaction.phoneNumber,
