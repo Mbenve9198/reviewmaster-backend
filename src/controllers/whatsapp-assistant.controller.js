@@ -26,13 +26,13 @@ const COUNTRY_CODES = {
   // Aggiungi altri paesi secondo necessità
 };
 
-// Template messaggi multilingua per le recensioni
-const REVIEW_MESSAGES = {
-  it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione: {{REVIEW_LINK}}`,
-  en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review: {{REVIEW_LINK}}`,
-  fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis: {{REVIEW_LINK}}`,
-  de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung hinterlassen könnten: {{REVIEW_LINK}}`,
-  es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña: {{REVIEW_LINK}}`
+// Mapping contenente i Content SID dei template di recensione per ogni lingua
+const REVIEW_TEMPLATE_SID = {
+  it: 'HX4533258c317da64b5096ab96d1f815ed', // Template italiano
+  en: 'HX374a99c6efa8f6b7780e75e000be8698', // Template inglese
+  fr: 'HX0f2f6e50fcd2cbd8b29310362371d963', // Template francese
+  es: 'HXfc19c13ead7074cd24147e20220844d7', // Template spagnolo
+  de: 'HX8eb545806565f0a4ddade6b4319836ee'  // Template tedesco
 };
 
 const RATE_LIMITS = {
@@ -702,11 +702,11 @@ const whatsappAssistantController = {
             let reviewScheduled = false;
             
             // Verifica se una recensione è stata inviata negli ultimi 3 mesi
-            const treeMonthsAgo = new Date();
-            treeMonthsAgo.setMonth(treeMonthsAgo.getMonth() - 3);
+            const threeMonthsAgo = new Date();
+            threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
             
             const recentReviews = interaction.reviewRequests?.filter(
-                review => new Date(review.requestedAt) > treeMonthsAgo
+                review => new Date(review.requestedAt) > threeMonthsAgo
             ) || [];
             
             if (recentReviews.length > 0) {
@@ -721,7 +721,7 @@ const whatsappAssistantController = {
             // 2. L'assistente ha un link per le recensioni configurato
             if (recentReviews.length === 0 && assistant.reviewLink) {
                 try {
-                    console.log('*** TENTATIVO DI SCHEDULING RECENSIONE ***');
+                    console.log('*** TENTATIVO DI SCHEDULING RECENSIONE (funzione dedicata) ***');
                     
                     const delayDays = assistant.reviewRequestDelay || 3;
                     const scheduledDate = new Date();
@@ -758,26 +758,23 @@ const whatsappAssistantController = {
                         return matchingPrefix ? COUNTRY_CODES[matchingPrefix] : 'en';
                     };
                     
+                    // Sostituisco il codice che invia il messaggio di recensione usando il template
                     const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
                     console.log('Lingua utente rilevata:', userLanguage);
+
+                    // Recupera il Content SID appropriato in base alla lingua dell'utente
+                    const contentSid = REVIEW_TEMPLATE_SID[userLanguage] || REVIEW_TEMPLATE_SID.en;
                     
-                    const REVIEW_MESSAGES = {
-                        it: (hotelName) => `Ciao! Grazie per aver scelto ${hotelName}. Ti è piaciuto il tuo soggiorno? Ci aiuterebbe molto se potessi lasciarci una recensione: ${assistant.reviewLink}`,
-                        en: (hotelName) => `Hello! Thank you for choosing ${hotelName}. Did you enjoy your stay? It would help us a lot if you could leave us a review: ${assistant.reviewLink}`,
-                        fr: (hotelName) => `Bonjour! Merci d'avoir choisi ${hotelName}. Avez-vous apprécié votre séjour? Cela nous aiderait beaucoup si vous pouviez nous laisser un avis: ${assistant.reviewLink}`,
-                        de: (hotelName) => `Hallo! Vielen Dank, dass Sie sich für ${hotelName} entschieden haben. Hat Ihnen Ihr Aufenthalt gefallen? Es würde uns sehr helfen, wenn Sie uns eine Bewertung hinterlassen könnten: ${assistant.reviewLink}`,
-                        es: (hotelName) => `¡Hola! Gracias por elegir ${hotelName}. ¿Disfrutaste tu estancia? Nos ayudaría mucho si pudieras dejarnos una reseña: ${assistant.reviewLink}`
-                    };
+                    console.log('Utilizzando template recensione:', contentSid);
                     
-                    const messageTemplate = REVIEW_MESSAGES[userLanguage] || REVIEW_MESSAGES.en;
-                    const reviewMessage = messageTemplate(assistant.hotelId.name);
-                        
-                    console.log('MESSAGGIO RECENSIONE:', reviewMessage);
-                    
-                    // Utilizza lo scheduling nativo di Twilio
-                    console.log('Chiamata a Twilio API per scheduling...');
+                    // Utilizza lo scheduling nativo di Twilio con template
+                    console.log('Chiamata a Twilio API per scheduling con template...');
                     const twilioMessage = await twilioClient.messages.create({
-                        body: reviewMessage,
+                        contentSid: contentSid,
+                        contentVariables: JSON.stringify({
+                            1: assistant.hotelId.name,  // Nome hotel
+                            2: assistant.reviewLink     // Link recensione
+                        }),
                         from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
                         to: interaction.phoneNumber,
                         messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
@@ -1572,6 +1569,148 @@ ${userMessages.join('\n\n')}`
                 message: 'Error fetching message limits',
                 error: error.message
             });
+        }
+    },
+
+    // Funzione per scheduling delle recensioni utilizzando i template
+    scheduleReviewRequest: async (interaction, assistant) => {
+        try {
+            console.log('*** TENTATIVO DI SCHEDULING RECENSIONE (funzione dedicata) ***');
+            
+            // Verifica se una recensione è stata inviata negli ultimi 3 mesi
+            const threeMonthsAgo = new Date();
+            threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+            
+            const recentReviews = interaction.reviewRequests?.filter(
+                review => new Date(review.requestedAt) > threeMonthsAgo
+            ) || [];
+            
+            if (recentReviews.length > 0) {
+                console.log('Recensione già inviata negli ultimi 3 mesi:', {
+                    dataUltimaRecensione: recentReviews[recentReviews.length - 1].requestedAt,
+                    giorniPassati: Math.floor((new Date() - new Date(recentReviews[recentReviews.length - 1].requestedAt)) / (1000 * 60 * 60 * 24))
+                });
+                return false;
+            }
+            
+            // Scheduliamo una recensione solo se l'assistente ha un link configurato
+            if (!assistant.reviewLink) {
+                console.log('Non scheduliamo: assistente senza link per recensioni configurato');
+                return false;
+            }
+            
+            const delayDays = assistant.reviewRequestDelay || 3;
+            const scheduledDate = new Date();
+            scheduledDate.setDate(scheduledDate.getDate() + delayDays);
+            
+            console.log('DETTAGLI SCHEDULING:', {
+                phoneNumber: interaction.phoneNumber,
+                hotelName: assistant.hotelId.name,
+                scheduledDate: scheduledDate.toISOString(),
+                delayDays,
+                reviewLink: assistant.reviewLink
+            });
+            
+            // Utility per ottenere la lingua dal numero di telefono
+            const getLanguageFromPhone = (phoneNumber) => {
+                const COUNTRY_CODES = {
+                    '39': 'it',
+                    '44': 'en',
+                    '33': 'fr',
+                    '49': 'de',
+                    '34': 'es',
+                    '31': 'en',
+                    '351': 'en',
+                    '41': 'de',
+                    '43': 'de',
+                    '32': 'fr'
+                };
+                
+                const cleanNumber = phoneNumber.replace('whatsapp:', '').replace('+', '');
+                const matchingPrefix = Object.keys(COUNTRY_CODES)
+                    .sort((a, b) => b.length - a.length)
+                    .find(prefix => cleanNumber.startsWith(prefix));
+                
+                return matchingPrefix ? COUNTRY_CODES[matchingPrefix] : 'en';
+            };
+            
+            const userLanguage = getLanguageFromPhone(interaction.phoneNumber);
+            console.log('Lingua utente rilevata:', userLanguage);
+            
+            // Recupera il Content SID appropriato in base alla lingua dell'utente
+            const contentSid = REVIEW_TEMPLATE_SID[userLanguage] || REVIEW_TEMPLATE_SID.en;
+            
+            console.log('Utilizzando template recensione:', contentSid);
+            
+            // Client Twilio
+            const twilioClient = twilio(
+                process.env.TWILIO_ACCOUNT_SID,
+                process.env.TWILIO_AUTH_TOKEN
+            );
+            
+            // Utilizza lo scheduling nativo di Twilio con template
+            console.log('Chiamata a Twilio API per scheduling con template...');
+            const twilioMessage = await twilioClient.messages.create({
+                contentSid: contentSid,
+                contentVariables: JSON.stringify({
+                    1: assistant.hotelId.name,  // Nome hotel
+                    2: assistant.reviewLink     // Link recensione
+                }),
+                from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                to: interaction.phoneNumber,
+                messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+                scheduleType: 'fixed',
+                sendAt: scheduledDate.toISOString()
+            });
+            
+            console.log('SUCCESSO! Twilio response:', {
+                sid: twilioMessage.sid,
+                status: twilioMessage.status,
+                dateCreated: twilioMessage.dateCreated
+            });
+            
+            // Consuma crediti per il messaggio programmato
+            try {
+                await creditService.consumeCredits(
+                    assistant.hotelId._id.toString(),
+                    'scheduled',
+                    interaction._id,
+                    `Richiesta recensione programmata per ${interaction.phoneNumber}`
+                );
+            } catch (creditError) {
+                console.error('Error consuming credits for scheduled message:', creditError);
+                // Continuiamo comunque poiché il messaggio è già stato programmato
+            }
+            
+            // Aggiorna l'interazione con la recensione programmata
+            if (!interaction.reviewRequests) {
+                interaction.reviewRequests = [];
+            }
+            
+            interaction.reviewRequests.push({
+                requestedAt: scheduledDate,
+                messageId: twilioMessage.sid
+            });
+            
+            // Aggiorna anche i campi legacy per retrocompatibilità
+            interaction.reviewRequested = true;
+            interaction.reviewScheduledFor = scheduledDate;
+            
+            console.log('Aggiornamento database con info recensione...');
+            await interaction.save();
+            
+            console.log('RECENSIONE SCHEDULATA CON SUCCESSO!');
+            return true;
+        } catch (error) {
+            console.error('ERRORE SCHEDULING RECENSIONE:', error);
+            console.error('Stack trace:', error.stack);
+            
+            if (error.code) {
+                console.error('Twilio error code:', error.code);
+                console.error('Twilio error message:', error.message);
+            }
+            
+            throw error;
         }
     }
 };
