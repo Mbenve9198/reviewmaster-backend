@@ -167,6 +167,19 @@ whatsappInteractionSchema.methods.incrementDailyCounter = function(type) {
     
     const index = this.dailyInteractions.indexOf(todayInteraction);
     
+    // Assicuriamoci che i contatori esistano prima di incrementarli
+    if (!this.dailyInteractions[index].inboundCount) {
+        this.dailyInteractions[index].inboundCount = 0;
+    }
+    
+    if (!this.dailyInteractions[index].outboundCount) {
+        this.dailyInteractions[index].outboundCount = 0;
+    }
+    
+    if (!this.dailyInteractions[index].count) {
+        this.dailyInteractions[index].count = 0;
+    }
+    
     if (type === 'inbound') {
         this.dailyInteractions[index].inboundCount += 1;
     } else if (type === 'outbound') {
