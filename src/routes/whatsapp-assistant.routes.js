@@ -21,6 +21,10 @@ router.post('/:hotelId/rules', whatsappAssistantController.addRule);
 router.put('/:hotelId/rules/:ruleId', whatsappAssistantController.updateRule);
 router.delete('/:hotelId/rules/:ruleId', whatsappAssistantController.deleteRule);
 
+// Routes per i limiti di messaggi
+router.get('/:hotelId/message-limits', whatsappAssistantController.getMessageLimits);
+router.put('/:hotelId/message-limits', whatsappAssistantController.updateMessageLimits);
+
 router.get('/:hotelId/conversations', whatsappAssistantController.getConversations);
 
 router.get('/:hotelId/analytics', whatsappAssistantController.getAnalytics);

@@ -54,6 +54,35 @@ const whatsappAssistantSchema = new mongoose.Schema({
         type: String,
         default: 'Europe/Rome'
     },
+    // Limiti giornalieri di messaggi per cliente
+    messageLimits: {
+        inboundPerDay: {
+            type: Number,
+            default: 5,
+            min: 5,  // Minimo 5 messaggi in ingresso al giorno
+            validate: {
+                validator: function(v) {
+                    return v >= 5;
+                },
+                message: props => `Il limite minimo per i messaggi in ingresso è 5, hai impostato ${props.value}`
+            }
+        },
+        outboundPerDay: {
+            type: Number,
+            default: 5,
+            min: 5,  // Minimo 5 messaggi in uscita al giorno
+            validate: {
+                validator: function(v) {
+                    return v >= 5;
+                },
+                message: props => `Il limite minimo per i messaggi in uscita è 5, hai impostato ${props.value}`
+            }
+        },
+        enabled: {
+            type: Boolean,
+            default: true
+        }
+    },
     // Informazioni sull'hotel
     breakfast: {
         type: mongoose.Schema.Types.Mixed,

@@ -9,8 +9,8 @@ const mongoose = require('mongoose');
 
 // Valori di default che saranno sostituiti dai valori caricati dal database
 let CREDIT_COSTS = {
-  INBOUND_MESSAGE: 0.5,
-  OUTBOUND_MESSAGE: 0.5,
+  INBOUND_MESSAGE: 0.2,
+  OUTBOUND_MESSAGE: 0.2,
   SCHEDULED_MESSAGE: 1.0,
   REVIEW_RESPONSE: 2.0,
   REVIEW_ANALYSIS: 1.0

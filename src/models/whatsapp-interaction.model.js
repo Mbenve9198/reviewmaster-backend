@@ -74,6 +74,15 @@ const whatsappInteractionSchema = new mongoose.Schema({
             type: Date,
             required: true
         },
+        inboundCount: {
+            type: Number,
+            default: 0
+        },
+        outboundCount: {
+            type: Number,
+            default: 0
+        },
+        // Manteniamo il campo count per retrocompatibilità
         count: {
             type: Number,
             default: 1
@@ -109,5 +118,60 @@ whatsappInteractionSchema.index({ hotelId: 1, phoneNumber: 1 }, { unique: true }
 
 // Indice composto per ottimizzare le query per hotelId e phoneNumber
 whatsappInteractionSchema.index({ hotelId: 1, phoneNumber: 1 });
+
+// Metodo per verificare se l'utente ha raggiunto il limite giornaliero
+whatsappInteractionSchema.methods.hasReachedDailyLimit = function(type, limit) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const todayInteraction = this.dailyInteractions.find(
+        interaction => new Date(interaction.date).setHours(0, 0, 0, 0) === today.getTime()
+    );
+    
+    if (!todayInteraction) {
+        return false;
+    }
+    
+    if (type === 'inbound') {
+        return todayInteraction.inboundCount >= limit;
+    } else if (type === 'outbound') {
+        return todayInteraction.outboundCount >= limit;
+    }
+    
+    return false;
+};
+
+// Metodo per incrementare il contatore dei messaggi giornalieri
+whatsappInteractionSchema.methods.incrementDailyCounter = function(type) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    let todayInteraction = this.dailyInteractions.find(
+        interaction => new Date(interaction.date).setHours(0, 0, 0, 0) === today.getTime()
+    );
+    
+    if (!todayInteraction) {
+        todayInteraction = {
+            date: today,
+            inboundCount: 0,
+            outboundCount: 0,
+            count: 0  // Per retrocompatibilità
+        };
+        this.dailyInteractions.push(todayInteraction);
+    }
+    
+    const index = this.dailyInteractions.indexOf(todayInteraction);
+    
+    if (type === 'inbound') {
+        this.dailyInteractions[index].inboundCount += 1;
+    } else if (type === 'outbound') {
+        this.dailyInteractions[index].outboundCount += 1;
+    }
+    
+    // Aggiorna anche il contatore totale per retrocompatibilità
+    this.dailyInteractions[index].count += 1;
+    
+    return this.dailyInteractions[index];
+};
 
 module.exports = mongoose.model('WhatsappInteraction', whatsappInteractionSchema); 

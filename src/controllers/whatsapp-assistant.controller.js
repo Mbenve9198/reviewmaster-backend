@@ -52,6 +52,19 @@ const getLanguageFromPhone = (phoneNumber) => {
   return matchingPrefix ? COUNTRY_CODES[matchingPrefix] : 'en'; // Default a inglese
 };
 
+// Funzione per ottenere il testo sui limiti giornalieri in diverse lingue
+const getDailyLimitText = (language, inboundLimit, outboundLimit) => {
+  const messageLimitsText = {
+    it: `Per tua informazione: puoi inviare fino a ${inboundLimit} messaggi al giorno e ricevere fino a ${outboundLimit} risposte.`,
+    en: `Just to let you know: you can send up to ${inboundLimit} messages per day and receive up to ${outboundLimit} responses.`,
+    fr: `Pour information: vous pouvez envoyer jusqu'à ${inboundLimit} messages par jour et recevoir jusqu'à ${outboundLimit} réponses.`,
+    de: `Zur Information: Sie können bis zu ${inboundLimit} Nachrichten pro Tag senden und bis zu ${outboundLimit} Antworten erhalten.`,
+    es: `Para tu información: puedes enviar hasta ${inboundLimit} mensajes al día y recibir hasta ${outboundLimit} respuestas.`
+  };
+  
+  return messageLimitsText[language] || messageLimitsText.en;
+};
+
 const whatsappAssistantController = {
     createAssistant: async (req, res) => {
         try {
@@ -567,6 +580,73 @@ const whatsappAssistantController = {
                 console.log('CREDITI BASSI per hotel:', assistant.hotelId.name, 'Saldo:', creditStatus.credits);
             }
             
+            // Verifica limiti di messaggi
+            console.log('=== VERIFICA LIMITI MESSAGGI ===');
+            
+            if (assistant.messageLimits && assistant.messageLimits.enabled) {
+                // Incrementa il contatore dei messaggi in ingresso
+                interaction.incrementDailyCounter('inbound');
+                
+                // Verifica se l'utente ha superato il limite giornaliero
+                const inboundLimit = assistant.messageLimits.inboundPerDay || 5;
+                const outboundLimit = assistant.messageLimits.outboundPerDay || 5;
+                
+                console.log('Limiti messaggi configurati:', {
+                    inbound: inboundLimit,
+                    outbound: outboundLimit,
+                    enabled: assistant.messageLimits.enabled
+                });
+                
+                // Verifica e registra le interazioni di oggi
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const todayInteraction = interaction.dailyInteractions.find(
+                    interaction => new Date(interaction.date).setHours(0, 0, 0, 0) === today.getTime()
+                );
+                
+                if (todayInteraction) {
+                    console.log('Interazioni odierne:', {
+                        inbound: todayInteraction.inboundCount,
+                        outbound: todayInteraction.outboundCount,
+                        limiteInbound: inboundLimit,
+                        limiteOutbound: outboundLimit
+                    });
+                }
+                
+                // Verifica se l'utente ha raggiunto il limite di messaggi in ingresso
+                const hasReachedInboundLimit = interaction.hasReachedDailyLimit('inbound', inboundLimit);
+                
+                if (hasReachedInboundLimit) {
+                    console.log('LIMITE MESSAGGI RAGGIUNTO per cliente:', message.ProfileName || 'Ospite');
+                    
+                    // Prepara il messaggio multilingua di limite raggiunto
+                    const limitMessage = {
+                        it: `Spiacenti, hai raggiunto il limite giornaliero di ${inboundLimit} messaggi. Potrai inviare altri messaggi domani.`,
+                        en: `Sorry, you have reached the daily limit of ${inboundLimit} messages. You can send more messages tomorrow.`,
+                        fr: `Désolé, vous avez atteint la limite quotidienne de ${inboundLimit} messages. Vous pourrez envoyer d'autres messages demain.`,
+                        de: `Entschuldigung, Sie haben das tägliche Limit von ${inboundLimit} Nachrichten erreicht. Sie können morgen weitere Nachrichten senden.`,
+                        es: `Lo sentimos, has alcanzado el límite diario de ${inboundLimit} mensajes. Podrás enviar más mensajes mañana.`
+                    };
+                    
+                    const userLanguage = getLanguageFromPhone(message.From);
+                    
+                    // Non consumare crediti per questo messaggio di risposta
+                    await twilioClient.messages.create({
+                        body: limitMessage[userLanguage] || limitMessage.en,
+                        from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                        to: message.From,
+                        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                    });
+                    
+                    // Salva l'interazione con il conteggio aggiornato
+                    await interaction.save();
+                    
+                    // Return empty TwiML response
+                    res.set('Content-Type', 'text/xml');
+                    return res.send('<Response></Response>');
+                }
+            }
+            
             // Procedi con il consumo dei crediti per il messaggio in ingresso
             try {
                 await creditService.consumeCredits(
@@ -860,6 +940,12 @@ Respond in THE SAME LANGUAGE the user is using, regardless of their phone number
 Only use ${userLanguage.toUpperCase()} as a fallback if you cannot clearly determine the language from their message.
 Maintain a warm and personal tone.
 
+${isNewConversation && assistant.messageLimits && assistant.messageLimits.enabled ? `IMPORTANT: For this FIRST message only, after your greeting, include this information about message limits in a natural, conversational way (translate it appropriately to match the user's language):
+
+"${getDailyLimitText(userLanguage, assistant.messageLimits.inboundPerDay, assistant.messageLimits.outboundPerDay)}"
+
+Make this information sound friendly and natural, not like a system message. Integrate it smoothly into your conversation.` : ''}
+
 Remember:
 - You're having a casual chat with ${message.ProfileName}, like a helpful concierge at the hotel
 - Keep responses conversational and natural, avoiding formal or robotic language
@@ -984,40 +1070,64 @@ console.log('Hotel details:', {
             res.set('Content-Type', 'text/xml');
             res.send('<Response></Response>');
 
-            // Consumo crediti per il messaggio in uscita
-            try {
-                await creditService.consumeCredits(
-                    assistant.hotelId._id.toString(), 
-                    'outbound', 
-                    interaction._id, 
-                    `Messaggio WhatsApp in uscita per ${message.ProfileName || 'Ospite'}`
-                );
-
-                // Log dettagliato dei crediti consumati
-                console.log('=== CREDITI CONSUMATI (OUTBOUND) ===');
-                console.log(`- Costo messaggio in uscita: ${creditService.CREDIT_COSTS.OUTBOUND_MESSAGE} crediti`);
-                console.log(`- A: ${message.ProfileName || 'Ospite'} (${message.From})`);
-                console.log(`- Hotel: ${assistant.hotelId.name} (ID: ${assistant.hotelId._id})`);
+            // Verifica limiti di messaggi in uscita
+            let canSendOutboundMessage = true;
+            
+            if (assistant.messageLimits && assistant.messageLimits.enabled) {
+                // Verifica se l'utente ha superato il limite giornaliero dei messaggi in uscita
+                const outboundLimit = assistant.messageLimits.outboundPerDay || 5;
+                const hasReachedOutboundLimit = interaction.hasReachedDailyLimit('outbound', outboundLimit);
                 
-                // Nuovo log per il totale dei crediti consumati
-                console.log('=== RIEPILOGO CREDITI ===');
-                console.log(`- Totale crediti consumati per questa interazione: ${creditService.CREDIT_COSTS.INBOUND_MESSAGE + creditService.CREDIT_COSTS.OUTBOUND_MESSAGE}`);
-            } catch (creditError) {
-                // Log dell'errore senza interrompere il flusso o inviare una nuova risposta
-                // (La risposta è già stata inviata sopra con res.send)
-                console.error('Error consuming credits for outbound message:', creditError);
+                if (hasReachedOutboundLimit) {
+                    console.log('LIMITE MESSAGGI IN USCITA RAGGIUNTO per cliente:', message.ProfileName || 'Ospite');
+                    canSendOutboundMessage = false;
+                    
+                    // Log dettagliato ma non inviamo nessun messaggio (per non peggiorare l'esperienza utente)
+                    console.log(`Impossibile inviare risposta: limite di ${outboundLimit} messaggi in uscita raggiunto`);
+                }
             }
-
-            // Invia la risposta conversazionale via Twilio
-            try {
-                await client.messages.create({
-                    body: assistantResponse,
-                    from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
-                    to: message.From,
-                    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
-                });
-            } catch (twilioError) {
-                console.error('Errore invio messaggio Twilio:', twilioError);
+            
+            if (canSendOutboundMessage) {
+                // Consumo crediti per il messaggio in uscita
+                try {
+                    await creditService.consumeCredits(
+                        assistant.hotelId._id.toString(), 
+                        'outbound', 
+                        interaction._id, 
+                        `Messaggio WhatsApp in uscita per ${message.ProfileName || 'Ospite'}`
+                    );
+    
+                    // Log dettagliato dei crediti consumati
+                    console.log('=== CREDITI CONSUMATI (OUTBOUND) ===');
+                    console.log(`- Costo messaggio in uscita: ${creditService.CREDIT_COSTS.OUTBOUND_MESSAGE} crediti`);
+                    console.log(`- A: ${message.ProfileName || 'Ospite'} (${message.From})`);
+                    console.log(`- Hotel: ${assistant.hotelId.name} (ID: ${assistant.hotelId._id})`);
+                    
+                    // Nuovo log per il totale dei crediti consumati
+                    console.log('=== RIEPILOGO CREDITI ===');
+                    console.log(`- Totale crediti consumati per questa interazione: ${creditService.CREDIT_COSTS.INBOUND_MESSAGE + creditService.CREDIT_COSTS.OUTBOUND_MESSAGE}`);
+                } catch (creditError) {
+                    // Log dell'errore senza interrompere il flusso o inviare una nuova risposta
+                    // (La risposta è già stata inviata sopra con res.send)
+                    console.error('Error consuming credits for outbound message:', creditError);
+                }
+    
+                // Invia la risposta conversazionale via Twilio
+                try {
+                    // Incrementa il contatore dei messaggi in uscita
+                    interaction.incrementDailyCounter('outbound');
+                    await interaction.save();
+                    
+                    // Invia il messaggio tramite Twilio
+                    await twilioClient.messages.create({
+                        body: assistantResponse,
+                        from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                        to: message.From,
+                        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                    });
+                } catch (twilioError) {
+                    console.error('Errore invio messaggio Twilio:', twilioError);
+                }
             }
         } catch (error) {
             console.error('WhatsApp webhook error:', error);
@@ -1359,6 +1469,98 @@ ${userMessages.join('\n\n')}`
             });
         }
     },
+
+    updateMessageLimits: async (req, res) => {
+        try {
+            const { hotelId } = req.params;
+            const { inboundPerDay, outboundPerDay, enabled } = req.body;
+            
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+            
+            // Trova l'assistente WhatsApp dell'hotel
+            const assistant = await WhatsAppAssistant.findOne({ hotelId });
+            if (!assistant) {
+                return res.status(404).json({ message: 'Assistant not found' });
+            }
+            
+            // Inizializza la struttura se non esiste
+            if (!assistant.messageLimits) {
+                assistant.messageLimits = {
+                    inboundPerDay: 5,
+                    outboundPerDay: 5,
+                    enabled: true
+                };
+            }
+            
+            // Aggiorna i limiti se forniti nella richiesta
+            if (inboundPerDay !== undefined) {
+                // Assicuriamo che il valore sia almeno 5
+                assistant.messageLimits.inboundPerDay = Math.max(5, inboundPerDay);
+            }
+            
+            if (outboundPerDay !== undefined) {
+                // Assicuriamo che il valore sia almeno 5
+                assistant.messageLimits.outboundPerDay = Math.max(5, outboundPerDay);
+            }
+            
+            if (enabled !== undefined) {
+                assistant.messageLimits.enabled = enabled;
+            }
+            
+            // Salva le modifiche
+            await assistant.save();
+            
+            // Restituisci i dati aggiornati
+            res.json({
+                hotelId: assistant.hotelId,
+                messageLimits: assistant.messageLimits
+            });
+        } catch (error) {
+            console.error('Update message limits error:', error);
+            res.status(500).json({ 
+                message: 'Error updating message limits',
+                error: error.message
+            });
+        }
+    },
+
+    getMessageLimits: async (req, res) => {
+        try {
+            const { hotelId } = req.params;
+            
+            // Verifica che l'hotel appartenga all'utente
+            const hotel = await Hotel.findOne({ _id: hotelId, userId: req.userId });
+            if (!hotel) {
+                return res.status(404).json({ message: 'Hotel not found or unauthorized' });
+            }
+            
+            // Trova l'assistente WhatsApp dell'hotel
+            const assistant = await WhatsAppAssistant.findOne({ hotelId });
+            if (!assistant) {
+                return res.status(404).json({ message: 'Assistant not found' });
+            }
+            
+            // Restituisci i dati dei limiti
+            res.json({
+                hotelId: assistant.hotelId,
+                messageLimits: assistant.messageLimits || {
+                    inboundPerDay: 5,
+                    outboundPerDay: 5,
+                    enabled: true
+                }
+            });
+        } catch (error) {
+            console.error('Get message limits error:', error);
+            res.status(500).json({ 
+                message: 'Error fetching message limits',
+                error: error.message
+            });
+        }
+    }
 };
 
 module.exports = whatsappAssistantController;

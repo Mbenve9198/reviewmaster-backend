@@ -21,11 +21,11 @@ const appSettingsSchema = new mongoose.Schema({
         costs: {
             inboundMessage: {
                 type: Number,
-                default: 0.5
+                default: 0.2
             },
             outboundMessage: {
                 type: Number,
-                default: 0.5
+                default: 0.2
             },
             scheduledMessage: {
                 type: Number,
