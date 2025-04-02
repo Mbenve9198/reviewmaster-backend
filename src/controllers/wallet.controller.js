@@ -146,7 +146,11 @@ const walletController = {
                         credits,
                         pricePerCredit
                     },
-                    payment_method_types: ['card'], // Mostra solo pagamento con carta
+                    automatic_payment_methods: {
+                        enabled: true,
+                        allow_redirects: 'never',
+                        payment_method_types: ['card'] // Limita solo al pagamento con carta
+                    },
                 };
                 
                 // Aggiungi le informazioni di fatturazione al payment intent
