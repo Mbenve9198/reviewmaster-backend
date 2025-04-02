@@ -776,10 +776,10 @@ const whatsappAssistantController = {
                     // Utilizza lo scheduling nativo di Twilio con template
                     console.log('Chiamata a Twilio API per scheduling con template...');
                     
-                    // Costruisce un URL di reindirizzamento corretto che include /review/ seguito dal link originale
+                    // Costruisce un URL di reindirizzamento usando il formato con query parameter che funziona correttamente
                     const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api.replai.app';
                     const encodedReviewLink = encodeURIComponent(assistant.reviewLink);
-                    const redirectUrl = `${baseUrl}/review/${encodedReviewLink}`;
+                    const redirectUrl = `${baseUrl}/api/redirect/review?id=${encodedReviewLink}`;
                     
                     console.log('Link di recensione originale:', assistant.reviewLink);
                     console.log('Link di recensione codificato:', redirectUrl);
@@ -1951,10 +1951,10 @@ ${userMessages.join('\n\n')}`
             // Utilizza lo scheduling nativo di Twilio con template
             console.log('Chiamata a Twilio API per scheduling con template...');
             
-            // Costruisce un URL di reindirizzamento corretto che include /review/ seguito dal link originale
+            // Costruisce un URL di reindirizzamento usando il formato con query parameter che funziona correttamente
             const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api.replai.app';
             const encodedReviewLink = encodeURIComponent(assistant.reviewLink);
-            const redirectUrl = `${baseUrl}/review/${encodedReviewLink}`;
+            const redirectUrl = `${baseUrl}/api/redirect/review?id=${encodedReviewLink}`;
             
             console.log('Link di recensione originale:', assistant.reviewLink);
             console.log('Link di recensione codificato:', redirectUrl);
