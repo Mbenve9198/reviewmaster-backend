@@ -146,6 +146,11 @@ whatsappInteractionSchema.methods.incrementDailyCounter = function(type) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
+    // Assicuriamoci che dailyInteractions esista
+    if (!this.dailyInteractions) {
+        this.dailyInteractions = [];
+    }
+    
     let todayInteraction = this.dailyInteractions.find(
         interaction => new Date(interaction.date).setHours(0, 0, 0, 0) === today.getTime()
     );

@@ -1153,14 +1153,14 @@ console.log('Hotel details:', {
             
             // Try to send a fallback message in case of error
             try {
-                if (message && message.From) {
+                if (req.body && req.body.From) {
                     await twilio(
                         process.env.TWILIO_ACCOUNT_SID,
                         process.env.TWILIO_AUTH_TOKEN
                     ).messages.create({
                         body: "I apologize, but I couldn't process your message. Please try again later.",
                         from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
-                        to: message.From,
+                        to: req.body.From,
                         messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
                     });
                 }
