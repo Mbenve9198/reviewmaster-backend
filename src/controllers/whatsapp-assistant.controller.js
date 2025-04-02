@@ -772,8 +772,9 @@ const whatsappAssistantController = {
                     const twilioMessage = await twilioClient.messages.create({
                         contentSid: contentSid,
                         contentVariables: JSON.stringify({
-                            1: assistant.hotelId.name,  // Nome hotel
-                            2: assistant.reviewLink     // Link recensione
+                            1: assistant.hotelId.name,                   // Nome hotel
+                            2: interaction.profileName || 'Guest',       // Nome cliente
+                            3: assistant.reviewLink                      // Link di recensione da usare nel reindirizzamento
                         }),
                         from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
                         to: interaction.phoneNumber,
@@ -1248,6 +1249,39 @@ console.log('Hotel details:', {
             // Calcola il tasso di clic
             const clickThroughRate = reviewsSent > 0 ? (reviewsClicked / reviewsSent) * 100 : 0;
             
+            // Raccoglie dati dettagliati sui clic delle recensioni
+            const reviewClickDetails = interactions
+                .filter(interaction => interaction.reviewTracking && interaction.reviewTracking.clicked)
+                .map(interaction => ({
+                    phoneNumber: interaction.phoneNumber,
+                    profileName: interaction.profileName || 'Ospite',
+                    clickedAt: interaction.reviewTracking.clickedAt,
+                    sentAt: interaction.reviewTracking.sentAt || interaction.reviewScheduledFor,
+                    clickCount: interaction.reviewTracking.clickCount || 1,
+                    // Calcola il tempo impiegato per cliccare (in ore)
+                    timeTaken: interaction.reviewTracking.clickedAt && interaction.reviewTracking.sentAt ? 
+                        Math.round((new Date(interaction.reviewTracking.clickedAt) - new Date(interaction.reviewTracking.sentAt)) / (1000 * 60 * 60)) : 
+                        null
+                }))
+                .sort((a, b) => new Date(b.clickedAt) - new Date(a.clickedAt)); // Ordina per data di clic (più recenti prima)
+            
+            // Statistiche temporali sui clic
+            const clickTimings = reviewClickDetails
+                .filter(detail => detail.timeTaken !== null)
+                .reduce((acc, detail) => {
+                    // Raggruppa i tempi in categorie
+                    let category;
+                    if (detail.timeTaken < 1) {
+                        category = 'lessThanHour';
+                    } else if (detail.timeTaken < 24) {
+                        category = 'sameDay';
+                    } else {
+                        category = 'laterDays';
+                    }
+                    acc[category]++;
+                    return acc;
+                }, { lessThanHour: 0, sameDay: 0, laterDays: 0 });
+            
             // Analisi messaggi per giorno negli ultimi 30 giorni
             const thirtyDaysAgo = new Date();
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -1275,12 +1309,39 @@ console.log('Hotel details:', {
                 });
             });
             
+            // Clic su recensioni per giorno negli ultimi 30 giorni
+            const reviewClicksByDay = {};
+            
+            // Inizializza gli ultimi 30 giorni a zero
+            for (let i = 0; i < 30; i++) {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                const dateString = date.toISOString().split('T')[0];
+                reviewClicksByDay[dateString] = 0;
+            }
+            
+            // Popola con i dati reali
+            reviewClickDetails.forEach(detail => {
+                if (detail.clickedAt && new Date(detail.clickedAt) >= thirtyDaysAgo) {
+                    const dateString = new Date(detail.clickedAt).toISOString().split('T')[0];
+                    if (dateString in reviewClicksByDay) {
+                        reviewClicksByDay[dateString]++;
+                    }
+                }
+            });
+            
             // Converti in array per il frontend
             const messagesByDate = Object.keys(messagesPerDay).map(date => ({
                 date,
                 user: messagesPerDay[date].user,
                 assistant: messagesPerDay[date].assistant,
                 total: messagesPerDay[date].user + messagesPerDay[date].assistant
+            })).sort((a, b) => a.date.localeCompare(b.date));
+            
+            // Converti in array per il frontend
+            const clicksByDate = Object.keys(reviewClicksByDay).map(date => ({
+                date,
+                clicks: reviewClicksByDay[date]
             })).sort((a, b) => a.date.localeCompare(b.date));
             
             res.json({
@@ -1291,7 +1352,13 @@ console.log('Hotel details:', {
                 reviewsSent,
                 reviewsClicked,
                 clickThroughRate,
-                messagesByDate
+                messagesByDate,
+                // Nuovi dati sui clic delle recensioni
+                reviewClicks: {
+                    details: reviewClickDetails,
+                    timings: clickTimings,
+                    byDate: clicksByDate
+                }
             });
         } catch (error) {
             console.error('Get analytics error:', error);
@@ -1445,13 +1512,91 @@ ${userMessages.join('\n\n')}`
 
     handleReviewRedirect: async (req, res) => {
         try {
-            // Implementazione temporanea di base
+            // Ottieni il link ID dalla richiesta
             const { id } = req.query;
-            // Reindirizza a una pagina predefinita o restituisci un messaggio
-            res.send("Review redirect functionality will be implemented soon");
+            
+            if (!id) {
+                return res.status(400).json({ message: 'Missing review link ID' });
+            }
+            
+            console.log('Review redirect request received for ID:', id);
+            
+            // Trova l'hotel corrispondente al link di recensione
+            const hotel = await Hotel.findOne({ reviewLink: { $regex: id, $options: 'i' } });
+            
+            if (!hotel) {
+                console.log('No hotel found with the provided review link ID');
+                // Se non troviamo un hotel, cerca se l'ID è esattamente il link di recensione
+                const assistant = await WhatsAppAssistant.findOne({ reviewLink: id }).populate('hotelId');
+                
+                if (assistant) {
+                    console.log('Found assistant with exact review link match:', assistant._id);
+                    return res.redirect(assistant.reviewLink);
+                }
+                
+                // Se non troviamo nulla, cerca un hotel con quel reviewLink esatto
+                const exactHotel = await Hotel.findOne({ reviewLink: id });
+                if (exactHotel) {
+                    console.log('Found hotel with exact review link match:', exactHotel._id);
+                    return res.redirect(exactHotel.reviewLink);
+                }
+                
+                // Se ancora non troviamo nulla, cerca l'assistente che contiene questo reviewLink
+                const partialAssistant = await WhatsAppAssistant.findOne({ 
+                    reviewLink: { $regex: id, $options: 'i' } 
+                }).populate('hotelId');
+                
+                if (partialAssistant) {
+                    console.log('Found assistant with partial review link match:', partialAssistant._id);
+                    return res.redirect(partialAssistant.reviewLink);
+                }
+                
+                // Fallback: reindirizza a una pagina generica
+                console.log('No matching hotel or assistant found, using fallback');
+                return res.redirect('https://replai.app/');
+            }
+            
+            console.log('Found hotel with ID:', hotel._id, 'Redirecting to:', hotel.reviewLink);
+            
+            // Traccia il clic (se necessario)
+            // Questo è opzionale, ma utile per le analitiche
+            try {
+                // Trova l'interazione WhatsApp più recente per questo hotel
+                const interaction = await WhatsappInteraction.findOne({
+                    hotelId: hotel._id
+                }).sort({ lastInteraction: -1 });
+                
+                if (interaction) {
+                    // Se l'interazione ha un oggetto reviewTracking, aggiornalo
+                    if (interaction.reviewTracking) {
+                        interaction.reviewTracking.clicked = true;
+                        interaction.reviewTracking.clickedAt = new Date();
+                        interaction.reviewTracking.clickCount += 1;
+                    } else {
+                        // Altrimenti crea un nuovo oggetto reviewTracking
+                        interaction.reviewTracking = {
+                            trackingId: id,
+                            sentAt: interaction.reviewScheduledFor || new Date(),
+                            clicked: true,
+                            clickedAt: new Date(),
+                            clickCount: 1
+                        };
+                    }
+                    
+                    await interaction.save();
+                    console.log('Review click tracked for interaction:', interaction._id);
+                }
+            } catch (trackingError) {
+                console.error('Error tracking review click:', trackingError);
+                // Continuiamo con il reindirizzamento anche se il tracciamento fallisce
+            }
+            
+            // Reindirizza l'utente all'URL di recensione effettivo
+            res.redirect(hotel.reviewLink);
         } catch (error) {
             console.error('Error in handleReviewRedirect:', error);
-            res.status(500).json({ message: 'Internal server error' });
+            // In caso di errore, reindirizza a una pagina generica
+            res.redirect('https://replai.app/');
         }
     },
 
@@ -1653,8 +1798,9 @@ ${userMessages.join('\n\n')}`
             const twilioMessage = await twilioClient.messages.create({
                 contentSid: contentSid,
                 contentVariables: JSON.stringify({
-                    1: assistant.hotelId.name,  // Nome hotel
-                    2: assistant.reviewLink     // Link recensione
+                    1: assistant.hotelId.name,                   // Nome hotel
+                    2: interaction.profileName || 'Guest',       // Nome cliente
+                    3: assistant.reviewLink                      // Link di recensione da usare nel reindirizzamento
                 }),
                 from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
                 to: interaction.phoneNumber,
