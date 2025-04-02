@@ -121,75 +121,154 @@ whatsappInteractionSchema.index({ hotelId: 1, phoneNumber: 1 });
 
 // Metodo per verificare se l'utente ha raggiunto il limite giornaliero
 whatsappInteractionSchema.methods.hasReachedDailyLimit = function(type, limit) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const todayInteraction = this.dailyInteractions.find(
-        interaction => new Date(interaction.date).setHours(0, 0, 0, 0) === today.getTime()
-    );
-    
-    if (!todayInteraction) {
+    try {
+        if (!this.dailyInteractions || !Array.isArray(this.dailyInteractions)) {
+            return false; // Se non ci sono interazioni, non abbiamo raggiunto il limite
+        }
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        // Cerca l'interazione di oggi in modo sicuro
+        let todayInteraction = null;
+        
+        for (let i = 0; i < this.dailyInteractions.length; i++) {
+            const interaction = this.dailyInteractions[i];
+            if (interaction && interaction.date) {
+                const interactionDate = new Date(interaction.date);
+                interactionDate.setHours(0, 0, 0, 0);
+                
+                if (interactionDate.getTime() === today.getTime()) {
+                    todayInteraction = interaction;
+                    break;
+                }
+            }
+        }
+        
+        if (!todayInteraction) {
+            return false;
+        }
+        
+        if (type === 'inbound') {
+            return (todayInteraction.inboundCount || 0) >= limit;
+        } else if (type === 'outbound') {
+            return (todayInteraction.outboundCount || 0) >= limit;
+        }
+        
         return false;
+    } catch (error) {
+        console.error('Error in hasReachedDailyLimit:', error);
+        return false; // In caso di errore, meglio non bloccare l'utente
     }
-    
-    if (type === 'inbound') {
-        return todayInteraction.inboundCount >= limit;
-    } else if (type === 'outbound') {
-        return todayInteraction.outboundCount >= limit;
-    }
-    
-    return false;
 };
 
 // Metodo per incrementare il contatore dei messaggi giornalieri
 whatsappInteractionSchema.methods.incrementDailyCounter = function(type) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    // Assicuriamoci che dailyInteractions esista
-    if (!this.dailyInteractions) {
-        this.dailyInteractions = [];
-    }
-    
-    let todayInteraction = this.dailyInteractions.find(
-        interaction => new Date(interaction.date).setHours(0, 0, 0, 0) === today.getTime()
-    );
-    
-    if (!todayInteraction) {
-        todayInteraction = {
+    try {
+        // Inizializza l'array se non esiste
+        if (!this.dailyInteractions || !Array.isArray(this.dailyInteractions)) {
+            this.dailyInteractions = [];
+        }
+        
+        // Preparazione data di oggi
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        // Cerca l'interazione di oggi in modo sicuro
+        let todayInteractionIndex = -1;
+        
+        for (let i = 0; i < this.dailyInteractions.length; i++) {
+            const interaction = this.dailyInteractions[i];
+            if (interaction && interaction.date) {
+                const interactionDate = new Date(interaction.date);
+                interactionDate.setHours(0, 0, 0, 0);
+                
+                if (interactionDate.getTime() === today.getTime()) {
+                    todayInteractionIndex = i;
+                    break;
+                }
+            }
+        }
+        
+        // Se non esiste, crea una nuova interazione per oggi
+        if (todayInteractionIndex === -1) {
+            const newInteraction = {
+                date: today,
+                inboundCount: 0,
+                outboundCount: 0,
+                count: 0
+            };
+            
+            this.dailyInteractions.push(newInteraction);
+            todayInteractionIndex = this.dailyInteractions.length - 1;
+        }
+        
+        // Assicurati che l'oggetto e i contatori siano inizializzati
+        if (!this.dailyInteractions[todayInteractionIndex]) {
+            this.dailyInteractions[todayInteractionIndex] = {
+                date: today,
+                inboundCount: 0,
+                outboundCount: 0,
+                count: 0
+            };
+        }
+        
+        if (typeof this.dailyInteractions[todayInteractionIndex].inboundCount !== 'number') {
+            this.dailyInteractions[todayInteractionIndex].inboundCount = 0;
+        }
+        
+        if (typeof this.dailyInteractions[todayInteractionIndex].outboundCount !== 'number') {
+            this.dailyInteractions[todayInteractionIndex].outboundCount = 0;
+        }
+        
+        if (typeof this.dailyInteractions[todayInteractionIndex].count !== 'number') {
+            this.dailyInteractions[todayInteractionIndex].count = 0;
+        }
+        
+        // Incrementa i contatori appropriati
+        if (type === 'inbound') {
+            this.dailyInteractions[todayInteractionIndex].inboundCount += 1;
+        } else if (type === 'outbound') {
+            this.dailyInteractions[todayInteractionIndex].outboundCount += 1;
+        }
+        
+        // Aggiorna il contatore totale per retrocompatibilità
+        this.dailyInteractions[todayInteractionIndex].count += 1;
+        
+        // Verifica finale e log per debug
+        console.log('Daily interaction after increment:', JSON.stringify({
+            index: todayInteractionIndex,
+            date: this.dailyInteractions[todayInteractionIndex].date,
+            inboundCount: this.dailyInteractions[todayInteractionIndex].inboundCount,
+            outboundCount: this.dailyInteractions[todayInteractionIndex].outboundCount,
+            count: this.dailyInteractions[todayInteractionIndex].count
+        }));
+        
+        return this.dailyInteractions[todayInteractionIndex];
+    } catch (error) {
+        // Gestione errori
+        console.error('Error in incrementDailyCounter:', error);
+        
+        // Fallback: crea un nuovo contatore
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const fallbackCounter = {
             date: today,
-            inboundCount: 0,
-            outboundCount: 0,
-            count: 0  // Per retrocompatibilità
+            inboundCount: type === 'inbound' ? 1 : 0,
+            outboundCount: type === 'outbound' ? 1 : 0,
+            count: 1
         };
-        this.dailyInteractions.push(todayInteraction);
+        
+        // Se possibile, aggiungi all'array
+        if (Array.isArray(this.dailyInteractions)) {
+            this.dailyInteractions.push(fallbackCounter);
+        } else {
+            this.dailyInteractions = [fallbackCounter];
+        }
+        
+        return fallbackCounter;
     }
-    
-    const index = this.dailyInteractions.indexOf(todayInteraction);
-    
-    // Assicuriamoci che i contatori esistano prima di incrementarli
-    if (!this.dailyInteractions[index].inboundCount) {
-        this.dailyInteractions[index].inboundCount = 0;
-    }
-    
-    if (!this.dailyInteractions[index].outboundCount) {
-        this.dailyInteractions[index].outboundCount = 0;
-    }
-    
-    if (!this.dailyInteractions[index].count) {
-        this.dailyInteractions[index].count = 0;
-    }
-    
-    if (type === 'inbound') {
-        this.dailyInteractions[index].inboundCount += 1;
-    } else if (type === 'outbound') {
-        this.dailyInteractions[index].outboundCount += 1;
-    }
-    
-    // Aggiorna anche il contatore totale per retrocompatibilità
-    this.dailyInteractions[index].count += 1;
-    
-    return this.dailyInteractions[index];
 };
 
 module.exports = mongoose.model('WhatsappInteraction', whatsappInteractionSchema); 
