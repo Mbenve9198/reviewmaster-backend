@@ -86,6 +86,16 @@ const whatsappInteractionSchema = new mongoose.Schema({
         count: {
             type: Number,
             default: 1
+        },
+        // Flag per tracciare se abbiamo già inviato una notifica di limite
+        limitNotificationSent: {
+            type: Boolean,
+            default: false
+        },
+        // Timestamp dell'ultimo invio della notifica di limite
+        lastLimitNotification: {
+            type: Date,
+            default: null
         }
     }],
     monthlyInteractions: {
@@ -268,6 +278,75 @@ whatsappInteractionSchema.methods.incrementDailyCounter = function(type) {
         }
         
         return fallbackCounter;
+    }
+};
+
+// Metodo per verificare se abbiamo già inviato una notifica di limite oggi
+whatsappInteractionSchema.methods.hasLimitNotificationSentToday = function() {
+    try {
+        if (!this.dailyInteractions || !Array.isArray(this.dailyInteractions)) {
+            return false;
+        }
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        // Cerca l'interazione di oggi
+        for (let i = 0; i < this.dailyInteractions.length; i++) {
+            const interaction = this.dailyInteractions[i];
+            if (interaction && interaction.date) {
+                const interactionDate = new Date(interaction.date);
+                interactionDate.setHours(0, 0, 0, 0);
+                
+                if (interactionDate.getTime() === today.getTime()) {
+                    return !!interaction.limitNotificationSent;
+                }
+            }
+        }
+        
+        return false;
+    } catch (error) {
+        console.error('Error in hasLimitNotificationSentToday:', error);
+        return false;
+    }
+};
+
+// Metodo per marcare che è stata inviata una notifica di limite
+whatsappInteractionSchema.methods.markLimitNotificationSent = function() {
+    try {
+        if (!this.dailyInteractions || !Array.isArray(this.dailyInteractions)) {
+            return false;
+        }
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        let todayInteractionIndex = -1;
+        
+        // Cerca l'interazione di oggi
+        for (let i = 0; i < this.dailyInteractions.length; i++) {
+            const interaction = this.dailyInteractions[i];
+            if (interaction && interaction.date) {
+                const interactionDate = new Date(interaction.date);
+                interactionDate.setHours(0, 0, 0, 0);
+                
+                if (interactionDate.getTime() === today.getTime()) {
+                    todayInteractionIndex = i;
+                    break;
+                }
+            }
+        }
+        
+        if (todayInteractionIndex >= 0) {
+            this.dailyInteractions[todayInteractionIndex].limitNotificationSent = true;
+            this.dailyInteractions[todayInteractionIndex].lastLimitNotification = new Date();
+            return true;
+        }
+        
+        return false;
+    } catch (error) {
+        console.error('Error in markLimitNotificationSent:', error);
+        return false;
     }
 };
 

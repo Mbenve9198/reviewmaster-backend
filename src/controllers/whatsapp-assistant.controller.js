@@ -619,24 +619,37 @@ const whatsappAssistantController = {
                 if (hasReachedInboundLimit) {
                     console.log('LIMITE MESSAGGI RAGGIUNTO per cliente:', message.ProfileName || 'Ospite');
                     
-                    // Prepara il messaggio multilingua di limite raggiunto
-                    const limitMessage = {
-                        it: `Spiacenti, hai raggiunto il limite giornaliero di ${inboundLimit} messaggi. Potrai inviare altri messaggi domani.`,
-                        en: `Sorry, you have reached the daily limit of ${inboundLimit} messages. You can send more messages tomorrow.`,
-                        fr: `Désolé, vous avez atteint la limite quotidienne de ${inboundLimit} messages. Vous pourrez envoyer d'autres messages demain.`,
-                        de: `Entschuldigung, Sie haben das tägliche Limit von ${inboundLimit} Nachrichten erreicht. Sie können morgen weitere Nachrichten senden.`,
-                        es: `Lo sentimos, has alcanzado el límite diario de ${inboundLimit} mensajes. Podrás enviar más mensajes mañana.`
-                    };
+                    // Verifica se abbiamo già inviato una notifica oggi usando il nuovo metodo
+                    const limitNotificationAlreadySent = interaction.hasLimitNotificationSentToday();
                     
-                    const userLanguage = getLanguageFromPhone(message.From);
-                    
-                    // Non consumare crediti per questo messaggio di risposta
-                    await twilioClient.messages.create({
-                        body: limitMessage[userLanguage] || limitMessage.en,
-                        from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
-                        to: message.From,
-                        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
-                    });
+                    if (limitNotificationAlreadySent) {
+                        console.log('Notifica di limite già inviata oggi, nessun messaggio verrà inviato.');
+                    } else {
+                        console.log('Invio notifica di limite raggiunto...');
+                        
+                        // Prepara il messaggio multilingua di limite raggiunto
+                        const limitMessage = {
+                            it: `Spiacenti, hai raggiunto il limite giornaliero di ${inboundLimit} messaggi. Potrai inviare altri messaggi domani.`,
+                            en: `Sorry, you have reached the daily limit of ${inboundLimit} messages. You can send more messages tomorrow.`,
+                            fr: `Désolé, vous avez atteint la limite quotidienne de ${inboundLimit} messages. Vous pourrez envoyer d'autres messages demain.`,
+                            de: `Entschuldigung, Sie haben das tägliche Limit von ${inboundLimit} Nachrichten erreicht. Sie können morgen weitere Nachrichten senden.`,
+                            es: `Lo sentimos, has alcanzado el límite diario de ${inboundLimit} mensajes. Podrás enviar más mensajes mañana.`
+                        };
+                        
+                        const userLanguage = getLanguageFromPhone(message.From);
+                        
+                        // Non consumare crediti per questo messaggio di risposta
+                        await twilioClient.messages.create({
+                            body: limitMessage[userLanguage] || limitMessage.en,
+                            from: `whatsapp:${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}`,
+                            to: message.From,
+                            messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID
+                        });
+                        
+                        // Segna che abbiamo inviato la notifica usando il nuovo metodo
+                        interaction.markLimitNotificationSent();
+                        console.log('Notifica di limite inviata e registrata.');
+                    }
                     
                     // Salva l'interazione con il conteggio aggiornato
                     await interaction.save();
